@@ -1,0 +1,17 @@
+[package]
+name = "animator-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Heavy async jobs (audio decode, lipsync, export encoding) will be exposed as
+# Tauri commands here (IMP-DEC-002), calling into animator-core.
+[dependencies.animator-core]
+path = "../../core"

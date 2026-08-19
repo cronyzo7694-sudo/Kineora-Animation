@@ -7,11 +7,14 @@
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | 6 vitest tests |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
-| **WASM bridge (core ↔ UI)** | MOD-INPUT/BRIDGE | **IMPLEMENTING (this commit)** | core/src/wasm.rs + ui/src/engine/client.ts |
+| **WASM bridge (core ↔ UI)** | MOD-INPUT/BRIDGE | **READY (path fixed)** | core/src/wasm.rs + ui/src/engine/client.ts; canonical `public/wasm/kineora_core.js` + regression test |
 | CI (GitHub Actions) | MOD-TEST | **READY (file) / BLOCKED (push: token needs `workflow` scope)** | .github/workflows/ci.yml |
 | Canvas/WebGL renderer consuming RectItem | MOD-RENDER | NOT STARTED | next unit |
 | Pointer→tool gestures → commands | MOD-INPUT | NOT STARTED | |
 | Drawing/shapes/symbols/tweens/rig/IK/audio/lipsync | (later slices) | NOT STARTED | Phase-3 build order P3–P6 |
+
+## Bug fixes (recent)
+- **BUG: WASM runtime attach failure** — root cause: loader path (`src/wasm/pkg/kineora_core.js`) ≠ actual generated output (`src/wasm/animator_core.js`). Fix: ONE canonical location `public/wasm/` + name `kineora_core`; loader imports exactly `/wasm/kineora_core.js`; regression test `wasmLoader.test.ts` asserts script↔loader consistency. Verified: `npm test` 8/8, `npm run build` pass, dev-server serves `/wasm/kineora_core.js` (HTTP 200).
 
 ## Blockers
 - **CI workflow push**: the PAT lacks `workflow` scope → `.github/workflows/ci.yml` is ready in the workspace but cannot be pushed by this token. Fix: (a) send a new PAT with `repo` + `workflow` scope, or (b) on your PC copy `.github/workflows/ci.yml` into the repo and `git push` (your git credentials allow workflow files).

@@ -13,6 +13,9 @@ dist/
 *.tmp
 *.tsbuildinfo
 
+# generated WASM package (rebuilt by `npm run wasm`)
+animator/ui/public/wasm/
+
 # OS
 .DS_Store
 Thumbs.db

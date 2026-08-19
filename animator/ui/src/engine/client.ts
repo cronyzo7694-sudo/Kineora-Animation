@@ -1,16 +1,22 @@
 // Engine client — the UI's ONLY doorway to the Rust core (IMP-DEC-002).
 //
-// The core is compiled to WASM (animator-core/src/wasm.rs) and bundled into
-// `src/wasm/pkg/kineora_core.js` by `npm run wasm`. This client dynamically
-// imports that bundle. Until the bundle is built, it reports an honest
-// "not attached" state — never a fake control (Phase-2.5 §2, no-fake-features).
+// The Rust core is compiled to WASM by `npm run wasm`, which outputs:
+//     public/wasm/kineora_core.js  (+ kineora_core_bg.wasm, *.d.ts)
+// `public/` is served at the site root, so the canonical module URL is
+// `/wasm/kineora_core.js` in BOTH Vite dev and production builds.
+//
+// If the bundle hasn't been built, the loader reports an honest
+// "not attached" state — never a fake control (no-fake-features rule).
 
 import type { EngineStatus } from '../controlRegistry'
 import type { KineoraWasm, RectItemJson, StatusJson } from './wasmTypes'
 
+/** Canonical location of the generated WASM package (must match package.json `wasm` script). */
+export const WASM_PKG_URL = '/wasm/kineora_core.js'
+
 let status: EngineStatus = {
   kind: 'error',
-  detail: 'WASM core not built — run `npm run wasm` (needs wasm-pack) then reload.',
+  detail: 'WASM core not built — run `npm run wasm`, then reload.',
 }
 
 let mod: KineoraWasm | null = null
@@ -24,23 +30,25 @@ export function getEngine(): KineoraWasm | null {
 }
 
 /// Attempt to load the generated WASM bundle. Idempotent; safe to call from a
-/// React effect. On failure, keeps the honest error status.
+/// React effect. On failure, keeps an honest error status that names the exact
+/// path tried and the command to build it.
 export async function loadEngine(): Promise<EngineStatus> {
   if (mod) return status
   try {
-    // Variable (not literal) so Vite skips static import analysis; the browser /
-    // test runner resolves it at runtime and we catch a missing bundle here.
-    const wasmModulePath = '../../wasm/pkg/kineora_core.js'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const imported: any = await import(/* @vite-ignore */ wasmModulePath)
+    // Variable (not a literal) so Vite leaves this as a runtime import and
+    // does not fail the build when the generated package is absent.
+    const url = WASM_PKG_URL
+    const imported = (await import(/* @vite-ignore */ url)) as unknown as KineoraWasm & {
+      default?: () => Promise<unknown>
+    }
     await imported.default?.()
-    mod = imported as KineoraWasm
+    mod = imported
     status = { kind: 'ok', detail: 'WASM core attached (animator-core)' }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err)
     status = {
       kind: 'error',
-      detail: `WASM core not attached: ${why}. Build it with \`npm run wasm\`.`,
+      detail: `WASM core not attached (tried ${WASM_PKG_URL}): ${why}. Build it with \`npm run wasm\`.`,
     }
   }
   return status

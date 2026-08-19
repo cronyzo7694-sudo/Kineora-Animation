@@ -21,8 +21,8 @@ cd core && cargo test
 
 # build core → wasm, then UI
 cd ui
-npm run wasm           # wasm-pack → src/wasm/pkg/kineora_core.js
-npm ci && npm test     # 6 UI tests (dead-button registry + shell)
+npm run wasm           # wasm-pack → public/wasm/kineora_core.js (+ kineora_core_bg.wasm, *.d.ts)
+npm ci && npm test     # 7 UI tests (dead-button registry + shell + wasm-path regression)
 npm run dev            # http://localhost:5173
 
 # everything at once (test)
@@ -36,7 +36,7 @@ cd desktop/src-tauri && cargo tauri dev
 ```
 
 ## Engine ↔ UI contract (WASM bridge)
-The UI talks to the core **only** through `ui/src/engine/client.ts`, which dynamically imports the generated `kineora_core.js`. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status`. All values cross as JSON. If the bundle isn't built, the UI reports an honest "not attached" state — never a fake control.
+The UI talks to the core **only** through `ui/src/engine/client.ts`, which dynamically imports the generated package at the **canonical URL `/wasm/kineora_core.js`** (built by `npm run wasm` into `public/wasm/`, served by Vite in dev and copied to `dist/` in production). Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status`. All values cross as JSON. If the bundle isn't built, the UI reports an honest "not attached" state naming the exact path tried — never a fake control. A regression test (`wasmLoader.test.ts`) asserts the loader URL matches the `wasm` build script, so the path/naming can never silently drift.
 
 ## CI (GitHub Actions)
 Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo build --target wasm32-unknown-unknown` (verifies the wasm facade), `npm ci && npm test && npm run build`. Check the Actions tab.

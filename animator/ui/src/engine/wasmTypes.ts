@@ -39,4 +39,8 @@ export interface KineoraWasm {
   kineora_save(path: string): boolean
   kineora_load(path: string): boolean
   kineora_status(): string
+  kineora_project_json?(): string
+  kineora_load_json?(json: string): boolean
+  /** wasm-bindgen --target web default init (accepts explicit wasm input). */
+  default?: (input?: ArrayBuffer | Response | string | URL) => Promise<unknown>
 }

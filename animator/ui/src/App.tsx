@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
-import { getEngineStatus, loadEngine } from './engine/client'
+import { getEngineStatus, loadEngine, statusJson } from './engine/client'
+import { stopPlayback } from './engine/actions'
 import { Toolbar } from './components/Toolbar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -12,7 +13,9 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
+  const [, setTick] = useState(0)
 
+  // attach the WASM core once
   useEffect(() => {
     let alive = true
     loadEngine().then((s) => {
@@ -23,6 +26,15 @@ export default function App() {
     }
   }, [])
 
+  // light status poll so the playhead / engine event log stay live
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 300)
+    return () => {
+      window.clearInterval(id)
+      stopPlayback()
+    }
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])
@@ -30,6 +42,7 @@ export default function App() {
 
   const ctx: AppContext = { engine, notify, setTool }
   const registryErrors = useMemo(() => validateRegistry(controls), [])
+  const status = statusJson()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
@@ -39,10 +52,10 @@ export default function App() {
       <Toolbar controls={controls.filter((c) => c.visibility !== 'HIDDEN-WHEN-UNAVAILABLE')} ctx={ctx} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <Stage engine={engine} tool={tool} />
-        <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} />
+        <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
       </div>
-      <TimelineStrip ctx={ctx} />
-      <StatusBar engine={engine} tool={tool} toast={toast} />
+      <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} />
+      <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
     </div>
   )
 }

@@ -14,6 +14,7 @@
 | Drawing/shapes/symbols/tweens/rig/IK/audio/lipsync | (later slices) | NOT STARTED | Phase-3 build order P3–P6 |
 
 ## Bug fixes (recent)
+- **BUG-3: Vite public/ import error** — root cause: loader did `import('/wasm/kineora_core.js')`, but Vite forbids importing `public/` files as source modules. Fix: loader now fetches the glue as TEXT → evaluates via Blob URL (browser-native import) → fetches `.wasm` EXPLICITLY and passes it to the wasm-bindgen default init (never relies on `import.meta.url`). Single mechanism for dev + build + Tauri. Controls wired to real engine (undo/redo/keyframe/play/save/export). Verified: `npm test` 10/10, `npm run build` pass, Node runtime proof of text→eval→init→attached, public→dist copy confirmed.
 - **BUG-2: WASM output directory wrong** — root cause: `wasm-pack --out-dir` is resolved RELATIVE TO THE CRATE DIR, so `--out-dir public/wasm` wrote `core/public/wasm` instead of `ui/public/wasm`. Fix: `scripts/build-wasm.sh` computes an ABSOLUTE canonical out-dir (`animator/ui/public/wasm`) from its own location (cwd-independent); `npm run wasm` delegates to it; stale `core/public` auto-removed; `scripts/verify-wasm-path.sh` regression proves the canonical dir with a fake wasm-pack. Verified: verify script PASS, `npm test` 9/9, `npm run build` pass.
 - **BUG-1: WASM runtime attach failure** — root cause: loader path ≠ generated output name. Fix: canonical URL `/wasm/kineora_core.js` + regression test.
 

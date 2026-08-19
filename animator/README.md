@@ -29,7 +29,7 @@ cd ../core && cargo test
 # build core → wasm, then UI
 cd ../ui
 npm run wasm           # scripts/build-wasm.sh → ui/public/wasm/kineora_core.js (ABSOLUTE path)
-npm test               # 9 UI tests (dead-button registry + shell + wasm-path regression)
+npm test               # UI tests (dead-button registry + shell + wasm loader/path regression)
 npm run build          # tsc + vite (type-check gate)
 npm run dev            # http://localhost:5173
 
@@ -47,7 +47,7 @@ cd ../desktop/src-tauri && cargo tauri dev
 ```
 
 ## Engine ↔ UI contract (WASM bridge)
-The UI talks to the core **only** through `ui/src/engine/client.ts`, which dynamically imports the generated package at the **canonical URL `/wasm/kineora_core.js`**. That package is built by `scripts/build-wasm.sh` (invoked via `npm run wasm`) into the **absolute canonical directory `animator/ui/public/wasm/`** — the script computes paths from its own location, so it is cwd-independent. `public/` is served at the site root by Vite in dev and copied to `dist/` in production. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status`. All values cross as JSON. If the bundle isn't built, the UI reports an honest "not attached" state naming the exact path tried — never a fake control. Two regressions guard the contract: `wasmLoader.test.ts` (npm script ↔ loader URL) and `scripts/verify-wasm-path.sh` (proves the generator writes to the canonical dir, using a fake wasm-pack).
+The UI talks to the core **only** through `ui/src/engine/client.ts`. The generated package (canonical `ui/public/wasm/`, built by `scripts/build-wasm.sh` via `npm run wasm`) is a **static public asset**, so Vite cannot `import()` it as a source module. The loader therefore uses a browser-native mechanism: **fetch the glue as text → evaluate via a Blob URL → fetch the `.wasm` explicitly and pass it to the wasm-bindgen default init** (never relying on `import.meta.url`). Works identically in Vite dev, Vite build, and Tauri. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status / project_json / load_json`. All values cross as JSON. If the package isn't built, the UI reports an honest "not attached" state naming the exact URL + build command — never a fake control. Regressions: `wasmLoader.test.ts` (path contract + full loader flow with injected fakes) and `scripts/verify-wasm-path.sh` (canonical output dir via a fake wasm-pack).
 
 ## CI (GitHub Actions)
 Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo build --target wasm32-unknown-unknown` (verifies the wasm facade), `npm ci && npm test && npm run build`. Check the Actions tab.

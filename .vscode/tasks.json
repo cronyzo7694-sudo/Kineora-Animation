@@ -12,7 +12,7 @@
     {
       "label": "core: wasm build",
       "type": "shell",
-      "command": "wasm-pack build ../core --target web --out-dir src/wasm/pkg --out-name kineora_core",
+      "command": "bash ../../scripts/build-wasm.sh",
       "options": { "cwd": "${workspaceFolder}/animator/ui" },
       "group": "build",
       "problemMatcher": []

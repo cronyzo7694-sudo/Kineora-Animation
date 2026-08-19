@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::command::History;
+use crate::model::Document;
 use crate::{Session, Settings};
 
 thread_local! {
@@ -116,6 +118,35 @@ pub fn kineora_load(path: String) -> bool {
     match Session::load(std::path::Path::new(&path)) {
         Ok(session) => {
             SESSION.with(|s| *s.borrow_mut() = Some(session));
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Serialize the whole document to JSON (browser-friendly Save).
+#[wasm_bindgen]
+pub fn kineora_project_json() -> String {
+    with_session(|s| serde_json::to_string(&s.doc).unwrap_or_else(|_| "{}".into()))
+        .unwrap_or_else(|_| "{}".into())
+}
+
+/// Replace the document from a JSON string (browser-friendly Load).
+#[wasm_bindgen]
+pub fn kineora_load_json(json: String) -> bool {
+    match serde_json::from_str::<Document>(&json) {
+        Ok(doc) => {
+            SESSION.with(|s| {
+                *s.borrow_mut() = Some(Session {
+                    doc,
+                    history: History::new(),
+                    selection: Vec::new(),
+                    playhead: 1,
+                    active_scene: 0,
+                    active_layer: 0,
+                    event_log: vec!["session:loaded(json)".into()],
+                })
+            });
             true
         }
         Err(_) => false,

@@ -1,0 +1,21 @@
+# toolchains & system junk (home-dir artifacts)
+.cargo/
+.rustup/
+.npm/
+.profile
+.cache/
+.git-credentials
+
+# deps & build artifacts
+node_modules/
+target/
+dist/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/

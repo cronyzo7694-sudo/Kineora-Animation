@@ -1,0 +1,13 @@
+# deps & build artifacts
+node_modules/
+target/
+dist/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/

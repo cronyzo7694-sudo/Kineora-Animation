@@ -1,4 +1,4 @@
-# Animator — original 2D animation editor (offline-first, Linux-first)
+# Kineora Animation — original 2D animation editor (offline-first, Linux-first)
 
 Phase 4 implementation. Source of truth: `../animate-blueprint/` (Phase 1), `../phase2-knowledge-base/` (Phase 2), `../phase2.5-ui/` (Phase 2.5), `../engineering/` (Phase 3).
 

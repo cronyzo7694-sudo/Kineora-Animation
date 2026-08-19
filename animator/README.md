@@ -13,23 +13,31 @@ docs/      BUGS.md · TEST_REPORT.md templates
 ```
 
 ## Local development (Linux PC — authoritative runtime)
-Prereqs: Rust (rustup), Node ≥18, wasm-pack (`cargo install wasm-pack`), (desktop) `libwebkit2gtk-4.1-dev libgtk-3-dev`.
+Prereqs: Rust (rustup), Node ≥18, **wasm-pack** (one-time), (desktop) `libwebkit2gtk-4.1-dev libgtk-3-dev`.
 
 ```bash
+# one-time: install wasm-pack (either works)
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+#   — or —   cargo install wasm-pack
+
+# after every `git pull`, refresh deps before build/test
+cd ui && npm ci
+
 # engine tests (native)
-cd core && cargo test
+cd ../core && cargo test
 
 # build core → wasm, then UI
-cd ui
+cd ../ui
 npm run wasm           # wasm-pack → public/wasm/kineora_core.js (+ kineora_core_bg.wasm, *.d.ts)
-npm ci && npm test     # 7 UI tests (dead-button registry + shell + wasm-path regression)
+npm test               # 8 UI tests (dead-button registry + shell + wasm-path regression)
+npm run build          # tsc + vite (type-check gate)
 npm run dev            # http://localhost:5173
 
 # everything at once (test)
 ../scripts/test.sh
 
 # desktop (needs webkit deps)
-cd desktop/src-tauri && cargo tauri dev
+cd ../desktop/src-tauri && cargo tauri dev
 
 # commit + push (your own git identity)
 ../scripts/push.sh

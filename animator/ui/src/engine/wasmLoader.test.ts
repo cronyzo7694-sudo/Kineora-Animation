@@ -1,24 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import pkg from '../../package.json'
 import { WASM_PKG_URL, getEngineStatus, loadEngine } from './client'
-
-const here = dirname(fileURLToPath(import.meta.url))
-
-function readPackageJson(): { scripts: Record<string, string> } {
-  return JSON.parse(readFileSync(resolve(here, '../../package.json'), 'utf8'))
-}
 
 /**
  * Regression test for the WASM path/naming bug:
  * the loader's canonical URL MUST match what `npm run wasm` generates.
- * This is a source-level check, so it runs without the WASM package present.
+ *
+ * Uses a JSON import (no Node builtins) so it compiles with a bare
+ * TypeScript setup — no @types/node dependency — and runs in vitest.
  */
 describe('WASM loader path consistency (regression)', () => {
   it('loader URL is exactly the canonical module the wasm script generates', () => {
-    const { scripts } = readPackageJson()
-    const cmd = scripts.wasm
+    const cmd: string = (pkg as { scripts: Record<string, string> }).scripts.wasm
     expect(cmd, 'wasm script must exist').toBeTruthy()
     // canonical output dir + name
     expect(cmd).toMatch(/--out-dir public\/wasm/)

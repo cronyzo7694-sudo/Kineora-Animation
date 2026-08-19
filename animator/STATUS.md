@@ -14,7 +14,8 @@
 | Drawing/shapes/symbols/tweens/rig/IK/audio/lipsync | (later slices) | NOT STARTED | Phase-3 build order P3–P6 |
 
 ## Bug fixes (recent)
-- **BUG: WASM runtime attach failure** — root cause: loader path (`src/wasm/pkg/kineora_core.js`) ≠ actual generated output (`src/wasm/animator_core.js`). Fix: ONE canonical location `public/wasm/` + name `kineora_core`; loader imports exactly `/wasm/kineora_core.js`; regression test `wasmLoader.test.ts` asserts script↔loader consistency. Verified: `npm test` 8/8, `npm run build` pass, dev-server serves `/wasm/kineora_core.js` (HTTP 200).
+- **BUG-2: WASM output directory wrong** — root cause: `wasm-pack --out-dir` is resolved RELATIVE TO THE CRATE DIR, so `--out-dir public/wasm` wrote `core/public/wasm` instead of `ui/public/wasm`. Fix: `scripts/build-wasm.sh` computes an ABSOLUTE canonical out-dir (`animator/ui/public/wasm`) from its own location (cwd-independent); `npm run wasm` delegates to it; stale `core/public` auto-removed; `scripts/verify-wasm-path.sh` regression proves the canonical dir with a fake wasm-pack. Verified: verify script PASS, `npm test` 9/9, `npm run build` pass.
+- **BUG-1: WASM runtime attach failure** — root cause: loader path ≠ generated output name. Fix: canonical URL `/wasm/kineora_core.js` + regression test.
 
 ## Blockers
 - **CI workflow push**: the PAT lacks `workflow` scope → `.github/workflows/ci.yml` is ready in the workspace but cannot be pushed by this token. Fix: (a) send a new PAT with `repo` + `workflow` scope, or (b) on your PC copy `.github/workflows/ci.yml` into the repo and `git push` (your git credentials allow workflow files).

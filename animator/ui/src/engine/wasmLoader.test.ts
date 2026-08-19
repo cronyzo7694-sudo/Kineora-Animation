@@ -3,20 +3,35 @@ import pkg from '../../package.json'
 import { WASM_PKG_URL, getEngineStatus, loadEngine } from './client'
 
 /**
- * Regression test for the WASM path/naming bug:
- * the loader's canonical URL MUST match what `npm run wasm` generates.
+ * Regression tests for the WASM output-directory bugs.
  *
- * Uses a JSON import (no Node builtins) so it compiles with a bare
- * TypeScript setup — no @types/node dependency — and runs in vitest.
+ * BUG-1 (fixed): `wasm-pack --out-dir` is resolved RELATIVE TO THE CRATE DIR,
+ * so a bare `--out-dir public/wasm` wrote into `core/public/wasm` instead of
+ * `ui/public/wasm`. The npm script now delegates to `scripts/build-wasm.sh`,
+ * which computes an ABSOLUTE canonical path — so the npm script must NOT
+ * contain any inline `--out-dir`.
+ *
+ * BUG-2 (fixed): the loader imported a path that never matched the generated
+ * package. Loader and generator must share ONE canonical contract.
+ *
+ * These tests use a JSON import (no Node builtins), so they run on a bare
+ * `npm ci` setup with no @types/node.
  */
-describe('WASM loader path consistency (regression)', () => {
-  it('loader URL is exactly the canonical module the wasm script generates', () => {
-    const cmd: string = (pkg as { scripts: Record<string, string> }).scripts.wasm
+describe('WASM output path consistency (regression)', () => {
+  const scripts: Record<string, string> = (pkg as { scripts: Record<string, string> }).scripts
+
+  it('wasm script delegates to the absolute-path build script (no inline --out-dir)', () => {
+    const cmd = scripts.wasm
     expect(cmd, 'wasm script must exist').toBeTruthy()
-    // canonical output dir + name
-    expect(cmd).toMatch(/--out-dir public\/wasm/)
-    expect(cmd).toMatch(/--out-name kineora_core/)
-    // public/ is served at root → module URL is /wasm/<out-name>.js
+    // The only safe shape: delegate to build-wasm.sh (cwd-independent).
+    expect(cmd.trim()).toBe('bash ../../scripts/build-wasm.sh')
+    // A bare relative --out-dir is the original bug — must not reappear.
+    expect(cmd).not.toMatch(/--out-dir/)
+    expect(cmd).not.toMatch(/--out-name/)
+  })
+
+  it('loader URL is exactly the canonical module the generator emits', () => {
+    // build-wasm.sh emits `public/wasm/kineora_core.js`, served at site root.
     expect(WASM_PKG_URL).toBe('/wasm/kineora_core.js')
   })
 

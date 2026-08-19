@@ -15,6 +15,9 @@ dist/
 
 # generated WASM package (rebuilt by `npm run wasm`)
 animator/ui/public/wasm/
+# legacy/stale wasm output location (BUG: wasm-pack resolved --out-dir
+# relative to the crate dir; build-wasm.sh removes + we never commit it)
+animator/core/public/
 
 # OS
 .DS_Store

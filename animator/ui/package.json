@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "wasm": "bash ../../scripts/ensure-wasm-pack.sh && wasm-pack build ../core --target web --out-dir public/wasm --out-name kineora_core"
+    "wasm": "bash ../../scripts/build-wasm.sh"
   },
   "dependencies": {
     "react": "^18.3.1",

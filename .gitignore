@@ -11,11 +11,11 @@ node_modules/
 target/
 dist/
 *.tmp
+*.tsbuildinfo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# editor
+# editor (keep .vscode config committed — protocol §23)
 .idea/
-.vscode/

@@ -12,6 +12,8 @@ pub mod command;
 pub mod session;
 pub mod persist;
 pub mod export;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 pub use id::{NodeId, LayerId, SceneId};
 pub use model::{Document, Settings, Transform, Node, Frame, Layer, Scene};

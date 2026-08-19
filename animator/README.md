@@ -2,42 +2,50 @@
 
 Phase 4 implementation. Source of truth: `../animate-blueprint/` (Phase 1), `../phase2-knowledge-base/` (Phase 2), `../phase2.5-ui/` (Phase 2.5), `../engineering/` (Phase 3).
 
-## Structure
+## Architecture
 ```
-core/      Rust engine (document model, evaluate, commands/undo, sparse timeline, SVG export)
-ui/        React+TS shell (toolbar, stage, timeline strip, status bar, dev panel)
-desktop/   Tauri v2 shell config (Linux-first; needs webkit2gtk to run)
+core/      Rust engine  → WASM (cdylib) + native CLI
+ui/        React+TS shell → dynamic-loads the WASM core (engine/client.ts)
+desktop/   Tauri v2 shell (Linux-first; needs webkit2gtk)
+scripts/   dev.sh · test.sh · push.sh (user-PC helpers)
+.github/   CI (rust: fmt+clippy+test+wasm ; node: test+build)
+docs/      BUGS.md · TEST_REPORT.md templates
 ```
 
-## Pipeline
+## Local development (Linux PC — authoritative runtime)
+Prereqs: Rust (rustup), Node ≥18, wasm-pack (`cargo install wasm-pack`), (desktop) `libwebkit2gtk-4.1-dev libgtk-3-dev`.
+
 ```bash
-# engine (Rust) — runs anywhere with Rust
-cd core && cargo test          # 10 acceptance tests
-cargo run                      # headless vertical-slice demo → /tmp/out.svg + /tmp/out.json
+# engine tests (native)
+cd core && cargo test
 
-# UI (Node ≥ 18)
-cd ui && npm install && npm test   # 6 tests (dead-button/registry/shell)
-npm run dev                    # dev server → http://localhost:5173
+# build core → wasm, then UI
+cd ui
+npm run wasm           # wasm-pack → src/wasm/pkg/kineora_core.js
+npm ci && npm test     # 6 UI tests (dead-button registry + shell)
+npm run dev            # http://localhost:5173
 
-# desktop (user's Linux desktop; needs webkit2gtk)
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev
+# everything at once (test)
+../scripts/test.sh
+
+# desktop (needs webkit deps)
 cd desktop/src-tauri && cargo tauri dev
+
+# commit + push (your own git identity)
+../scripts/push.sh
 ```
 
-## Vertical slice 1 — what works (tested)
-Create document → draw rect → select → move → keyframe@N → linear position interpolation → undo/redo → save/load (atomic JSON) → SVG export (no overlay leakage) → event log.
+## Engine ↔ UI contract (WASM bridge)
+The UI talks to the core **only** through `ui/src/engine/client.ts`, which dynamically imports the generated `kineora_core.js`. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status`. All values cross as JSON. If the bundle isn't built, the UI reports an honest "not attached" state — never a fake control.
 
-## Status model
-`NOT STARTED → DESIGNING → IMPLEMENTING → TESTING → BLOCKED → READY → COMPLETE → REGRESSION` — see `STATUS.md`.
+## CI (GitHub Actions)
+Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo build --target wasm32-unknown-unknown` (verifies the wasm facade), `npm ci && npm test && npm run build`. Check the Actions tab.
 
-## Immediate next units (documented, not skipped)
-1. **WASM bridge** (wasm-bindgen): core → `ui/src/engine/client.ts` live wiring (IMP-DEC-002).
-2. Canvas/WebGL renderer consuming `RectItem` list.
-3. Pointer input → tool gestures → commands.
+## Manual test checklist (vertical slice 1)
+1. `cd core && cargo test` → 10 acceptance tests green.
+2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).
+3. `cd ui && npm run wasm && npm ci && npm run dev` → Dev Panel shows `engine: attached`; toolbar Undo/Redo/Save/Export/Keyframe bound to real engine calls.
+4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
-## Manual test checklist (vertical slice)
-1. `cargo run` → prints create/draw/move/keyframe/interp/undo/redo/export/save-load steps.
-2. Verify `[5]` interpolated x ≈ 216.67 (linear between frame 1 and 10).
-3. Verify `/tmp/out.svg` has exactly background + one content rect (no selection overlay).
-4. Verify `[9]` save→load round-trip prints nodes=1, scenes=1.
-5. `npm test` → 0 dead buttons, engine state honest ("not attached"), undo click reports blocker.
+## Status
+See `STATUS.md`. Current unit: **WASM bridge** (this commit).

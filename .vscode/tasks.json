@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "core: test",
+      "type": "shell",
+      "command": "cargo test",
+      "options": { "cwd": "${workspaceFolder}/animator/core" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "core: wasm build",
+      "type": "shell",
+      "command": "wasm-pack build ../core --target web --out-dir src/wasm/pkg --out-name kineora_core",
+      "options": { "cwd": "${workspaceFolder}/animator/ui" },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "ui: test",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}/animator/ui" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "ui: dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/animator/ui" },
+      "group": "build",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

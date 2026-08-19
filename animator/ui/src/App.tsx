@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
-import { controls, validateRegistry, type AppContext } from './controlRegistry'
-import { getEngineStatus } from './engine/client'
+import { useEffect, useMemo, useState } from 'react'
+import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
+import { getEngineStatus, loadEngine } from './engine/client'
 import { Toolbar } from './components/Toolbar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -11,7 +11,17 @@ export default function App() {
   const [tool, setTool] = useState('select')
   const [toast, setToast] = useState('')
   const [toasts, setToasts] = useState<string[]>([])
-  const engine = useMemo(() => getEngineStatus(), [])
+  const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
+
+  useEffect(() => {
+    let alive = true
+    loadEngine().then((s) => {
+      if (alive) setEngine({ ...s })
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const notify = (msg: string) => {
     setToast(msg)

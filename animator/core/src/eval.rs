@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::id::NodeId;
 use crate::model::{Document, Frame, Layer, Node, Transform};
 
 /// A single draw command for the renderer (fill/stroke rect in slice 1).
 /// This is the export-side of the render tree — authoring overlays (selection
 /// box, handles, guides) are NEVER produced here (REQ-EXP-002).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectItem {
     pub x: f64,
     pub y: f64,

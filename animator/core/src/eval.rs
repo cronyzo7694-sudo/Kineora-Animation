@@ -10,6 +10,7 @@ use crate::model::{Document, Frame, Layer, Node, Transform};
 /// box, handles, guides) are NEVER produced here (REQ-EXP-002).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectItem {
+    pub id: u64,
     pub x: f64,
     pub y: f64,
     pub w: f64,
@@ -23,15 +24,24 @@ pub struct RectItem {
 fn effective_at(entry: Option<(&u32, &Frame)>, doc: &Document, id: NodeId) -> Option<Transform> {
     let (_, fr) = entry?;
     match fr {
-        Frame::Keyframe { content, transforms } if content.contains(&id) => {
-            Some(transforms.get(&id).cloned().unwrap_or_else(|| base_transform(doc, id)))
-        }
+        Frame::Keyframe {
+            content,
+            transforms,
+        } if content.contains(&id) => Some(
+            transforms
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| base_transform(doc, id)),
+        ),
         _ => None,
     }
 }
 
 fn base_transform(doc: &Document, id: NodeId) -> Transform {
-    doc.nodes.get(&id).map(|n| n.transform().clone()).unwrap_or_default()
+    doc.nodes
+        .get(&id)
+        .map(|n| n.transform().clone())
+        .unwrap_or_default()
 }
 
 /// Node → transform at `frame`: linearly interpolates x/y between the previous
@@ -78,7 +88,9 @@ fn node_states_at(doc: &Document, layer: &Layer, frame: u32) -> BTreeMap<NodeId,
 /// Bottom→top layers; back→front nodes (content order). Deterministic.
 pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
     let mut out = Vec::new();
-    let Some(scene_) = doc.scene(scene) else { return out };
+    let Some(scene_) = doc.scene(scene) else {
+        return out;
+    };
     for layer in &scene_.layers {
         if !layer.visible {
             continue;
@@ -89,8 +101,17 @@ pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
         for id in order {
             let Some(t) = states.get(&id) else { continue };
             match doc.nodes.get(&id) {
-                Some(Node::Rect { width, height, fill, stroke, stroke_width, .. }) => {
+                Some(Node::Rect {
+                    id,
+                    width,
+                    height,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }) => {
                     out.push(RectItem {
+                        id: id.0,
                         x: t.x,
                         y: t.y,
                         w: width * t.scale_x,

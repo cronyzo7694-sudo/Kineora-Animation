@@ -21,27 +21,47 @@ thread_local! {
 fn with_session<T>(f: impl FnOnce(&mut Session) -> T) -> Result<T, JsValue> {
     SESSION.with(|s| {
         let mut b = s.borrow_mut();
-        let session = b.as_mut().ok_or_else(|| JsValue::from_str("session not initialized — call kineora_new first"))?;
+        let session = b
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("session not initialized — call kineora_new first"))?;
         Ok(f(session))
     })
+}
+
+#[derive(Serialize)]
+struct SelRect {
+    id: u64,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
 }
 
 #[derive(Serialize)]
 struct StatusOut {
     playhead: u32,
     selection: Vec<u64>,
+    selection_rects: Vec<SelRect>,
     undo_len: usize,
     redo_len: usize,
     scene: String,
     layer: String,
     fps: u32,
+    doc_width: f64,
+    doc_height: f64,
+    background: String,
     event_log: Vec<String>,
 }
 
 /// Create a fresh document.
 #[wasm_bindgen]
 pub fn kineora_new(width: f64, height: f64, fps: u32, background: String) -> bool {
-    let settings = Settings { width, height, fps, background };
+    let settings = Settings {
+        width,
+        height,
+        fps,
+        background,
+    };
     SESSION.with(|s| *s.borrow_mut() = Some(Session::new(settings)));
     true
 }
@@ -157,21 +177,45 @@ pub fn kineora_load_json(json: String) -> bool {
 #[wasm_bindgen]
 pub fn kineora_status() -> String {
     with_session(|s| {
-        let scene = s.doc.scenes.get(s.active_scene).map(|sc| sc.name.clone()).unwrap_or_default();
+        let scene = s
+            .doc
+            .scenes
+            .get(s.active_scene)
+            .map(|sc| sc.name.clone())
+            .unwrap_or_default();
         let layer = s
             .doc
             .scene(s.active_scene)
             .and_then(|sc| sc.layers.get(s.active_layer))
             .map(|l| l.name.clone())
             .unwrap_or_default();
+        let sel: Vec<u64> = s.selection.iter().map(|id| id.0).collect();
+        // Selection bounds at the CURRENT playhead (authoring overlay source).
+        let selection_rects = s
+            .evaluate(s.playhead)
+            .into_iter()
+            .filter(|it| sel.contains(&it.id))
+            .map(|it| SelRect {
+                id: it.id,
+                x: it.x,
+                y: it.y,
+                w: it.w,
+                h: it.h,
+            })
+            .collect();
+
         let out = StatusOut {
             playhead: s.playhead,
-            selection: s.selection.iter().map(|id| id.0).collect(),
+            selection: sel,
+            selection_rects,
             undo_len: s.history.undo_len(),
             redo_len: s.history.redo_len(),
             scene,
             layer,
             fps: s.doc.settings.fps,
+            doc_width: s.doc.settings.width,
+            doc_height: s.doc.settings.height,
+            background: s.doc.settings.background.clone(),
             event_log: s.event_log.clone(),
         };
         serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())

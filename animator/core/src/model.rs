@@ -14,7 +14,12 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { width: 800.0, height: 600.0, fps: 24, background: "#ffffff".into() }
+        Self {
+            width: 800.0,
+            height: 600.0,
+            fps: 24,
+            background: "#ffffff".into(),
+        }
     }
 }
 
@@ -84,13 +89,19 @@ impl Node {
 /// overrides (classic whole-frame key model, slice-1 seed).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Frame {
-    Keyframe { content: Vec<NodeId>, transforms: BTreeMap<NodeId, Transform> },
+    Keyframe {
+        content: Vec<NodeId>,
+        transforms: BTreeMap<NodeId, Transform>,
+    },
     Blank,
 }
 
 impl Frame {
     pub fn keyframe(content: Vec<NodeId>) -> Self {
-        Frame::Keyframe { content, transforms: BTreeMap::new() }
+        Frame::Keyframe {
+            content,
+            transforms: BTreeMap::new(),
+        }
     }
     pub fn blank() -> Self {
         Frame::Blank
@@ -134,8 +145,17 @@ impl Document {
             visible: true,
             locked: false,
         };
-        let scene = Scene { id: SceneId(1), name: "Scene 1".into(), layers: vec![layer] };
-        Self { settings, scenes: vec![scene], nodes: BTreeMap::new(), next_id: 1 }
+        let scene = Scene {
+            id: SceneId(1),
+            name: "Scene 1".into(),
+            layers: vec![layer],
+        };
+        Self {
+            settings,
+            scenes: vec![scene],
+            nodes: BTreeMap::new(),
+            next_id: 1,
+        }
     }
 
     pub fn alloc_node_id(&mut self) -> NodeId {
@@ -158,7 +178,9 @@ impl Document {
 
     /// Hold rule: nearest keyframe (or blank) at or before `frame`.
     pub fn content_at(&self, scene: usize, layer: usize, frame: u32) -> Vec<NodeId> {
-        let Some(layer_) = self.layer(scene, layer) else { return vec![] };
+        let Some(layer_) = self.layer(scene, layer) else {
+            return vec![];
+        };
         let mut content: Vec<NodeId> = vec![];
         for (_, fr) in layer_.keyframes.range(..=frame) {
             match fr {
@@ -177,7 +199,9 @@ impl Document {
         if let Some(Frame::Keyframe { .. }) = layer_.keyframes.get(&frame) {
             return Some(()); // already a keyframe
         }
-        layer_.keyframes.insert(frame, Frame::keyframe(prev_content));
+        layer_
+            .keyframes
+            .insert(frame, Frame::keyframe(prev_content));
         Some(())
     }
 }

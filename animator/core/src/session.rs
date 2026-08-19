@@ -51,14 +51,23 @@ impl Session {
         let id = self.doc.alloc_node_id();
         let node = Node::Rect {
             id,
-            transform: Transform { x, y, ..Transform::default() },
+            transform: Transform {
+                x,
+                y,
+                ..Transform::default()
+            },
             width: w,
             height: h,
             fill: fill.to_string(),
             stroke: None,
             stroke_width: 0.0,
         };
-        let cmd = DrawRect { scene: self.active_scene, layer: self.active_layer, frame: self.playhead, node };
+        let cmd = DrawRect {
+            scene: self.active_scene,
+            layer: self.active_layer,
+            frame: self.playhead,
+            node,
+        };
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.selection = vec![id];
         self.log(&format!("draw:rect id={:?} @{}", id, self.playhead));
@@ -68,12 +77,17 @@ impl Session {
     pub fn select_at(&mut self, x: f64, y: f64) -> bool {
         let hit = hit_test(&self.doc, self.active_scene, self.playhead, x, y);
         self.selection = hit.into_iter().collect();
-        self.log(&format!("select:at({x},{y}) → {:?}", self.selection.first()));
+        self.log(&format!(
+            "select:at({x},{y}) → {:?}",
+            self.selection.first()
+        ));
         !self.selection.is_empty()
     }
 
     pub fn select_all(&mut self) {
-        let content = self.doc.content_at(self.active_scene, self.active_layer, self.playhead);
+        let content = self
+            .doc
+            .content_at(self.active_scene, self.active_layer, self.playhead);
         self.selection = content;
         self.log("select:all");
     }
@@ -88,7 +102,14 @@ impl Session {
             return;
         }
         let ids = self.selection.clone();
-        let cmd = MoveSelection::new(ids, dx, dy, self.active_scene, self.active_layer, self.playhead);
+        let cmd = MoveSelection::new(
+            ids,
+            dx,
+            dy,
+            self.active_scene,
+            self.active_layer,
+            self.playhead,
+        );
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.log(&format!("move:selection({dx},{dy}) @{}", self.playhead));
     }

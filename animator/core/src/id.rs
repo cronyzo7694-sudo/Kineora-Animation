@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 macro_rules! id_type {
     ($name:ident) => {
-        #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+        #[derive(
+            Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Serialize, Deserialize,
+        )]
         pub struct $name(pub u64);
     };
 }

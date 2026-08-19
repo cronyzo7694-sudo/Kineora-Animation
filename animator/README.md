@@ -52,6 +52,13 @@ The UI talks to the core **only** through `ui/src/engine/client.ts`. The generat
 ## CI (GitHub Actions)
 Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo build --target wasm32-unknown-unknown` (verifies the wasm facade), `npm ci && npm test && npm run build`. Check the Actions tab.
 
+## Canvas renderer (current unit)
+- `ui/src/render/viewport.ts` — pure doc↔screen math (zoom/pan/fit/clamp), unit-tested.
+- `ui/src/render/canvasRenderer.ts` — content pass (background + rects) + editor-only selection overlay; export stays in the Rust `exportSvg` (overlays never exported).
+- `Stage.tsx` — real `<canvas>`: reads `evaluate()` + `statusJson()`, devicePixelRatio backing store, wheel-zoom around cursor, middle-drag pan, double-click fit, ResizeObserver redraw.
+
+Manual test (after `npm run dev`): create doc → draw rect (engine) → rect visible on Stage → select it → blue dashed selection box + handles → wheel-zoom / middle-drag pan / double-click fit → Play → stage updates → Export SVG → no selection box in the SVG.
+
 ## Manual test checklist (vertical slice 1)
 1. `cd core && cargo test` → 10 acceptance tests green.
 2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).

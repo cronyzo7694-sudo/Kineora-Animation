@@ -93,6 +93,11 @@ export async function loadEngine(deps: LoaderDeps = {}): Promise<EngineStatus> {
     await imported.default(wasmBytes)
 
     mod = imported as KineoraWasm
+    // Ensure a default document exists (the browser never called kineora_new;
+    // the renderer needs width/height/background + a Session to evaluate).
+    if (typeof mod.kineora_new === 'function') {
+      mod.kineora_new(800, 600, 24, '#ffffff')
+    }
     status = { kind: 'ok', detail: 'WASM core attached (animator-core)' }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err)

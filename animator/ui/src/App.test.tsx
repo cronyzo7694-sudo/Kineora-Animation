@@ -22,6 +22,12 @@ describe('app shell', () => {
     }
   })
 
+  it('renders a real stage canvas (no fake placeholder artwork)', () => {
+    render(<App />)
+    expect(screen.getByTestId('stage-canvas')).toBeInTheDocument()
+    expect(screen.getByTestId('zoom-readout')).toBeInTheDocument()
+  })
+
   it('reports engine not-attached state explicitly (no fake functionality)', () => {
     render(<App />)
     expect(screen.getByTestId('engine-status')).toHaveTextContent('not attached')

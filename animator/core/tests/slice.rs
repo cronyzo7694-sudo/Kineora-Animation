@@ -107,7 +107,11 @@ fn export_svg_contains_content_not_overlays() {
     assert_eq!(s.selection.len(), 1);
     let svg = s.export_svg(1);
     assert!(svg.contains("<rect"), "svg has content");
-    assert_eq!(svg.matches("<rect").count(), 2, "background + one content rect, no overlay rect");
+    assert_eq!(
+        svg.matches("<rect").count(),
+        2,
+        "background + one content rect, no overlay rect"
+    );
     assert!(!svg.contains("selection"), "no overlay leakage");
 }
 
@@ -118,7 +122,11 @@ fn undo_stack_unchanged_by_selection_and_playhead() {
     let n = s.history.undo_len();
     s.select_at(5.0, 5.0);
     s.set_playhead(7);
-    assert_eq!(s.history.undo_len(), n, "view state must not enter undo stack");
+    assert_eq!(
+        s.history.undo_len(),
+        n,
+        "view state must not enter undo stack"
+    );
 }
 
 #[test]

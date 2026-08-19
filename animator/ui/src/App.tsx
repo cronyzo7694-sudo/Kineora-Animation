@@ -13,7 +13,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
 
   // attach the WASM core once
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function App() {
       </div>
       <Toolbar controls={controls.filter((c) => c.visibility !== 'HIDDEN-WHEN-UNAVAILABLE')} ctx={ctx} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <Stage engine={engine} tool={tool} />
+        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} />
         <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
       </div>
       <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} />

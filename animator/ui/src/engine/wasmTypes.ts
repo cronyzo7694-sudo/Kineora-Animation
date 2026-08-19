@@ -3,6 +3,7 @@
 // snake_case JSON; the UI adapter normalizes to camelCase where it renders).
 
 export interface RectItemJson {
+  id: number
   x: number
   y: number
   w: number
@@ -12,14 +13,26 @@ export interface RectItemJson {
   stroke_width: number
 }
 
+export interface SelRectJson {
+  id: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface StatusJson {
   playhead: number
   selection: number[]
+  selection_rects: SelRectJson[]
   undo_len: number
   redo_len: number
   scene: string
   layer: string
   fps: number
+  doc_width: number
+  doc_height: number
+  background: string
   event_log: string[]
 }
 

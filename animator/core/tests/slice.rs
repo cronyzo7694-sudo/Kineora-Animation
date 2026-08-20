@@ -109,10 +109,11 @@ fn export_svg_contains_content_not_overlays() {
     assert!(svg.contains("<rect"), "svg has content");
     assert_eq!(
         svg.matches("<rect").count(),
-        2,
-        "background + one content rect, no overlay rect"
+        3,
+        "clip rect + background + one content rect, no overlay rect"
     );
     assert!(!svg.contains("selection"), "no overlay leakage");
+    assert!(svg.contains("clipPath"), "stage clip present");
 }
 
 #[test]

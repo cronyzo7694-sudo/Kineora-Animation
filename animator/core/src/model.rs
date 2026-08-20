@@ -13,10 +13,12 @@ pub struct Settings {
 }
 
 impl Default for Settings {
+    /// Canonical new-document defaults (Part 33 §33.1 / engineering 03):
+    /// 1920×1080 px @ 24 fps, white background.
     fn default() -> Self {
         Self {
-            width: 800.0,
-            height: 600.0,
+            width: 1920.0,
+            height: 1080.0,
             fps: 24,
             background: "#ffffff".into(),
         }

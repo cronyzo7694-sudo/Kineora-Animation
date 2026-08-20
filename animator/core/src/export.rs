@@ -3,6 +3,11 @@ use crate::model::Document;
 
 /// SVG export (slice 1; IMP-DEC-005). Renders ONLY the content pass — authoring
 /// overlays are not part of `evaluate`, so they cannot leak (REQ-EXP-002).
+///
+/// Stage bounds (Part 01 §1.4.1): the exported SVG is exactly the document
+/// stage (`settings.width × height`). A `clipPath` clips content to the stage,
+/// so pasteboard/off-stage objects are authored but NOT rendered at export —
+/// the viewport (zoom/pan) never participates.
 pub fn export_svg(doc: &Document, scene: usize, frame: u32) -> String {
     let items = evaluate(doc, scene, frame);
     let w = doc.settings.width;
@@ -10,6 +15,10 @@ pub fn export_svg(doc: &Document, scene: usize, frame: u32) -> String {
     let mut s = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">"#
     );
+    // stage clip (pasteboard exclusion)
+    s.push_str(&format!(
+        r#"<defs><clipPath id="kineora-stage"><rect width="{w}" height="{h}"/></clipPath></defs><g clip-path="url(#kineora-stage)">"#
+    ));
     s.push_str(&format!(
         r#"<rect width="{w}" height="{h}" fill="{}"/>"#,
         doc.settings.background
@@ -44,6 +53,6 @@ pub fn export_svg(doc: &Document, scene: usize, frame: u32) -> String {
             s.push_str("/>");
         }
     }
-    s.push_str("</svg>");
+    s.push_str("</g></svg>");
     s
 }

@@ -165,6 +165,15 @@ pub fn kineora_new(width: f64, height: f64, fps: u32, background: String) -> boo
     true
 }
 
+/// Create a fresh document with the canonical defaults (1920×1080 @ 24fps,
+/// #ffffff). Single source of truth for the default stage — the UI loader calls
+/// this so the size can never drift from the Rust default.
+#[wasm_bindgen]
+pub fn kineora_new_default() -> bool {
+    SESSION.with(|s| *s.borrow_mut() = Some(Session::new(Settings::default())));
+    true
+}
+
 /// Draw a rectangle into the current frame/keyframe. Returns the new node id.
 #[wasm_bindgen]
 pub fn kineora_draw_rect(x: f64, y: f64, w: f64, h: f64, fill: String) -> u64 {

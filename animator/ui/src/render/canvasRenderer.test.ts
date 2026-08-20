@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { SELECTION_STROKE, HANDLE_SIZE } from './canvasRenderer'
+import { SELECTION_STROKE, HANDLE_SIZE, PASTEBOARD_COLOR, STAGE_BORDER } from './canvasRenderer'
 
 /**
- * Canvas contract tests: the editor-only overlay color, call order (content
- * before overlays), move preview translating only the selection, and the rect
- * draw preview. Geometry math lives in the pure viewport/transformMath tests;
- * the Rust `evaluate` tests cover document-side determinism.
+ * Canvas contract tests: the editor-only overlay color, call order (pasteboard
+ * → stage → content → overlays), stage boundary drawing, move preview
+ * translating only the selection, and the rect draw preview. Geometry math
+ * lives in the pure viewport/transformMath tests; the Rust `evaluate` tests
+ * cover document-side determinism.
  */
 describe('canvas renderer contract', () => {
   it('selection overlay uses the editor-only stroke color (never in export)', () => {
@@ -13,12 +14,16 @@ describe('canvas renderer contract', () => {
     expect(HANDLE_SIZE).toBeGreaterThan(0)
   })
 
-  it('draws background → content → marquee/preview → overlay (content before overlays)', async () => {
+  it('draws pasteboard → stage → content → marquee/preview → overlay (content before overlays)', async () => {
     const { render } = await import('./canvasRenderer')
     const calls: string[] = []
+    const fills: Array<Array<number>> = []
     const ctx = {
       clearRect: () => calls.push('clear'),
-      fillRect: () => calls.push('fillRect'),
+      fillRect: (...a: number[]) => {
+        calls.push('fillRect')
+        fills.push(a)
+      },
       strokeRect: () => calls.push('strokeRect'),
       setLineDash: () => {},
       beginPath: () => {},
@@ -51,6 +56,8 @@ describe('canvas renderer contract', () => {
       { zoom: 1, panX: 0, panY: 0 },
       {
         background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
         items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
         overlay: {
           box: [
@@ -73,6 +80,79 @@ describe('canvas renderer contract', () => {
     expect(firstFill).toBeGreaterThan(-1)
     expect(firstOverlayStroke).toBeGreaterThan(firstFill) // overlay AFTER content
     expect(calls[0]).toBe('clear')
+    // first fill = pasteboard (whole canvas), second = stage rect
+    expect(fills[0]).toEqual([0, 0, 100, 100])
+    expect(fills[1]).toEqual([0, 0, 1920, 1080])
+  })
+
+  it('stage boundary is drawn from document bounds (pasteboard → stage fill → stage border)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const fillStyles: string[] = []
+    const fills: Array<Array<number>> = []
+    const strokes: Array<Array<number>> = []
+    const strokeStyles: string[] = []
+    let currentFill = ''
+    let currentStroke = ''
+    const ctx = {
+      clearRect: () => {},
+      fillRect: (...a: number[]) => {
+        fills.push(a)
+        fillStyles.push(currentFill)
+      },
+      strokeRect: (...a: number[]) => {
+        strokes.push(a)
+        strokeStyles.push(currentStroke)
+      },
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) {
+        currentFill = v
+      },
+      set strokeStyle(v: string) {
+        currentStroke = v
+      },
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return currentFill
+      },
+      get strokeStyle() {
+        return currentStroke
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+
+    render(
+      ctx,
+      { zoom: 0.5, panX: 10, panY: 20 },
+      {
+        background: '#00ff00',
+        stageW: 1920,
+        stageH: 1080,
+        items: [],
+      },
+      1000,
+      800,
+    )
+
+    // pasteboard fill is gray; stage fill uses the doc background color
+    expect(fillStyles[0]).toBe(PASTEBOARD_COLOR)
+    expect(fillStyles[1]).toBe('#00ff00')
+    // stage rect at doc(0,0) scaled by zoom + pan
+    expect(fills[1]).toEqual([10, 20, 960, 540])
+    // stage border stroked with the stage border color
+    expect(strokes).toHaveLength(1)
+    expect(strokeStyles[0]).toBe(STAGE_BORDER)
   })
 
   it('move preview translates ONLY the selected rect (center-based)', async () => {
@@ -112,6 +192,8 @@ describe('canvas renderer contract', () => {
       { zoom: 1, panX: 0, panY: 0 },
       {
         background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
         items: [
           { id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }, // selected
           { id: 2, x: 100, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0 }, // not selected
@@ -168,6 +250,8 @@ describe('canvas renderer contract', () => {
       { zoom: 2, panX: 0, panY: 0 },
       {
         background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
         items: [],
         previewRect: { x: 10, y: 20, w: 30, h: 40 }, // doc-space
       },
@@ -175,8 +259,8 @@ describe('canvas renderer contract', () => {
       200,
     )
 
-    // fills[0] = background; fills[1] = preview rect at screen coords (×2 zoom)
-    expect(fills[1]).toEqual([20, 40, 60, 80])
+    // fills[0] = pasteboard, fills[1] = stage, fills[2] = preview at screen coords (×2 zoom)
+    expect(fills[2]).toEqual([20, 40, 60, 80])
     expect(fillStyles).toContain('rgba(63, 155, 245, 0.2)')
   })
 })

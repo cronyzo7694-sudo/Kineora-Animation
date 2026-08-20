@@ -49,8 +49,8 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
     layers: [],
     active_layer: 0,
     fps: 24,
-    doc_width: 800,
-    doc_height: 600,
+    doc_width: 1920,
+    doc_height: 1080,
     background: '#ffffff',
     event_log: [],
     ...overrides,
@@ -66,8 +66,8 @@ describe('PropertiesPanel', () => {
   it('nothing selected → document schema (size/fps/background)', () => {
     render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
     expect(screen.getByTestId('props-context')).toHaveTextContent('Document')
-    expect(screen.getByTestId('doc-width')).toHaveValue('800')
-    expect(screen.getByTestId('doc-height')).toHaveValue('600')
+    expect(screen.getByTestId('doc-width')).toHaveValue('1920')
+    expect(screen.getByTestId('doc-height')).toHaveValue('1080')
     expect(screen.getByTestId('doc-fps')).toHaveValue('24')
     expect(screen.queryByTestId('prop-x')).not.toBeInTheDocument()
   })

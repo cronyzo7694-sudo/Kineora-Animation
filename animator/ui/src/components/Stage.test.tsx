@@ -18,8 +18,8 @@ vi.mock('../engine/client', () => ({
     scene: 'Scene 1',
     layer: 'Layer 1',
     fps: 24,
-    doc_width: 800,
-    doc_height: 600,
+    doc_width: 1920,
+    doc_height: 1080,
     background: '#ffffff',
     event_log: [],
   }),
@@ -104,6 +104,53 @@ describe('Stage viewport interaction wiring (regression)', () => {
 
     fireEvent.doubleClick(canvas)
     await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
+  })
+
+  it('shows the document stage dimensions (the published frame)', () => {
+    renderStage()
+    expect(screen.getByTestId('stage-readout')).toHaveTextContent('1920×1080')
+  })
+})
+
+describe('Stage view commands (zoom in/out, 100%, fit — Part 01 §1.2.3)', () => {
+  it('Ctrl+= zooms in ×2 (view only)', async () => {
+    renderStage()
+    expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%')
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('200%'))
+  })
+
+  it('Ctrl+- zooms out ÷2', async () => {
+    renderStage()
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('200%'))
+    fireEvent.keyDown(window, { key: '-', ctrlKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
+  })
+
+  it('Ctrl+1 resets to 100%', async () => {
+    renderStage()
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('200%'))
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
+  })
+
+  it('Ctrl+0 fits the stage in the window', () => {
+    renderStage()
+    // jsdom viewport is 0×0 → fit degenerates to identity (zoom 100%), no crash
+    fireEvent.keyDown(window, { key: '0', ctrlKey: true })
+    expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%')
+  })
+
+  it('typing in a text input does NOT trigger view commands', () => {
+    renderStage()
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: '=', ctrlKey: true })
+    expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%')
+    document.body.removeChild(input)
   })
 })
 

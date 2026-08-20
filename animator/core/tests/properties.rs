@@ -135,7 +135,7 @@ fn set_document_settings_undo_redo_exact() {
     assert_eq!(s.doc.settings.background, "#202020");
 
     s.undo();
-    assert_eq!(s.doc.settings.width, 800.0);
+    assert_eq!(s.doc.settings.width, 1920.0);
     assert_eq!(s.doc.settings.fps, 24);
     assert_eq!(s.doc.settings.background, "#ffffff");
 

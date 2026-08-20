@@ -68,6 +68,11 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
   const [zoomReadout, setZoomReadout] = useState('100%')
   const [panReadout, setPanReadout] = useState('0,0')
 
+  // live document stage size for the readout (canonical default when detached)
+  const liveStatus = statusJson()
+  const stageW = liveStatus?.doc_width ?? 1920
+  const stageH = liveStatus?.doc_height ?? 1080
+
   const panDragRef = useRef<{ x: number; y: number } | null>(null)
   const selectGestureRef = useRef<SelectGesture | null>(null)
   const previewRef = useRef<{ x: number; y: number } | null>(null)
@@ -116,6 +121,39 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
       center: geom.center,
     }
   }
+
+  // ——— view commands (Part 01 §1.2.3 / Part 29 §29.9) ———
+  // Ctrl/Cmd + = zoom in ×2 · Ctrl/Cmd + - zoom out ÷2 · Ctrl/Cmd+1 = 100% ·
+  // Ctrl/Cmd+0 = Fit in Window. Zoom/pan change ONLY the view, never the doc.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const wrap = wrapRef.current
+      if (!wrap) return
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault()
+        applyViewport(zoomAt(vpRef.current, wrap.clientWidth / 2, wrap.clientHeight / 2, 2))
+      } else if (e.key === '-') {
+        e.preventDefault()
+        applyViewport(zoomAt(vpRef.current, wrap.clientWidth / 2, wrap.clientHeight / 2, 0.5))
+      } else if (e.key === '1') {
+        e.preventDefault()
+        const status = statusJson()
+        const docW = status?.doc_width ?? 1920
+        const docH = status?.doc_height ?? 1080
+        applyViewport({ zoom: 1, panX: (wrap.clientWidth - docW) / 2, panY: (wrap.clientHeight - docH) / 2 })
+      } else if (e.key === '0') {
+        e.preventDefault()
+        const status = statusJson()
+        applyViewport(fitViewport(status?.doc_width ?? 1920, status?.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ——— window-level drag handling ———
   useEffect(() => {
@@ -297,6 +335,8 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
 
     const state: RenderState = {
       background: status.background ?? '#ffffff',
+      stageW: status.doc_width ?? 1920,
+      stageH: status.doc_height ?? 1080,
       items: displayItems,
       selectedIds: status.selection ?? [],
       overlay,
@@ -314,7 +354,7 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
       const wrap = wrapRef.current
       const status = statusJson()
       if (!wrap || !status) return
-      applyViewport(fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight))
+      applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
     }
     fit()
     const ro = new ResizeObserver(fit)
@@ -396,7 +436,7 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
     const wrap = wrapRef.current
     const status = statusJson()
     if (!wrap || !status) return
-    applyViewport(fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight))
+    applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
   }
 
   return (
@@ -418,7 +458,7 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
         </div>
       )}
       <div style={{ position: 'absolute', bottom: 4, left: 8, color: '#888', fontSize: 12, pointerEvents: 'none' }}>
-        tool: {tool} · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span>
+        tool: {tool} · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span> · stage: <span data-testid="stage-readout">{stageW}×{stageH}</span>
       </div>
     </div>
   )

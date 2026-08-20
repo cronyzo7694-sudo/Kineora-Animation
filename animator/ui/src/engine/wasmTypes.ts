@@ -98,6 +98,7 @@ export interface SettingsPatchJson {
 
 export interface KineoraWasm {
   kineora_new(width: number, height: number, fps: number, background: string): boolean
+  kineora_new_default(): boolean
   kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): number
   kineora_select_at(x: number, y: number): boolean
   kineora_select_toggle_at(x: number, y: number): boolean

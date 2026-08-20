@@ -12,16 +12,40 @@
 | Select + Move gestures | MOD-INPUT/MOD-SELECTION/MOD-XFR | COMPLETE | editor/gesture.ts + MoveSelection (layer-aware) |
 | Rect tool (real object creation) | MOD-INPUT/MOD-DRAWING/MOD-DOC | COMPLETE | gesture.normalizeRect + DrawRect + draw.rs |
 | Transform + selection expansion | MOD-INPUT/MOD-XFR/MOD-SELECTION | COMPLETE | transformMath.ts + TransformSelection (layer-aware) |
-| **Layers panel (engine-backed)** | MOD-LAYER/MOD-SHELL | **COMPLETE (this commit)** | components/LayersPanel.tsx + layers.rs (12 tests) |
-| **Properties panel (context-bound)** | MOD-SHELL/MOD-XFR/MOD-DOC | **COMPLETE (this commit)** | components/PropertiesPanel.tsx + properties.rs (11 tests) |
+| **Layers panel (engine-backed)** | MOD-LAYER/MOD-SHELL | COMPLETE | components/LayersPanel.tsx + layers.rs (12 tests) |
+| **Properties panel (context-bound)** | MOD-SHELL/MOD-XFR/MOD-DOC | COMPLETE | components/PropertiesPanel.tsx + properties.rs (11 tests) |
+| **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | **COMPLETE (this commit)** | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
 | Tool-options schema (Properties) | MOD-SHELL | NOT STARTED | later unit (REQ-PRP-001 step 1) |
 | Edit-in-place depth / nav.back | MOD-SYMBOL | NOT STARTED | later unit |
+| Ruler units + backgroundAlpha (doc settings) | MOD-DOC | NOT STARTED | `units`/`backgroundAlpha` from Part 33 §33.1 deferred — schema stays {width,height,fps,background} |
+| Pasteboard toggle (Ctrl+Shift+W) + spacebar-pan/Hand + Zoom tool | MOD-RENDER/MOD-INPUT | NOT STARTED | pasteboard now ALWAYS shown; toggle/tools later |
 | Drawing/shapes/symbols/tweens/rig/IK/audio/lipsync | (later slices) | NOT STARTED | Phase-3 build order P3–P6 |
 
-## This commit — Layers + Properties panels
+## This commit — Document / Stage / Viewport foundation
+- **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
+- **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
+- **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## Foundation unit — manual acceptance matrix (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| A | open the editor | white 16:9 stage on gray pasteboard, clearly bounded |
+| B | stage readout | `stage: 1920×1080` |
+| C | draw at fit zoom | doc size = screen ÷ zoom (no mystery scale) |
+| D | Ctrl+= → 200%, draw | correct doc size |
+| E | Ctrl+- → 25%, draw | correct doc size |
+| F | pan, draw | correct doc position |
+| G | draw on the gray pasteboard | allowed (staging), not exported |
+| H | Properties: change W/H | stage rect resizes |
+| I | change background | stage fill changes |
+| J | change fps | timeline speed changes |
+| K | Save → Reload | W/H/bg/fps restored |
+| L | Export SVG | doc stage bounds, clips off-stage, no overlay, zoom/pan-independent |
+
+## This commit (previous) — Layers + Properties panels
 - **Rust**: new commands `SetNodeProps`, `SetDocumentSettings`, `CreateLayer`, `DeleteLayer`, `RenameLayer`, `SetLayerVisible`, `SetLayerLocked`, `ReorderLayer` (all undoable, bit-exact). `MoveSelection`/`TransformSelection` are now **layer-aware** (each node's override is written to its OWN layer — cross-layer marquee/Select-All selections move/transform correctly). `select_all` spans layers and skips hidden/locked; `draw_rect` rejects hidden/locked targets (REQ-DRW-003); selection is pruned when a layer is hidden/locked or its nodes are orphaned by a delete. Active layer is view state (no undo).
 - **WASM**: `kineora_set_active_layer / create_layer / delete_layer / rename_layer / set_layer_visible / set_layer_locked / move_layer / patch_transforms / set_node_props / set_document_settings`; `kineora_status` now returns `layers[]` (+per-layer selection marker) + `active_layer` + fill/stroke/stroke_width in selection details.
 - **UI**: `LayersPanel` (eye/lock/name/selection-dot, click=activate, dbl-click=rename, +/trash, ▲▼ reorder + HTML5 drag reorder) and `PropertiesPanel` (context precedence: selection → document; single = X/Y/W/H/rotation/scale/fill/stroke, multi = common X/Y/W/H + "mixed" badge, none = doc W/H/fps/background). Numeric fields commit on Enter/blur (one command), Esc cancels, invalid input reverts with inline error. `panel.layers` / `panel.properties` toolbar toggles are now real.

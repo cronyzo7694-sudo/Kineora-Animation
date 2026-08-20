@@ -102,8 +102,12 @@ export async function loadEngine(deps: LoaderDeps = {}): Promise<EngineStatus> {
     mod = imported as KineoraWasm
     // Ensure a default document exists (the browser never called kineora_new;
     // the renderer needs width/height/background + a Session to evaluate).
-    if (typeof mod.kineora_new === 'function') {
-      mod.kineora_new(800, 600, 24, '#ffffff')
+    // kineora_new_default keeps the canonical stage size (1920×1080) in ONE
+    // place — the Rust Settings::default() — so it can never drift.
+    if (typeof mod.kineora_new_default === 'function') {
+      mod.kineora_new_default()
+    } else if (typeof mod.kineora_new === 'function') {
+      mod.kineora_new(1920, 1080, 24, '#ffffff')
     }
     status = { kind: 'ok', detail: 'WASM core attached (animator-core)' }
   } catch (err) {

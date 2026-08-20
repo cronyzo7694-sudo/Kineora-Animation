@@ -149,11 +149,35 @@ Manual test (after `npm run wasm && npm run dev`):
 | N | edit property on an interpolated frame | no jump; playback correct |
 | O | Save/reload, Export SVG | layers+props round-trip; no overlays in SVG |
 
+## Document / Stage / Viewport (current unit)
+- **Canonical stage model** (Part 01 §1.4.1, Part 33 §33.1, engineering 03): origin (0,0) = stage top-left, +X right, +Y down; the stage is the published frame; the **pasteboard** (work area) surrounds it — art there is authored but never exported. New-document defaults are **1920×1080 px @ 24 fps, #ffffff** (single source of truth: Rust `Settings::default()`; the WASM loader calls `kineora_new_default()` so it can't drift).
+- **Renderer** (`canvasRenderer.ts`): the editor canvas now draws a real stage — gray pasteboard → stage rect filled with the document background → a stage border (authoring-only, never exported). Objects may extend onto the pasteboard (staging area) and stay selectable.
+- **Viewport is strictly view-only**: `screen → viewport → document` for every gesture; zoom/pan never touch document coordinates. Regression tests prove screen↔doc round-trips at 25%–800% zoom and that pan/zoom leave doc coords untouched.
+- **View commands** (Part 01 §1.2.3 / Part 29 §29.9): `Ctrl/Cmd + =` zoom ×2 · `Ctrl/Cmd + -` zoom ÷2 · `Ctrl/Cmd + 1` = 100% · `Ctrl/Cmd + 0` = Fit in Window (plus existing wheel-zoom, middle-pan, double-click fit). The stage readout shows `stage: W×H`.
+- **Export** (`export.rs`): SVG is exactly the document stage (`width/height/viewBox` from settings) and now **clips** content to the stage via `clipPath` — pasteboard/off-stage art is not rendered at export. Export never sees the viewport.
+- Document settings (W/H/fps/background) are real document state: editable in Properties, undoable, and verified to survive Save → Load.
+
+Manual test (after `npm run wasm && npm run dev`):
+| # | Action | Expect |
+|---|---|---|
+| A | open the editor | immediately see a white 16:9 stage on gray pasteboard (not infinite white) |
+| B | check the stage readout | shows `stage: 1920×1080` |
+| C | draw a rect at fit zoom | appears at the drag spot, doc size = screen ÷ zoom |
+| D | Ctrl+= (×2) and draw again | same drag ⇒ half the doc size (correct zoom math) |
+| E | Ctrl+- to 25% and draw again | correct doc size (screen ÷ 0.25) |
+| F | pan (middle-drag), draw again | position correct in doc coords |
+| G | drag a rect onto the gray pasteboard | it stays there (staging area), still selectable |
+| H | Properties → change W/H | stage rect resizes on canvas |
+| I | Properties → change background | stage fill changes |
+| J | Properties → change fps | timeline speed changes |
+| K | Save → Reload | stage size/background/fps restored |
+| L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
+
 ## Manual test checklist (vertical slice 1)
-1. `cd core && cargo test` → 48 acceptance tests green.
+1. `cd core && cargo test` → 57 acceptance tests green.
 2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).
 3. `cd ui && npm run wasm && npm ci && npm run dev` → Dev Panel shows `engine: attached`; toolbar Undo/Redo/Save/Export/Keyframe bound to real engine calls.
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **Layers + Properties panels (engine-backed)** (this commit).
+See `STATUS.md`. Current unit: **Document / Stage / Viewport foundation** (this commit).

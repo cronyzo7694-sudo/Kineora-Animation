@@ -9,7 +9,7 @@
 
 import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
-import { docToScreen } from './viewport'
+import { docRectToScreen, docToScreen } from './viewport'
 
 export interface Pt {
   x: number
@@ -18,6 +18,10 @@ export interface Pt {
 
 export interface RenderState {
   background: string
+  /** Document stage bounds (doc units) — the published frame (Part 01 §1.4.1).
+   *  The stage is filled with `background`; the pasteboard around it is gray. */
+  stageW: number
+  stageH: number
   items: RectItemJson[]
   /** Selected node ids (move-preview translates only these). */
   selectedIds?: number[]
@@ -39,13 +43,26 @@ export interface RenderState {
 export const SELECTION_STROKE = '#0a7cff'
 export const HANDLE_SIZE = 7
 export const HANDLE_HIT_RADIUS = 8 // screen px (pickHandle caller)
+/** Pasteboard (work area) surround color — the gray around the stage. */
+export const PASTEBOARD_COLOR = '#2b2b2b'
+/** Stage border (authoring-only: drawn on the editor canvas, never exported). */
+export const STAGE_BORDER = '#6a6a6a'
 
 export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderState, viewW: number, viewH: number): void {
   ctx.clearRect(0, 0, viewW, viewH)
 
-  // background
-  ctx.fillStyle = s.background
+  // 1) pasteboard (work area) — gray surround, distinct from the stage
+  ctx.fillStyle = PASTEBOARD_COLOR
   ctx.fillRect(0, 0, viewW, viewH)
+
+  // 2) the document stage — the published frame (Part 01 §1.4.1), filled with
+  //    the document background and outlined so the user sees "THIS is my page".
+  const stage = docRectToScreen(vp, { x: 0, y: 0, w: s.stageW, h: s.stageH })
+  ctx.fillStyle = s.background
+  ctx.fillRect(stage.x, stage.y, stage.w, stage.h)
+  ctx.strokeStyle = STAGE_BORDER
+  ctx.lineWidth = 1
+  ctx.strokeRect(stage.x + 0.5, stage.y + 0.5, stage.w - 1, stage.h - 1)
 
   const preview = s.previewDelta ?? null
   const selected = new Set(s.selectedIds ?? [])

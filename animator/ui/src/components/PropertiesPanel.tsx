@@ -5,6 +5,8 @@ import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 interface Props {
   status: StatusJson | null
   notify: (msg: string) => void
+  /** Dock width (C-06 panel resize); the panel fills the dock column. */
+  width?: number
 }
 
 /**
@@ -14,8 +16,13 @@ interface Props {
  * (nothing selected). Tool-options schema is a later unit.
  * Every commit = one engine command (one undo entry); Enter/blur commit,
  * Esc cancels, invalid input reverts with an inline error (never silent).
+ *
+ * Color fields (Part 23: colors entered as hex) commit on blur/Enter so a
+ * single picker interaction = one command (matching the numeric-field rule);
+ * they are fully editable via local draft + onChange (a controlled input
+ * without onChange would render read-only — the fill/stroke regression).
  */
-export function PropertiesPanel({ status, notify }: Props) {
+export function PropertiesPanel({ status, notify, width }: Props) {
   const attached = status !== null
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
@@ -47,21 +54,25 @@ export function PropertiesPanel({ status, notify }: Props) {
   const commitFill = (color: string) => {
     if (!guard('edit fill')) return
     setNodeProps(details.map((d) => ({ id: d.id, fill: color })))
+    notify(`fill → ${color}`)
   }
 
   const commitStrokeEnabled = (enabled: boolean, color: string) => {
     if (!guard('edit stroke')) return
     setNodeProps(details.map((d) => ({ id: d.id, stroke_enabled: enabled, stroke: color })))
+    notify(enabled ? `stroke → ${color}` : 'stroke removed')
   }
 
   const commitStrokeWidth = (value: number) => {
     if (!guard('edit stroke')) return
     setNodeProps(details.map((d) => ({ id: d.id, stroke_width: value })))
+    notify(`stroke width → ${value}`)
   }
 
   const commitDoc = (patch: { width?: number; height?: number; fps?: number; background?: string }) => {
     if (!guard('edit document')) return
     setDocumentSettings(patch)
+    notify('document settings updated')
   }
 
   // ——— value helpers (multi-select shows a value only when all agree) ———
@@ -79,7 +90,7 @@ export function PropertiesPanel({ status, notify }: Props) {
   const contextChip = !attached ? '—' : details.length === 0 ? 'Document' : multi ? `Objects (${details.length})` : 'Object'
 
   return (
-    <aside data-testid="properties-panel" aria-label="Properties" style={{ width: 220, background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Properties</span>
         <span data-testid="props-context" style={{ color: '#8ef', fontSize: 11, background: '#2a2a2a', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
@@ -96,15 +107,7 @@ export function PropertiesPanel({ status, notify }: Props) {
             <NumberField testId="doc-width" label="Width" value={status ? fmt(status.doc_width) : ''} min={2} onCommit={(n) => commitDoc({ width: n })} />
             <NumberField testId="doc-height" label="Height" value={status ? fmt(status.doc_height) : ''} min={2} onCommit={(n) => commitDoc({ height: n })} />
             <NumberField testId="doc-fps" label="Frame rate (fps)" value={status ? String(status.fps) : ''} min={1} max={120} step={1} onCommit={(n) => commitDoc({ fps: Math.round(n) })} />
-            <Field label="Background">
-              <input
-                type="color"
-                data-testid="doc-bg"
-                value={status?.background ?? '#ffffff'}
-                onBlur={(e) => commitDoc({ background: e.target.value })}
-                style={{ width: 40, height: 22, border: '1px solid #555', background: '#111', cursor: 'pointer' }}
-              />
-            </Field>
+            <ColorField testId="doc-bg" label="Background" value={status?.background ?? '#ffffff'} onCommit={(c) => commitDoc({ background: c })} />
           </div>
         )}
 
@@ -129,9 +132,7 @@ export function PropertiesPanel({ status, notify }: Props) {
                 <NumberField testId="prop-scale-y" label="Scale Y (%)" value={fmt(single.scale_y * 100)} onCommit={(n) => commitScale('scale_y', n)} />
 
                 <SectionTitle>Fill</SectionTitle>
-                <Field label="Fill color">
-                  <input type="color" data-testid="prop-fill" value={single.fill} onBlur={(e) => commitFill(e.target.value)} style={{ width: 40, height: 22, border: '1px solid #555', background: '#111', cursor: 'pointer' }} />
-                </Field>
+                <ColorField testId="prop-fill" label="Fill color" value={single.fill} onCommit={commitFill} />
 
                 <SectionTitle>Stroke</SectionTitle>
                 <Field label="Enabled">
@@ -144,9 +145,7 @@ export function PropertiesPanel({ status, notify }: Props) {
                 </Field>
                 {single.stroke !== null && (
                   <>
-                    <Field label="Stroke color">
-                      <input type="color" data-testid="prop-stroke" value={single.stroke} onBlur={(e) => commitStrokeEnabled(true, e.target.value)} style={{ width: 40, height: 22, border: '1px solid #555', background: '#111', cursor: 'pointer' }} />
-                    </Field>
+                    <ColorField testId="prop-stroke" label="Stroke color" value={single.stroke} onCommit={(c) => commitStrokeEnabled(true, c)} />
                     <NumberField testId="prop-stroke-width" label="Stroke width" value={fmt(single.stroke_width)} min={0} onCommit={(n) => commitStrokeWidth(n)} />
                   </>
                 )}
@@ -169,6 +168,41 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span style={{ color: '#999' }}>{label}</span>
       {children}
     </label>
+  )
+}
+
+/** Hex color editor (Part 23): local draft + onChange keeps the field editable;
+ *  blur/Enter commit ONE command, Esc cancels back to the engine value. */
+function ColorField({ label, value, onCommit, testId }: {
+  label: string
+  value: string
+  onCommit: (color: string) => void
+  testId: string
+}) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const commit = () => {
+    if (draft !== value) onCommit(draft)
+  }
+
+  return (
+    <Field label={label}>
+      <input
+        type="color"
+        data-testid={testId}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setDraft(value)
+        }}
+        style={{ width: 40, height: 22, border: '1px solid #555', background: '#111', cursor: 'pointer' }}
+      />
+    </Field>
   )
 }
 

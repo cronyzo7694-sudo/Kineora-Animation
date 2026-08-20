@@ -14,7 +14,8 @@
 | Transform + selection expansion | MOD-INPUT/MOD-XFR/MOD-SELECTION | COMPLETE | transformMath.ts + TransformSelection (layer-aware) |
 | **Layers panel (engine-backed)** | MOD-LAYER/MOD-SHELL | COMPLETE | components/LayersPanel.tsx + layers.rs (12 tests) |
 | **Properties panel (context-bound)** | MOD-SHELL/MOD-XFR/MOD-DOC | COMPLETE | components/PropertiesPanel.tsx + properties.rs (11 tests) |
-| **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | **COMPLETE (this commit)** | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
+| **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | COMPLETE | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
+| **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | **COMPLETE (this commit)** | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -28,6 +29,35 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Document properties + fill/stroke + workspace panels
+- **Root causes** (proven, not guessed):
+  1. **Fill / Stroke / Background color fields were read-only in React** — a controlled `<input type="color" value={…}>` with only `onBlur` (no `onChange`) renders read-only, so picking a color did nothing. Fix: a `ColorField` with local draft + `onChange` (editable) that commits ONE command on blur/Enter and cancels on Esc (consistent with the numeric-field rule).
+  2. **FPS was already engine-connected** (`setDocumentSettings → kineora_set_document_settings → Session::set_document_settings`, undoable, clamped 1–120, used by playback's `1000/fps` interval) — now proven by UI + Rust tests and surfaced with a "document settings updated" toast.
+  3. **Panel resizing was absent** — implemented per **C-06** (`pnl.resize`: 6px edges, live preview, min-clamp never-zero, Esc cancels back to origin). Workspace panel widths persist to app prefs (`localStorage`, Part 01 §1.1.2 / engineering 13) — never into the project file.
+- **Aspect ratio presets / link / scale-content**: [NOT SPECIFIED IN BLUEPRINT] — Part 26.1 lists only Width/Height/Ruler-units/fps/Background. Independent W/H editing (already present) is the blueprint behavior; no 16:9/4:3 presets or Link toggle added. Adobe's "Link + Scale Content" noted as [ADOBE REFERENCE] but NOT adopted.
+- **Verified**: fill/stroke color + stroke width flow engine → evaluate → canvas → SVG → save/load (Rust `stroke_props_flow_into_evaluate_and_svg_export`, `fill_change_flows_into_export_and_survives_save_load`); resizing never touches zoom/document state (UI tests).
+
+### Manual acceptance matrix — Document properties + fill/stroke + panels (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| A | draw a rect, select it | Properties shows Object context |
+| B | change Fill color | canvas object recolors + toast `fill → #…` |
+| C | check Properties | fill swatch reflects the new color |
+| D | enable Stroke, pick a color | outline appears in that color |
+| E | set Stroke width (e.g. 10) | outline thickens (scales with zoom) |
+| F | disable Stroke | outline disappears |
+| G | Undo/Redo | each color/width change = one undo step, exact |
+| H | Export SVG | SVG contains the fill + stroke + stroke-width |
+| I | deselect → Document: change fps | StatusBar fps updates; Play uses new speed |
+| J | change Background color | stage fill + SVG background change |
+| K | change W then H | stage rect resizes; content stays put |
+| L | Save → Reload | W/H/fps/background/fill/stroke all restored |
+| M | drag the Layers panel edge (6px) | panel resizes live; stage flexes; no overlap |
+| N | drag the Properties panel edge | resizes; never narrower than 180px |
+| O | drag far → release | min-clamped (never 0) |
+| P | Esc mid-resize | panel returns to its pre-drag width |
+| Q | resize then draw | zoom + document coordinates unchanged |
 
 ## Foundation unit — manual acceptance matrix (test on your PC)
 | # | Action | Expect |

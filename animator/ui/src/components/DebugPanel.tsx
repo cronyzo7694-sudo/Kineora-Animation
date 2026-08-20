@@ -13,7 +13,7 @@ export function DebugPanel({
   engineLog: string[]
 }) {
   return (
-    <aside data-testid="debug-panel" aria-label="Developer panel" style={{ width: 300, borderLeft: '1px solid #333', background: '#161616', padding: 10, overflow: 'auto', fontSize: 12, color: '#aaa' }}>
+    <aside data-testid="debug-panel" aria-label="Developer panel" style={{ width: '100%', boxSizing: 'border-box', borderLeft: '1px solid #333', background: '#161616', padding: 10, overflow: 'auto', fontSize: 12, color: '#aaa' }}>
       <h3 style={{ margin: '0 0 8px', color: '#ddd', fontSize: 13 }}>Dev Panel</h3>
 
       <section>

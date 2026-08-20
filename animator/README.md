@@ -173,11 +173,18 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | Save → Reload | stage size/background/fps restored |
 | L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
 
+## Document properties + fill/stroke + workspace panels (current unit)
+- **Fill / Stroke / Background are now truly editable.** The fill/stroke/background color inputs were controlled React inputs with no `onChange` → they rendered **read-only** (that was the manual "fill does not change" failure). They now use a `ColorField` (local draft + `onChange`, commit on blur/Enter = one undoable command, Esc cancels). Colors are stored as hex `#RRGGBB` (Part 23).
+- **FPS / W / H / background are real document settings** (Part 01 §1.7): edited in Properties → `kineora_set_document_settings` → Rust command (undoable, clamped: w/h ≥ 2, fps 1–120) → renderer / playback / save / export all read the same state. A toast confirms each commit. Aspect presets / Link / Scale-Content are **[NOT SPECIFIED IN BLUEPRINT]** — only independent W/H editing (Part 26.1) is implemented.
+- **Workspace panel resizing (C-06 `pnl.resize`)**: 6px drag handles on the Layers and Properties panel edges — live preview, min-clamp (never 0), Esc cancels back to the origin width. Widths persist to app prefs (`localStorage`), never into the project file. Resizing is pure view state (zoom + document coordinates untouched).
+
+Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` matrix A–Q (draw → recolor fill/stroke → stroke width → undo/redo → export → fps/background/W/H → save/reload → panel resize → resize-then-draw keeps zoom/coords).
+
 ## Manual test checklist (vertical slice 1)
-1. `cd core && cargo test` → 57 acceptance tests green.
+1. `cd core && cargo test` → 60 acceptance tests green.
 2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).
 3. `cd ui && npm run wasm && npm ci && npm run dev` → Dev Panel shows `engine: attached`; toolbar Undo/Redo/Save/Export/Keyframe bound to real engine calls.
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **Document / Stage / Viewport foundation** (this commit).
+See `STATUS.md`. Current unit: **Document properties + fill/stroke + workspace panels** (this commit).

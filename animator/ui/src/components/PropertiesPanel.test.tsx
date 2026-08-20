@@ -167,3 +167,61 @@ describe('PropertiesPanel', () => {
     expect(screen.getByTestId('props-context')).toHaveTextContent('—')
   })
 })
+
+describe('PropertiesPanel — fill / stroke / fps / background (foundation regression)', () => {
+  it('fill color change commits setNodeProps with the hex color (one command)', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const fill = screen.getByTestId('prop-fill')
+    fireEvent.change(fill, { target: { value: '#00ff00' } })
+    fireEvent.blur(fill)
+    expect(setNodePropsMock).toHaveBeenCalledTimes(1)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, fill: '#00ff00' }])
+  })
+
+  it('fill color field is EDITABLE (value prop updates — the read-only regression)', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const fill = screen.getByTestId('prop-fill')
+    fireEvent.change(fill, { target: { value: '#123abc' } })
+    expect(fill).toHaveValue('#123abc') // draft updates → field not read-only
+  })
+
+  it('enabling stroke commits stroke_enabled=true with the color', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const cb = screen.getByTestId('prop-stroke-enabled')
+    expect(cb).not.toBeChecked() // stroke is null by default
+    fireEvent.click(cb)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, stroke_enabled: true, stroke: '#000000' }])
+  })
+
+  it('stroke color change commits stroke_enabled=true with the new color', () => {
+    render(<PropertiesPanel status={makeStatus({ selection_details: [detail({ stroke: '#000000' })] })} notify={notify} />)
+    const sc = screen.getByTestId('prop-stroke')
+    fireEvent.change(sc, { target: { value: '#0000ff' } })
+    fireEvent.blur(sc)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, stroke_enabled: true, stroke: '#0000ff' }])
+  })
+
+  it('stroke width change commits setNodeProps', () => {
+    render(<PropertiesPanel status={makeStatus({ selection_details: [detail({ stroke: '#000000' })] })} notify={notify} />)
+    const sw = screen.getByTestId('prop-stroke-width')
+    fireEvent.change(sw, { target: { value: '10' } })
+    fireEvent.blur(sw)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, stroke_width: 10 }])
+  })
+
+  it('fps change commits setDocumentSettings({fps}) (engine-connected)', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
+    const fps = screen.getByTestId('doc-fps')
+    fireEvent.change(fps, { target: { value: '30' } })
+    fireEvent.blur(fps)
+    expect(setDocumentSettingsMock).toHaveBeenCalledWith({ fps: 30 })
+  })
+
+  it('background color change commits setDocumentSettings({background})', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
+    const bg = screen.getByTestId('doc-bg')
+    fireEvent.change(bg, { target: { value: '#000000' } })
+    fireEvent.blur(bg)
+    expect(setDocumentSettingsMock).toHaveBeenCalledWith({ background: '#000000' })
+  })
+})

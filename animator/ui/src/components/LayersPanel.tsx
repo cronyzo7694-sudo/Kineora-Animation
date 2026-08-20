@@ -5,6 +5,8 @@ import type { LayerJson, StatusJson } from '../engine/wasmTypes'
 interface Props {
   status: StatusJson | null
   notify: (msg: string) => void
+  /** Dock width (C-06 panel resize). */
+  width?: number
 }
 
 /**
@@ -13,7 +15,7 @@ interface Props {
  * (view state, no undo); eye/lock/reorder/rename/create/delete are undoable
  * engine commands. Top row = frontmost (engine index n-1, render order bottom→top).
  */
-export function LayersPanel({ status, notify }: Props) {
+export function LayersPanel({ status, notify, width }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState<number | null>(null)
@@ -71,7 +73,7 @@ export function LayersPanel({ status, notify }: Props) {
   }
 
   return (
-    <aside data-testid="layers-panel" aria-label="Layers" style={{ width: 200, background: '#1e1e1e', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <aside data-testid="layers-panel" aria-label="Layers" style={{ width: width ?? 200, background: '#1e1e1e', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Layers</span>
         <span style={{ display: 'flex', gap: 4 }}>

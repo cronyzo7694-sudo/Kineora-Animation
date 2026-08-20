@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 import { controls, validateRegistry } from './controlRegistry'
@@ -57,5 +57,79 @@ describe('app shell', () => {
     expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('panel.layers'))
     expect(screen.getByTestId('layers-panel')).toBeInTheDocument()
+  })
+})
+
+describe('workspace panel resizing (C-06 pnl.resize)', () => {
+  beforeEach(() => {
+    try {
+      localStorage.removeItem('kineora.workspace.panelWidths')
+    } catch {
+      /* ignore */
+    }
+  })
+
+  it('dragging the Layers resize handle widens the panel (live, min-clamped)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-layers')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 530 }) // +30
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 230px')
+  })
+
+  it('dragging the Properties resize handle left widens it; right narrows it', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-props')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 470 }) // -30 → properties +30
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 250px')
+
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 560 }) // +60 → properties -60
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 190px')
+  })
+
+  it('resize is min-clamped (never zero — C-06)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-layers')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 0 })
+    fireEvent.mouseMove(window, { clientX: -5000 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 140px') // LAYERS_MIN
+  })
+
+  it('Escape cancels the resize back to its origin width (C-06)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-layers')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 600 }) // +100
+    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 300px')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 200px') // origin
+  })
+
+  it('resizing does not change zoom or document state (view-only)', () => {
+    render(<App />)
+    expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%')
+    const handle = screen.getByTestId('resize-props')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 400 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%') // zoom untouched
+    expect(screen.getByTestId('stage-wrap')).toBeInTheDocument() // stage intact
+  })
+
+  it('panels never overlap: stage remains present beside resized panels', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-layers')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 0 })
+    fireEvent.mouseMove(window, { clientX: 5000 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 480px') // LAYERS_MAX
+    expect(screen.getByTestId('stage-canvas')).toBeInTheDocument()
+    expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
   })
 })

@@ -43,6 +43,96 @@ fn set_node_props_edits_base_and_undo_redo_exact() {
 }
 
 #[test]
+fn stroke_props_flow_into_evaluate_and_svg_export() {
+    let mut s = session();
+    let id = s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000");
+    s.set_node_props(vec![(
+        id,
+        NodePropsPatch {
+            stroke_enabled: Some(true),
+            stroke: Some("#0000ff".into()),
+            stroke_width: Some(10.0),
+            ..Default::default()
+        },
+    )]);
+
+    let it = &s.evaluate(1)[0];
+    assert_eq!(
+        it.stroke.as_deref(),
+        Some("#0000ff"),
+        "stroke color in render tree"
+    );
+    assert_eq!(it.stroke_width, 10.0, "stroke width in render tree");
+    assert_eq!(it.fill, "#ff0000", "fill untouched by stroke edit");
+
+    let svg = s.export_svg(1);
+    assert!(
+        svg.contains(r##"stroke="#0000ff" stroke-width="10""##),
+        "SVG carries stroke color + width: {svg}"
+    );
+}
+
+#[test]
+fn fill_change_flows_into_export_and_survives_save_load() {
+    let path = std::env::temp_dir().join("animator_fill_test.json");
+    let mut s = session();
+    let id = s.draw_rect(0.0, 0.0, 50.0, 50.0, "#3f9bf5");
+    s.set_node_props(vec![(
+        id,
+        NodePropsPatch {
+            fill: Some("#123abc".into()),
+            ..Default::default()
+        },
+    )]);
+    assert_eq!(s.evaluate(1)[0].fill, "#123abc");
+    assert!(s.export_svg(1).contains(r##"fill="#123abc""##));
+
+    s.save(&path).unwrap();
+    let loaded = Session::load(&path).unwrap();
+    assert_eq!(
+        loaded.evaluate(1)[0].fill,
+        "#123abc",
+        "fill survives save/load"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn stroke_enable_then_recolor_is_undoable_step_by_step() {
+    let mut s = session();
+    let id = s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000");
+    // 1) enable stroke with black
+    s.set_node_props(vec![(
+        id,
+        NodePropsPatch {
+            stroke_enabled: Some(true),
+            stroke: Some("#000000".into()),
+            ..Default::default()
+        },
+    )]);
+    assert_eq!(s.evaluate(1)[0].stroke.as_deref(), Some("#000000"));
+    // 2) recolor to blue
+    s.set_node_props(vec![(
+        id,
+        NodePropsPatch {
+            stroke_enabled: Some(true),
+            stroke: Some("#0000ff".into()),
+            ..Default::default()
+        },
+    )]);
+    assert_eq!(s.evaluate(1)[0].stroke.as_deref(), Some("#0000ff"));
+
+    s.undo();
+    assert_eq!(
+        s.evaluate(1)[0].stroke.as_deref(),
+        Some("#000000"),
+        "undo recolor"
+    );
+    s.undo();
+    assert_eq!(s.evaluate(1)[0].stroke, None, "undo enable");
+}
+
+#[test]
 fn stroke_disable_removes_stroke() {
     let mut s = session();
     let id = s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000");

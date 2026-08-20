@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
+import { useShortcutScope } from './shortcuts'
 import { getEngineStatus, loadEngine, statusJson } from './engine/client'
-import { performAction, stopPlayback } from './engine/actions'
+import { stopPlayback } from './engine/actions'
 import {
   DEBUG_PANE,
   LAYERS_W,
@@ -20,6 +21,7 @@ import {
   type PanelLayout,
 } from './panelLayout'
 import { Toolbar } from './components/Toolbar'
+import { MenuBar } from './components/MenuBar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
 import { StatusBar } from './components/StatusBar'
@@ -30,7 +32,13 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { ExportDialog } from './components/ExportDialog'
 import { LibraryPanel } from './components/LibraryPanel'
 import { SymbolDialog, type SymbolDialogMode } from './components/SymbolDialog'
+import { CommandPalette } from './components/CommandPalette'
+import { ShortcutsDialog } from './components/ShortcutsDialog'
+import { AboutDialog } from './components/AboutDialog'
+import { DocumentSettingsDialog } from './components/DocumentSettingsDialog'
 import type { ColorPreview } from './render/canvasRenderer'
+
+const VERSION = '0.2'
 
 export default function App() {
   const [tool, setTool] = useState('select')
@@ -38,11 +46,15 @@ export default function App() {
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
   const [tick, setTick] = useState(0)
-  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true, library: true, timeline: true, debug: true })
+  const [panels, setPanels] = useState<Record<string, boolean>>({ tools: true, layers: true, properties: true, library: true, timeline: true, debug: true })
   const [layout, setLayout] = useState<PanelLayout>(loadLayout)
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [docSettingsOpen, setDocSettingsOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
   const [highlightSymbol, setHighlightSymbol] = useState<number | null>(null)
   const layoutRef = useRef(layout)
@@ -95,55 +107,6 @@ export default function App() {
     }
   }, [])
 
-  // Global undo/redo shortcuts (Part 29.2: Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y).
-  // Skipped while a text input has focus (so typing undo stays browser-native).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (!(e.ctrlKey || e.metaKey)) return
-      const key = e.key.toLowerCase()
-      if (key === 'z') {
-        e.preventDefault()
-        performAction(e.shiftKey ? 'edit.redo' : 'edit.undo', notify)
-      } else if (key === 'y') {
-        e.preventDefault()
-        performAction('edit.redo', notify)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Symbol shortcuts (Part 29.8: F8 = Convert to Symbol, Ctrl+F8 = New Symbol).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (e.key === 'F8') {
-        e.preventDefault()
-        setSymbolDialog({ open: true, mode: e.ctrlKey || e.metaKey ? 'new' : 'convert' })
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  // Timeline hide/show (Part 29.9: Ctrl+Alt+T, ours).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (e.key.toLowerCase() === 't' && (e.ctrlKey || e.metaKey) && e.altKey) {
-        e.preventDefault()
-        setPanels((p) => ({ ...p, timeline: !p.timeline }))
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])
@@ -153,7 +116,52 @@ export default function App() {
     setPanels((p) => ({ ...p, [id]: !p[id] }))
   }
 
-  const ctx: AppContext = { engine, notify, setTool, togglePanel, panels, openExport: () => setExportOpen(true) }
+  const ctx: AppContext = {
+    engine,
+    notify,
+    setTool,
+    togglePanel,
+    panels,
+    openExport: () => setExportOpen(true),
+    openDocumentSettings: () => setDocSettingsOpen(true),
+    openShortcuts: () => setShortcutsOpen(true),
+    openAbout: () => setAboutOpen(true),
+    openSymbolDialog: (mode) => setSymbolDialog({ open: true, mode }),
+    openPalette: () => setPaletteOpen(true),
+    resetWorkspace,
+    getStatus: () => statusJson(),
+  }
+
+  // One scoped shortcut listener for global commands (undo/redo/save/open/new/
+  // tools/select-all/panels/palette/play/…). Stage and TimelineStrip own their
+  // own scopes; scopes are disjoint so no key is ever handled twice.
+  useShortcutScope(
+    new Set([
+      'tool.select',
+      'tool.rect',
+      'tool.transform',
+      'edit.undo',
+      'edit.redo',
+      'file.new',
+      'file.open',
+      'file.save',
+      'file.saveAs',
+      'edit.selectAll',
+      'edit.deselectAll',
+      'modify.document',
+      'modify.convertSymbol',
+      'insert.newSymbol',
+      'panel.tools',
+      'panel.timeline',
+      'panel.library',
+      'panel.properties',
+      'timeline.play',
+      'palette.open',
+      'help.shortcuts',
+    ]),
+    ctx,
+  )
+
   const registryErrors = useMemo(() => validateRegistry(controls), [])
   const status = statusJson()
 
@@ -161,7 +169,7 @@ export default function App() {
     originRef.current = layoutRef.current
   }
 
-  const resetWorkspace = () => {
+  function resetWorkspace() {
     const d = resetLayout()
     setLayout(d)
     notify('workspace reset to defaults')
@@ -209,13 +217,26 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#101010', color: '#8ef', fontSize: 14, fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #2a2a2a' }}>
-        <span>KINEORA ANIMATION <span style={{ color: '#666', fontWeight: 400, fontSize: 11 }}>— v0.1 (vertical slice)</span></span>
-        <button data-testid="reset-workspace" aria-label="Reset workspace layout" title="Reset workspace layout to defaults" onClick={resetWorkspace} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}>
+      {/* Title bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#101010', borderBottom: '1px solid #2a2a2a' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ color: '#8ef', fontSize: 15, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
+          <span style={{ color: '#666', fontSize: 11 }}>v{VERSION}</span>
+        </div>
+        <button
+          data-testid="reset-workspace"
+          aria-label="Reset workspace layout"
+          title="Reset workspace layout to defaults (Window ▸ Reset Workspace)"
+          onClick={resetWorkspace}
+          style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}
+        >
           ⟲ Reset Workspace
         </button>
       </div>
-      <Toolbar controls={controls.filter((c) => c.visibility !== 'HIDDEN-WHEN-UNAVAILABLE')} ctx={ctx} />
+      {/* Menu bar */}
+      <MenuBar ctx={ctx} />
+      {/* Tools toolbar (Window ▸ Tools) */}
+      {panels.tools && <Toolbar controls={controls} ctx={ctx} />}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {panels.layers && <LayersPanel width={layout.layersW} status={status} notify={notify} />}
         {panels.layers && (
@@ -283,6 +304,10 @@ export default function App() {
         notify={notify}
         onCreated={(id) => setHighlightSymbol(id)}
       />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} ctx={ctx} />
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} engine={engine} />
+      <DocumentSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} notify={notify} />
     </div>
   )
 }

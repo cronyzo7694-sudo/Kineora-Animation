@@ -39,10 +39,16 @@ describe('app shell', () => {
     expect(screen.getByTestId('dead-button-count')).toHaveTextContent('0 dead buttons')
   })
 
-  it('button click reports blocker instead of silently doing nothing', async () => {
+  it('engine-gated buttons are disabled with an honest reason; UI-only controls stay enabled', () => {
     render(<App />)
-    screen.getByTestId('edit.undo').click()
-    expect(await screen.findByTestId('toast')).toHaveTextContent('undo: engine not attached')
+    // engine absent → Undo is disabled (state-aware), and the tooltip names why.
+    expect(screen.getByTestId('edit.undo')).toBeDisabled()
+    expect(screen.getByTestId('edit.undo')).toHaveAttribute('data-disabled', 'true')
+    expect(screen.getByTestId('edit.undo')).toHaveAttribute('title', expect.stringContaining('engine not attached'))
+    // UI-only controls remain enabled (they do not need the engine).
+    expect(screen.getByTestId('file.export')).toBeEnabled()
+    expect(screen.getByTestId('panel.layers')).toBeEnabled()
+    expect(screen.getByTestId('tool.select')).toBeEnabled()
   })
 
   it('renders engine-backed Layers and Properties panels by default', () => {
@@ -144,14 +150,14 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
 })
 
 describe('global undo/redo shortcuts (Part 29.2)', () => {
-  it('Ctrl+Z triggers undo; Ctrl+Shift+Z / Ctrl+Y trigger redo', async () => {
+  it('Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y report the honest disabled reason when the engine is absent', async () => {
     render(<App />)
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
-    expect(await screen.findByTestId('toast')).toHaveTextContent('undo: engine not attached')
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Undo: engine not attached')
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
-    expect(await screen.findByTestId('toast')).toHaveTextContent('redo: engine not attached')
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Redo: engine not attached')
     fireEvent.keyDown(window, { key: 'y', ctrlKey: true })
-    expect(await screen.findByTestId('toast')).toHaveTextContent('redo: engine not attached')
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Redo: engine not attached')
   })
 
   it('undo shortcuts are skipped while typing in an input', async () => {

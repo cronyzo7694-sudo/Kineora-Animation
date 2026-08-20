@@ -19,7 +19,7 @@
 // explicit error naming the exact URL + the build command — never a fake
 // "attached" state (no-fake-features rule).
 
-import type { EngineStatus } from '../controlRegistry'
+import type { EngineStatus } from '../commands'
 import type {
   KineoraWasm,
   LibraryItemJson,
@@ -299,6 +299,21 @@ export function setPlayhead(frame: number): void {
 
 export function selectAt(x: number, y: number): boolean {
   return mod?.kineora_select_at(x, y) ?? false
+}
+
+/** Select everything on visible, unlocked layers (view state — not undoable). */
+export function selectAll(): void {
+  mod?.kineora_select_all()
+}
+
+/** Clear the stage selection (view state — not undoable). */
+export function clearSelection(): void {
+  mod?.kineora_clear_selection()
+}
+
+/** Replace the document with the canonical default (File ▸ New). */
+export function newDefaultDocument(): boolean {
+  return mod?.kineora_new_default() ?? false
 }
 
 export function selectToggleAt(x: number, y: number): boolean {

@@ -1,8 +1,16 @@
 // Central control registry — the zero-dead-button data model (Phase-2.5 §2).
-// Every visible control must exist here with a unique ID, a11y label, state,
-// visibility, and a real action binding (engine-backed via engine/actions).
+// The floating TOOLBAR is a curated projection of the full command registry
+// (commands.ts): one command id drives the toolbar button, the menu item, the
+// shortcut and the palette entry alike.
+//
+// Backward-compatible exports for existing consumers (App, Toolbar, DebugPanel,
+// engine/client): `controls`, `validateRegistry`, `Control`, `ControlState`,
+// `Visibility`, `AppContext`, `EngineStatus`.
 
-import { performAction, togglePlay } from './engine/actions'
+import { commands, validateCommands, type Command, type CommandContext, type EngineStatus } from './commands'
+
+export type { EngineStatus }
+export type AppContext = CommandContext
 
 export type ControlState = 'FUNCTIONAL' | 'DISABLED-BY-CONTEXT' | 'COMING-SOON'
 export type Visibility =
@@ -12,23 +20,6 @@ export type Visibility =
   | 'HIDDEN-WHEN-UNAVAILABLE'
   | 'DISABLED-WHEN-UNAVAILABLE'
 
-export interface EngineStatus {
-  kind: 'ok' | 'error'
-  detail: string
-}
-
-export interface AppContext {
-  engine: EngineStatus
-  notify: (msg: string) => void
-  setTool: (tool: string) => void
-  /** Open/close a docked panel ('layers' | 'properties'). */
-  togglePanel: (id: string) => void
-  /** Current open/closed state of each docked panel. */
-  panels: Record<string, boolean>
-  /** Open the export dialog (C-31 exp.image). */
-  openExport: () => void
-}
-
 export interface Control {
   id: string
   label: string
@@ -37,30 +28,35 @@ export interface Control {
   state: ControlState
   visibility: Visibility
   shortcut?: string
+  /** Contextual availability (menus AND toolbar share it). */
+  enabled?: (ctx: AppContext) => boolean
+  /** Reason shown in the tooltip when enabled() is false. */
+  whyDisabled?: (ctx: AppContext) => string
   action: (ctx: AppContext) => void
 }
 
-export const controls: Control[] = [
-  { id: 'tool.select', label: 'Select', a11y: 'Select tool', tooltip: 'Select and move objects (V)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'V', action: (c) => c.setTool('select') },
-  { id: 'tool.rect', label: 'Rect', a11y: 'Rectangle tool', tooltip: 'Draw rectangle (R)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'R', action: (c) => c.setTool('rect') },
-  { id: 'tool.transform', label: 'Transform', a11y: 'Free transform tool', tooltip: 'Transform selection (Q)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Q', action: (c) => c.setTool('transform') },
-  { id: 'edit.undo', label: 'Undo', a11y: 'Undo', tooltip: 'Undo (Ctrl+Z)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+Z', action: (c) => performAction('edit.undo', c.notify) },
-  { id: 'edit.redo', label: 'Redo', a11y: 'Redo', tooltip: 'Redo (Ctrl+Shift+Z)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+Shift+Z', action: (c) => performAction('edit.redo', c.notify) },
-  { id: 'timeline.play', label: 'Play', a11y: 'Play/pause', tooltip: 'Play/pause (Enter)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Enter', action: (c) => togglePlay(c.notify) },
-  { id: 'timeline.keyframe', label: 'Keyframe', a11y: 'Insert keyframe', tooltip: 'Insert keyframe (F6)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'F6', action: (c) => performAction('timeline.keyframe', c.notify) },
-  { id: 'file.save', label: 'Save', a11y: 'Save project', tooltip: 'Save (downloads project JSON)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+S', action: (c) => performAction('file.save', c.notify) },
-  { id: 'file.export', label: 'Export', a11y: 'Export image', tooltip: 'Export frame (SVG/PNG/JPEG/WebP)', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.openExport() },
-  { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('layers') },
-  { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('properties') },
-  { id: 'panel.library', label: 'Library', a11y: 'Library panel', tooltip: 'Toggle library panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('library') },
-  { id: 'panel.timeline', label: 'Timeline', a11y: 'Timeline panel', tooltip: 'Show/hide timeline (Ctrl+Alt+T)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+Alt+T', action: (c) => c.togglePanel('timeline') },
-  { id: 'panel.debug', label: 'Dev', a11y: 'Developer panel', tooltip: 'Toggle developer panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('debug') },
-  { id: 'nav.back', label: 'Back', a11y: 'Back one level', tooltip: 'Exit edit depth (Esc)', state: 'FUNCTIONAL', visibility: 'CONTEXTUAL', shortcut: 'Esc', action: (c) => c.notify('back: next unit') },
-]
+/** Map a full command to a toolbar control. */
+function toControl(c: Command): Control {
+  return {
+    id: c.id,
+    label: c.label,
+    a11y: c.label,
+    tooltip: c.shortcut ? `${c.label} (${c.shortcut})` : c.label,
+    state: 'FUNCTIONAL',
+    visibility: 'ALWAYS',
+    shortcut: c.shortcut,
+    enabled: c.enabled,
+    whyDisabled: c.whyDisabled,
+    action: (ctx) => c.run(ctx),
+  }
+}
+
+export const controls: Control[] = commands.filter((c) => c.toolbar).map(toControl)
 
 // Build-time / test-time validation: duplicate IDs, unbound FUNCTIONAL controls,
-// missing a11y labels. A functional-looking button must never do nothing.
-export function validateRegistry(list: Control[]): string[] {
+// missing a11y labels, shortcut conflicts. A functional-looking button must
+// never do nothing.
+export function validateRegistry(list: Control[] = controls): string[] {
   const errors: string[] = []
   const seen = new Set<string>()
   for (const c of list) {
@@ -72,4 +68,9 @@ export function validateRegistry(list: Control[]): string[] {
     if (!c.a11y || c.a11y.trim() === '') errors.push(`missing a11y label: ${c.id}`)
   }
   return errors
+}
+
+/** Full-registry integrity (ids, reasons, shortcut conflicts). */
+export function validateAllCommands(): string[] {
+  return validateCommands(commands)
 }

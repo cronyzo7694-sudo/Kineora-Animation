@@ -4,14 +4,18 @@
 
 import {
   clearKeyframe,
+  clearSelection,
   deleteFrame,
   getEngine,
   getEngineStatus,
   insertBlankKeyframe,
   insertFrame,
   insertKeyframe,
+  loadProjectJson,
+  newDefaultDocument,
   projectJson,
   redo,
+  selectAll,
   setPlayhead,
   statusJson,
   undo,
@@ -116,9 +120,49 @@ export function performAction(id: string, notify: Notify): void {
         notify('save: downloaded kineora-project.json')
       }
       break
+    case 'edit.selectAll':
+      if (!engineAttached()) return void notify(notAttached('select all'))
+      selectAll()
+      notify('select all: done')
+      break
+    case 'edit.deselectAll':
+      if (!engineAttached()) return void notify(notAttached('deselect'))
+      clearSelection()
+      notify('deselect all: done')
+      break
     default:
       notify(`no handler for ${id}`)
   }
+}
+
+// ——— File ▸ New / Open (real engine round-trips, honest blockers) ———
+/** Start a fresh default document (prompts — matches the blueprint save-prompt). */
+export function newProject(notify: Notify): void {
+  if (!engineAttached()) return void notify(notAttached('new'))
+  if (!window.confirm('Start a new project? Unsaved changes in the current project will be lost.')) {
+    return
+  }
+  notify(newDefaultDocument() ? 'new: created default document' : 'new: failed')
+}
+
+/** Open a project JSON from disk via a hidden file input. */
+export function openProjectFile(notify: Notify): void {
+  if (!engineAttached()) return void notify(notAttached('open'))
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,application/json'
+  input.onchange = () => {
+    const file = input.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const ok = loadProjectJson(String(reader.result))
+      notify(ok ? 'open: project loaded' : 'open: invalid project JSON')
+    }
+    reader.onerror = () => notify('open: could not read the file')
+    reader.readAsText(file)
+  }
+  input.click()
 }
 
 // ——— playback (slice-1: a real engine playhead loop, stepped by the UI) ———

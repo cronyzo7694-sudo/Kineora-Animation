@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { makeCommandContext, timelineViewController } from '../commands'
+import { useShortcutScope } from '../shortcuts'
 import { performAction, isLoopEnabled, setLoopEnabled } from '../engine/actions'
 import {
   convertToBlankKeyframes,
@@ -100,10 +102,24 @@ export function TimelineStrip({ status, notify, height }: Props) {
   cellsRef.current = cells
   const statusRef = useRef<StatusJson | null>(status)
   statusRef.current = status
+  // refs so the (once-registered) timeline view controller always sees live
+  // selection / loop / notify state (Edit ▸ Timeline + Control ▸ Loop menus).
+  const notifyRef = useRef(notify)
+  notifyRef.current = notify
+  const selLayerRef = useRef(selLayer)
+  selLayerRef.current = selLayer
+  const selFramesRef = useRef(selFrames)
+  selFramesRef.current = selFrames
+  const layersRef = useRef<StatusJson['layers']>([])
+  const loopOnRef = useRef(false)
+  const doRangeRef = useRef<(op: (layer: number, start: number, end: number) => boolean, verb: string) => void>(() => {})
+  const doPasteRef = useRef<() => void>(() => {})
+  const toggleLoopRef = useRef<() => void>(() => {})
   const keyDragRef = useRef<{ layer: number; from: number; startX: number; moved: boolean } | null>(null)
   const spanResizeRef = useRef<{ layer: number; anchor: number; startX: number } | null>(null)
   const [zoomIdx, setZoomIdx] = useState(1) // ZOOM_LEVELS[1] = 1×
   const [loopOn, setLoopOn] = useState(isLoopEnabled)
+  loopOnRef.current = loopOn
   const [easeDraft, setEaseDraft] = useState<number | null>(null)
   const [labelDraft, setLabelDraft] = useState<string | null>(null)
   // idempotency guard for the ease commit (multiple release events per gesture
@@ -116,6 +132,7 @@ export function TimelineStrip({ status, notify, height }: Props) {
   const attached = status !== null
   const playhead = status?.playhead ?? 1
   const layers = status?.layers ?? []
+  layersRef.current = layers
   const rows = [...layers].reverse()
   const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
 
@@ -375,52 +392,26 @@ export function TimelineStrip({ status, notify, height }: Props) {
     window.addEventListener('keydown', onKey)
   }
 
-  // active layer's keyframes (sorted) for Alt+,/. hop
-  const activeKeyframes = (): number[] => {
-    const st = statusRef.current
-    const layer = st?.layers?.[st.active_layer ?? 0]
-    if (!layer) return []
-    return layer.keyframes.map((k) => k.frame).sort((a, b) => a - b)
-  }
-
-  // keyboard: frame ops + transport + zoom (Part 29.5/29.6, F-07-03/04)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (e.key === 'F5') {
-        e.preventDefault()
-        performAction(e.shiftKey ? 'timeline.deleteframe' : 'timeline.insertframe', notify)
-      } else if (e.key === 'F6') {
-        e.preventDefault()
-        performAction(e.shiftKey ? 'timeline.clear' : 'timeline.keyframe', notify)
-      } else if (e.key === 'F7') {
-        e.preventDefault()
-        performAction('timeline.blank', notify)
-      } else if (e.key === 'Home') {
-        e.preventDefault()
-        setPlayhead(1)
-      } else if (e.key === 'End') {
-        e.preventDefault()
-        setPlayhead(Math.max(1, statusRef.current?.duration ?? 1))
-      } else if (e.key === '.' || e.key === ',') {
-        e.preventDefault()
-        const st = statusRef.current
-        const cur = st?.playhead ?? 1
-        if (e.altKey) {
-          // keyframe hop (F-07-04 Alt+,/. / F-03-08 E4)
-          const keys = activeKeyframes()
-          const target = e.key === '.' ? keys.find((k) => k > cur) : [...keys].reverse().find((k) => k < cur)
-          if (target !== undefined) setPlayhead(target)
-        } else {
-          setPlayhead(e.key === '.' ? cur + 1 : Math.max(1, cur - 1))
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // keyboard: frame ops + transport (Part 29.5/29.6, F-07-03/04) — the
+  // shortcut→command mapping lives in commands.ts; this component owns the
+  // scope of timeline/transport commands (its window listener dispatches
+  // through the single registry).
+  useShortcutScope(
+    new Set([
+      'timeline.insertframe',
+      'timeline.keyframe',
+      'timeline.blank',
+      'timeline.deleteframe',
+      'timeline.clear',
+      'control.firstFrame',
+      'control.lastFrame',
+      'control.stepForward',
+      'control.stepBackward',
+      'control.nextKeyframe',
+      'control.prevKeyframe',
+    ]),
+    makeCommandContext({ notify, engine: attached ? { kind: 'ok', detail: '' } : { kind: 'error', detail: 'not attached' }, getStatus: () => statusRef.current }),
+  )
 
   const zoomIn = () => setZoomIdx((i) => Math.min(ZOOM_LEVELS.length - 1, i + 1))
   const zoomOut = () => setZoomIdx((i) => Math.max(0, i - 1))
@@ -429,6 +420,35 @@ export function TimelineStrip({ status, notify, height }: Props) {
     setLoopOn(next)
     setLoopEnabled(next)
   }
+  toggleLoopRef.current = toggleLoop
+
+  // Register the timeline as the executor of Edit ▸ Timeline + Control ▸ Loop
+  // menu commands (one source of truth — no duplicated frame-op logic).
+  useEffect(() => {
+    timelineViewController.current = {
+      selection: () => {
+        const l = selLayerRef.current
+        const fs = selFramesRef.current
+        if (l === null || fs.size === 0) return null
+        return { layer: l, count: fs.size, locked: layersRef.current[l]?.locked ?? false }
+      },
+      hasClipboard: () => (statusRef.current?.clipboard_len ?? 0) > 0,
+      copy: () => doRangeRef.current(copyFrames, 'copy frames'),
+      cut: () => doRangeRef.current(cutFrames, 'cut frames'),
+      paste: () => doPasteRef.current(),
+      remove: () => doRangeRef.current(removeFrames, 'remove frames'),
+      reverse: () => doRangeRef.current(reverseFrames, 'reverse frames'),
+      duplicate: () => doRangeRef.current(duplicateFrames, 'duplicate frames'),
+      convert: () => doRangeRef.current(convertToKeyframes, 'convert to keyframes'),
+      convertBlank: () => doRangeRef.current(convertToBlankKeyframes, 'convert to blank keyframes'),
+      loopEnabled: () => loopOnRef.current,
+      toggleLoop: () => toggleLoopRef.current(),
+    }
+    return () => {
+      timelineViewController.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const centerFrame = () => {
     const grid = gridRef.current
     if (!grid) return
@@ -488,6 +508,14 @@ export function TimelineStrip({ status, notify, height }: Props) {
     const ok = op(selLayer, sorted[0], sorted[sorted.length - 1])
     notify(ok ? `${verb}: done` : `${verb}: nothing to do`)
   }
+  doRangeRef.current = doRange
+
+  // paste at playhead (shared by the Paste button and Edit ▸ Timeline ▸ Paste)
+  const doPaste = () => {
+    if (!attached) return
+    notify(pasteFrames(status?.active_layer ?? 0, status?.playhead ?? 1) ? 'frames pasted at playhead' : 'paste: clipboard empty or layer locked')
+  }
+  doPasteRef.current = doPaste
 
   const seqBtn = (id: string, label: string, title: string, onClick: () => void) => {
     const hasSel = selLayer !== null && selFrames.size > 0
@@ -553,10 +581,7 @@ export function TimelineStrip({ status, notify, height }: Props) {
         </span>
         {seqBtn('timeline-copy', 'Copy', 'Copy selected frames (to clipboard)', () => doRange(copyFrames, 'copy frames'))}
         {seqBtn('timeline-cut', 'Cut', 'Cut selected frames', () => doRange(cutFrames, 'cut frames'))}
-        {seqBtn('timeline-paste', 'Paste', 'Paste frames at playhead', () => {
-          if (!attached) return
-          notify(pasteFrames(status?.active_layer ?? 0, status?.playhead ?? 1) ? 'frames pasted at playhead' : 'paste: clipboard empty or layer locked')
-        })}
+        {seqBtn('timeline-paste', 'Paste', 'Paste frames at playhead', doPaste)}
         {seqBtn('timeline-reverse', 'Reverse', 'Reverse selected keyframes', () => doRange(reverseFrames, 'reverse frames'))}
         {seqBtn('timeline-remove', 'Remove', 'Remove selected frames (leave gap)', () => doRange(removeFrames, 'remove frames'))}
         {seqBtn('timeline-duplicate', '⧉ Dup', 'Duplicate the selected frame range', () => doRange(duplicateFrames, 'duplicate frames'))}

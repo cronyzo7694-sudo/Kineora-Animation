@@ -469,3 +469,15 @@ Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyfra
 4. Object-level lock/hide + draggable pivot + tool-options schema + shortcut wiring.
 5. Onion skin (Part 15) · camera/audio (Part 16/17) — Release 2.
 6. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.
+
+## UI Foundation + Menu/Command Architecture (unit after UNIT H)
+- **Command registry** (`src/commands.ts`) — single source of truth: every visible action (menu/toolbar/shortcut/palette) resolves one id → one run. ~130 commands, each classified FUNCTIONAL / DEFERRED / UNAVAILABLE with a blueprint+Adobe source and a human reason (zero silent grey boxes).
+- **Shortcut registry** (`src/shortcuts.ts`) — one normalizer + one lookup + conflict validation; a scoped `useShortcutScope` hook means App/Stage/TimelineStrip listen for DISJOINT scopes (no double-fire); disabled commands report WHY instead of failing silently. Ctrl+Y aliases Redo.
+- **Menu bar** (`menus.ts` + `components/MenuBar.tsx`) — the 11 professional menus (File/Edit/View/Insert/Modify/Text/Commands/Control/Debug/Window/Help) with flyout submenus, separators, checkmarks, disabled+reason tooltips, Esc/outside-click close.
+- **Command palette** (`components/CommandPalette.tsx`) — Ctrl+K fuzzy search over the whole registry (C-04).
+- **Dialogs** — Document Settings (Ctrl+J, `DocumentSettingsDialog`), Keyboard Shortcuts viewer (Ctrl+Shift+Alt+K), About (`AboutDialog`).
+- **Wiring** — Window menu drives the existing panel-visibility registry (incl. new Tools toggle); Control menu drives the existing playback state via a timeline view controller; View zoom drives the stage view controller; File New/Open/Save/Export are real engine round-trips; Edit Select All/Deselect use `kineora_select_all`/`kineora_clear_selection` (already in the core).
+- **Header** — brand + version (v0.2), no more "vertical slice"; Reset Workspace kept (Window ▸ Reset Workspace + header button).
+- **Dead button removed** — `nav.back` ("back: next unit") removed; it was a placeholder.
+- **Engine unchanged** — no Rust files touched; facade exports verified (incl. select_all / clear_selection / new_default / set_document_settings).
+- Tests: UI 322/322 · Rust 214/214 · fmt ✓ · clippy 0 · wasm ✓.

@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 144 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 174 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -22,7 +22,8 @@
 | **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (1a02769) | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands |
 | **Timeline navigation + zoom + transport** | MOD-TIMELINE | ACCEPTED (24269fe) | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
 | **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (e23c23f) | drag-range selection, copy/cut/paste/reverse/remove frames |
-| **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | **COMPLETE (this commit, UNIT F) — pending manual acceptance** | explicit tween spans, hold-by-default, ease slider, span visuals, easing.rs + tween.rs (17 tests) |
+| **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | ACCEPTED (cd6fc44) | explicit tween spans, hold-by-default, ease slider, span visuals |
+| **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT G) — pending manual acceptance** | sequence move (exposure-preserving), span-edge resize, duplicate range, convert-to-keys/blanks, frame labels, end-of-span marker, sequences.rs (30 tests) |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -36,6 +37,35 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT G: frame sequences, exposure & labels (Part 07 §7.4.8–12 + §7.2 + §7.3)
+- **Sequence move** (Part 07 §7.4.9 / F-07-12 E2): dragging a keyframe dot now moves the keyframe **together with its held span** (the next keyframe shifts by the same delta → exposure preserved). Collision → **overwrite prompt** (`window.confirm`); OK = overwrite, Cancel = nothing (one undoable command either way; blocked moves create no command). Alt-drag still duplicates a single keyframe.
+- **Span-edge resize** (Part 07 §7.4.11 / F-15-05 exposure editing): a hollow-rect **end-of-span marker** (F-07-05 E2/E4) on the last held cell doubles as a drag handle — drag to extend/shorten the hold; the exposure is clamped to a **minimum of 1 frame**; zero-delta = no command; Esc cancels; the classic-tween end keyframe shifts with the span.
+- **Duplicate frames** (Part 07 §7.4.8): duplicates the selected range immediately after, shifting later frames; undo/redo exact.
+- **Convert to Keyframes / Blank Keyframes** (Part 07 §7.4.12): bake held frames into content keyframes **copying the hold's content AND transforms** (playback visually unchanged), or into blank keyframes; undo/redo exact.
+- **Frame labels** (Part 07 §7.2 / Part 33.8 `label`): `Frame::Keyframe.label` (serde-default backward-compat), set/clear via the timeline label input (single selected content keyframe), **red flag** on the dot, persisted, undoable, and never affects evaluate/export.
+- **Engine enforcement**: all mutations are undoable Rust commands with locked-layer guards; no-op/collision/min-exposure cases create no command. Status exposes per-marker `label`.
+- **Deferred**: insert-shift (vs overwrite) on sequence-move collision (overwrite implemented per the prompt); Distribute-to-Layers; frame actions; span-based selection mode.
+
+### Manual acceptance matrix — UNIT G (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | draw @1, F6 @10, move @10 → drag the **dot @1** to frame 5 | both keyframes move (→@5 and @14), exposure 9 kept |
+| 2 | Ctrl+Z / Ctrl+Shift+Z | exact revert / re-apply |
+| 3 | drag a span onto an occupied frame | overwrite prompt appears; OK overwrites, Cancel = nothing |
+| 4 | drag the **hollow-rect edge** of the span right by 3 | hold extends; later keyframes shift right |
+| 5 | drag the edge left by 3 | hold shortens; can't go below 1 frame |
+| 6 | Undo/redo each resize | exact |
+| 7 | select a 3-frame span → **⧉ Dup** | a copy appears right after; later frames shift; Undo removes it |
+| 8 | select held frames → **▣ Keys** | every frame becomes a keyframe; playback identical |
+| 9 | select frames → **□ Blanks** | hollow dots; content gone; Undo restores |
+| 10 | select a single content keyframe → type a **label** + Enter | red flag appears; Undo clears; Save→Reload keeps it |
+| 11 | Alt-drag a dot | still duplicates a single keyframe (unchanged) |
+| 12 | lock the layer → sequence/edge/dup/convert/label | all blocked (buttons disabled + engine guard) |
+| 13 | Export | correct content; **no flags/hollow-rects/selection in SVG** |
+| 14 | classic tween 1..10 + span-edge drag | tween end follows the shifted keyframe |
+| 15 | sequence/edge drag at 50%/200%/400% zoom | lands on the correct frame |
+| 16 | release an edge drag without moving / Esc mid-drag | no command, no change |
 
 ## This commit — Ease audit (UNIT F follow-up, per manual "ease looks identical" report)
 - **Audit verdict: the easing MATH was CORRECT.** Part 09.4.3 (range −100..+100; negative = ease-IN slow-start; positive = ease-OUT fast-start; 0 = linear; quadratic by default) is implemented exactly: at the normalized midpoint the three curves are **0.25 / 0.50 / 0.75** — for a 200px tween the mid-span positions are **50 / 100 / 150 px**. The user's "almost identical" came from two things: (1) the **start and end frames are IDENTICAL by design** (every curve is exact at its endpoints — the difference lives only in the intermediate frames), and (2) the ease slider committed only on a single fragile `mouseup`/`keyup` release event — if that event was missed, the ease never reached the engine, so all three literally stayed linear.

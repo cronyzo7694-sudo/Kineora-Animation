@@ -223,6 +223,30 @@ export function removeClassicTween(layer: number, start: number): boolean {
   return mod?.kineora_remove_classic_tween(layer, start) ?? false
 }
 
+export function moveKeyframeSequence(layer: number, from: number, to: number, overwrite: boolean): boolean {
+  return mod?.kineora_move_keyframe_sequence(layer, from, to, overwrite) ?? false
+}
+
+export function resizeSpan(layer: number, anchor: number, delta: number): boolean {
+  return mod?.kineora_resize_span(layer, anchor, delta) ?? false
+}
+
+export function duplicateFrames(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_duplicate_frames(layer, start, end) ?? false
+}
+
+export function convertToKeyframes(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_convert_to_keyframes(layer, start, end) ?? false
+}
+
+export function convertToBlankKeyframes(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_convert_to_blank_keyframes(layer, start, end) ?? false
+}
+
+export function setFrameLabel(layer: number, frame: number, label: string): boolean {
+  return mod?.kineora_set_frame_label(layer, frame, label) ?? false
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

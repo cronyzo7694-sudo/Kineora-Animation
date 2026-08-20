@@ -1,10 +1,12 @@
 use std::path::Path;
 
 use crate::command::{
-    ClearKeyframe, CreateLayer, DeleteFrames, DeleteLayer, DrawRect, DuplicateKeyframe, History,
-    InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe, MoveSelection, PasteFrames,
-    RemoveClassicTween, RemoveFrames, RenameLayer, ReorderLayer, ReverseFrames, SetClassicTween,
-    SetDocumentSettings, SetLayerLocked, SetLayerVisible, SetNodeProps, TransformSelection,
+    ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, CreateLayer, DeleteFrames,
+    DeleteLayer, DrawRect, DuplicateFrames, DuplicateKeyframe, History, InsertBlankKeyframe,
+    InsertFrames, InsertKeyframe, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
+    RemoveClassicTween, RemoveFrames, RenameLayer, ReorderLayer, ResizeSpan, ReverseFrames,
+    SetClassicTween, SetDocumentSettings, SetFrameLabel, SetLayerLocked, SetLayerVisible,
+    SetNodeProps, TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
 use crate::export::{export_svg, export_svg_scaled};
@@ -558,6 +560,221 @@ impl Session {
         let cmd = RemoveClassicTween::new(scene, layer, start);
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.log(&format!("remove-tween@{start}"));
+        true
+    }
+
+    // ——— Frame sequences, exposure, labels (Part 07 §7.4.8–12, §7.2) ———
+
+    /// Drag a keyframe TOGETHER WITH its held span (Part 07 §7.4.9 / F-07-12 E2):
+    /// moves the keyframe at `from` and the NEXT keyframe by the same delta,
+    /// preserving exposure. `overwrite` = replace any keyframes at the target
+    /// frames. No-op (no command) on zero delta, missing source, locked layer,
+    /// or collision with overwrite=false (the UI prompts first).
+    pub fn move_keyframe_sequence(
+        &mut self,
+        layer: usize,
+        from: u32,
+        to: u32,
+        overwrite: bool,
+    ) -> bool {
+        let scene = self.active_scene;
+        if from == to || to < 1 {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("seq-move:blocked(locked)");
+            return false;
+        }
+        if !l.keyframes.contains_key(&from) {
+            self.log("seq-move:(no source)");
+            return false;
+        }
+        // pre-check collision (so a blocked move never creates a command)
+        if !overwrite {
+            let next = l.keyframes.keys().copied().filter(|k| *k > from).min();
+            let delta = to as i64 - from as i64;
+            let target_next = next.map(|n| (n as i64 + delta) as u32);
+            let occupied =
+                |f: u32, mover: Option<u32>| l.keyframes.contains_key(&f) && mover != Some(f);
+            if occupied(to, Some(from)) || target_next.map(|tn| occupied(tn, next)).unwrap_or(false)
+            {
+                self.log("seq-move:(target occupied)");
+                return false;
+            }
+        }
+        let cmd = MoveKeyframeSequence::new(scene, layer, from, to, overwrite);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("seq-move:{from}→{to}"));
+        true
+    }
+
+    /// Drag the edge of a held span (Part 07 §7.4.11 / F-15-05): shift every
+    /// keyframe after `anchor` by `delta`, extending (delta>0) or shortening
+    /// (delta<0) the hold of the keyframe at `anchor`. The exposure is clamped
+    /// to a minimum of 1 frame; zero-delta / no-next-keyframe / locked = no-op.
+    pub fn resize_span(&mut self, layer: usize, anchor: u32, delta: i64) -> bool {
+        let scene = self.active_scene;
+        if delta == 0 {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("resize-span:blocked(locked)");
+            return false;
+        }
+        if !l.keyframes.contains_key(&anchor) {
+            self.log("resize-span:(no anchor keyframe)");
+            return false;
+        }
+        let next = l.keyframes.keys().copied().filter(|k| *k > anchor).min();
+        let Some(next) = next else {
+            // the last keyframe holds to infinity — nothing to shift
+            self.log("resize-span:(no span end)");
+            return false;
+        };
+        // clamp: exposure (next - anchor) must stay ≥ 1
+        let exposure = (next - anchor) as i64;
+        let d = if delta < 0 {
+            delta.max(1 - exposure)
+        } else {
+            delta
+        };
+        if d == 0 {
+            self.log("resize-span:(min exposure)");
+            return false;
+        }
+        let cmd = ResizeSpan::new(scene, layer, anchor, d);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("resize-span:{anchor} {d:+}"));
+        true
+    }
+
+    /// Duplicate the selected frame range (Part 07 §7.4.8): copies the keyframes
+    /// in [start,end] and inserts them immediately after, shifting later frames.
+    /// One undoable command. No-op when the range holds no keyframes.
+    pub fn duplicate_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let scene = self.active_scene;
+        if start > end {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("duplicate-frames:blocked(locked)");
+            return false;
+        }
+        let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
+        if !any {
+            self.log("duplicate-frames:(none)");
+            return false;
+        }
+        let cmd = DuplicateFrames::new(scene, layer, start, end);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("duplicate-frames:{start}..{end}"));
+        true
+    }
+
+    /// Convert held frames in [start,end] into keyframes (Part 07 §7.4.12),
+    /// copying the hold's content + transforms so playback is unchanged.
+    /// One undoable command.
+    pub fn convert_to_keyframes(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let scene = self.active_scene;
+        if start > end {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("convert-keys:blocked(locked)");
+            return false;
+        }
+        // need a content hold at `start` and at least one non-keyframe frame
+        let hold = l
+            .keyframes
+            .range(..=start)
+            .next_back()
+            .and_then(|(_, fr)| match fr {
+                Frame::Keyframe { .. } => Some(()),
+                Frame::Blank => None,
+            });
+        if hold.is_none() {
+            self.log("convert-keys:(no content hold)");
+            return false;
+        }
+        let any_gap = (start..=end).any(|f| !l.keyframes.contains_key(&f));
+        if !any_gap {
+            self.log("convert-keys:(already keyframes)");
+            return false;
+        }
+        let cmd = ConvertToKeyframes::new(scene, layer, start, end);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("convert-keys:{start}..{end}"));
+        true
+    }
+
+    /// Convert frames in [start,end] into BLANK keyframes (Part 07 §7.4.12).
+    /// One undoable command.
+    pub fn convert_to_blank_keyframes(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let scene = self.active_scene;
+        if start > end {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("convert-blank:blocked(locked)");
+            return false;
+        }
+        let any_nonblank =
+            (start..=end).any(|f| !matches!(l.keyframes.get(&f), Some(Frame::Blank)));
+        if !any_nonblank {
+            self.log("convert-blank:(already blank)");
+            return false;
+        }
+        let cmd = ConvertToBlankKeyframes::new(scene, layer, start, end);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("convert-blank:{start}..{end}"));
+        true
+    }
+
+    /// Set or clear the label on a CONTENT keyframe (Part 07 §7.2 / Part 33.8).
+    /// `label` = None or empty → clear. No-op when the frame isn't a content
+    /// keyframe or the layer is locked.
+    pub fn set_frame_label(&mut self, layer: usize, frame: u32, label: Option<&str>) -> bool {
+        let scene = self.active_scene;
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("set-label:blocked(locked)");
+            return false;
+        }
+        let matches_content = matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. }));
+        if !matches_content {
+            self.log("set-label:(not a content keyframe)");
+            return false;
+        }
+        let after = label
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let before = l
+            .keyframes
+            .get(&frame)
+            .and_then(|f| f.label().map(|s| s.to_string()));
+        if before == after {
+            return false; // unchanged → no command
+        }
+        let cmd = SetFrameLabel::new(scene, layer, frame, after);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("set-label@{frame}"));
         true
     }
 

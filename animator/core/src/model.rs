@@ -94,6 +94,10 @@ pub enum Frame {
     Keyframe {
         content: Vec<NodeId>,
         transforms: BTreeMap<NodeId, Transform>,
+        /// Named frame label (Part 07 §7.2 "red flag" / Part 33.8 `label`) —
+        /// goto targets. Display-only metadata; None = unlabeled.
+        #[serde(default)]
+        label: Option<String>,
     },
     Blank,
 }
@@ -103,6 +107,7 @@ impl Frame {
         Frame::Keyframe {
             content,
             transforms: BTreeMap::new(),
+            label: None,
         }
     }
     pub fn blank() -> Self {
@@ -110,6 +115,13 @@ impl Frame {
     }
     pub fn is_keyframe(&self) -> bool {
         matches!(self, Frame::Keyframe { .. })
+    }
+    /// The frame label, if this is a labeled content keyframe.
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Frame::Keyframe { label, .. } => label.as_deref(),
+            Frame::Blank => None,
+        }
     }
 }
 

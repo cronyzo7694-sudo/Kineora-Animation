@@ -1030,6 +1030,443 @@ impl Command for RemoveClassicTween {
     }
 }
 
+/// CMD-SEQ-MOVE — drag a keyframe TOGETHER WITH its held span (Part 07 §7.4.9
+/// "drag a frame/span"; F-07-12 E2): the keyframe at `from` and the NEXT
+/// keyframe (the end of its exposure) shift by the same delta, preserving the
+/// exposure length. Collisions at the target frames overwrite when
+/// `overwrite` is true. One command; bit-exact revert.
+pub struct MoveKeyframeSequence {
+    pub scene: usize,
+    pub layer: usize,
+    pub from: u32,
+    pub to: u32,
+    pub overwrite: bool,
+    prev_kf: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
+}
+
+impl MoveKeyframeSequence {
+    pub fn new(scene: usize, layer: usize, from: u32, to: u32, overwrite: bool) -> Self {
+        Self {
+            scene,
+            layer,
+            from,
+            to,
+            overwrite,
+            prev_kf: None,
+            prev_tweens: None,
+        }
+    }
+}
+
+impl Command for MoveKeyframeSequence {
+    fn label(&self) -> String {
+        "Move frame span".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_kf = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
+
+        let Some(start_rec) = l.keyframes.get(&self.from).cloned() else {
+            return; // nothing to move
+        };
+        let delta = self.to as i64 - self.from as i64;
+        if delta == 0 {
+            return;
+        }
+        // the span's end = the NEXT keyframe after `from`, if any
+        let next: Option<u32> = l.keyframes.keys().copied().filter(|k| *k > self.from).min();
+        let next_rec = next.and_then(|n| l.keyframes.get(&n).cloned());
+
+        let target_start = self.to;
+        let target_next = next.map(|n| (n as i64 + delta) as u32);
+
+        // collision check when NOT overwriting: a target frame is blocked if a
+        // keyframe OTHER than the one moving there already occupies it.
+        if !self.overwrite {
+            let occupied =
+                |f: u32, mover: Option<u32>| l.keyframes.contains_key(&f) && mover != Some(f);
+            let b1 = occupied(target_start, Some(self.from));
+            let b2 = target_next.map(|tn| occupied(tn, next)).unwrap_or(false);
+            if b1 || b2 {
+                return; // collision, no overwrite → no-op
+            }
+        }
+
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        // drop tweens anchored to the moving keyframes (broken span)
+        l.tweens.retain(|s, tw| {
+            !(*s == self.from || tw.end == self.from)
+                && !next.map(|n| *s == n || tw.end == n).unwrap_or(false)
+        });
+        // remove the moving keyframes from their old positions
+        l.keyframes.remove(&self.from);
+        if let Some(n) = next {
+            l.keyframes.remove(&n);
+        }
+        // remove collision targets when overwriting
+        if self.overwrite {
+            l.keyframes.remove(&target_start);
+            if let Some(tn) = target_next {
+                l.keyframes.remove(&tn);
+            }
+        }
+        // place at the new positions
+        l.keyframes.insert(target_start, start_rec);
+        if let (Some(rec), Some(tn)) = (next_rec, target_next) {
+            l.keyframes.insert(tn, rec);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev_kf.clone() {
+            l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
+        }
+    }
+}
+
+/// CMD-RESIZE-SPAN — drag the edge of a held span (Part 07 §7.4.11 / F-15-05
+/// exposure editing): shift every keyframe AFTER `anchor` by `delta`, so the
+/// hold of the keyframe at `anchor` extends (delta>0) or shortens (delta<0).
+/// The Session clamps the exposure to a minimum of 1 frame. One command.
+pub struct ResizeSpan {
+    pub scene: usize,
+    pub layer: usize,
+    pub anchor: u32,
+    pub delta: i64,
+    prev_kf: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
+}
+
+impl ResizeSpan {
+    pub fn new(scene: usize, layer: usize, anchor: u32, delta: i64) -> Self {
+        Self {
+            scene,
+            layer,
+            anchor,
+            delta,
+            prev_kf: None,
+            prev_tweens: None,
+        }
+    }
+}
+
+impl Command for ResizeSpan {
+    fn label(&self) -> String {
+        "Resize frame span".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if self.delta == 0 {
+            return;
+        }
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_kf = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        let moved: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k > self.anchor)
+            .collect();
+        // descending for positive delta, ascending for negative (collision-safe)
+        let mut ordered = moved;
+        if self.delta > 0 {
+            ordered.sort_unstable_by(|a, b| b.cmp(a));
+        } else {
+            ordered.sort_unstable();
+        }
+        for k in ordered {
+            if let Some(fr) = l.keyframes.remove(&k) {
+                l.keyframes.insert((k as i64 + self.delta) as u32, fr);
+            }
+        }
+        shift_tweens(&mut l.tweens, self.anchor, self.delta);
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev_kf.clone() {
+            l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
+        }
+    }
+}
+
+/// CMD-DUPLICATE-FRAMES — duplicate the selected frame range (Part 07 §7.4.8):
+/// copy the keyframes in [start,end] and insert them IMMEDIATELY AFTER the
+/// range (preserving relative offsets), shifting later keyframes right to make
+/// room. One command; bit-exact revert.
+pub struct DuplicateFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    prev_kf: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
+}
+
+impl DuplicateFrames {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            prev_kf: None,
+            prev_tweens: None,
+        }
+    }
+}
+
+impl Command for DuplicateFrames {
+    fn label(&self) -> String {
+        "Duplicate frames".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_kf = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
+
+        let recs: Vec<(u32, Frame)> = l
+            .keyframes
+            .iter()
+            .filter(|(k, _)| **k >= self.start && **k <= self.end)
+            .map(|(k, f)| (*k, f.clone()))
+            .collect();
+        if recs.is_empty() {
+            return;
+        }
+        let len = (self.end - self.start + 1) as i64; // frame-range length
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        // shift keyframes after `end` right by len (descending to avoid collisions)
+        let after: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k > self.end)
+            .collect();
+        let mut ordered = after;
+        ordered.sort_unstable_by(|a, b| b.cmp(a));
+        for k in ordered {
+            if let Some(fr) = l.keyframes.remove(&k) {
+                l.keyframes.insert((k as i64 + len) as u32, fr);
+            }
+        }
+        shift_tweens(&mut l.tweens, self.end, len);
+        // insert the duplicated records after the range
+        for (f, rec) in recs {
+            l.keyframes.insert((f as i64 + len) as u32, rec);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev_kf.clone() {
+            l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
+        }
+    }
+}
+
+/// CMD-CONVERT-KEYS — convert held frames in [start,end] into keyframes
+/// (Part 07 §7.4.12): every non-keyframe frame in the range becomes a content
+/// keyframe copying the hold's content AND transforms, so playback is visually
+/// unchanged. One command; bit-exact revert.
+pub struct ConvertToKeyframes {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    prev_kf: Option<BTreeMap<u32, Frame>>,
+}
+
+impl ConvertToKeyframes {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            prev_kf: None,
+        }
+    }
+}
+
+impl Command for ConvertToKeyframes {
+    fn label(&self) -> String {
+        "Convert to keyframes".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_kf = Some(l.keyframes.clone());
+        // the hold at `start` = nearest keyframe ≤ start (content + transforms)
+        let hold: Option<(Vec<NodeId>, BTreeMap<NodeId, Transform>)> = l
+            .keyframes
+            .range(..=self.start)
+            .next_back()
+            .and_then(|(_, fr)| match fr {
+                Frame::Keyframe {
+                    content,
+                    transforms,
+                    ..
+                } => Some((content.clone(), transforms.clone())),
+                Frame::Blank => None,
+            });
+        let Some((content, transforms)) = hold else {
+            return; // nothing to hold → nothing to convert
+        };
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        let mut made = false;
+        for f in self.start..=self.end {
+            l.keyframes.entry(f).or_insert_with(|| {
+                made = true;
+                Frame::Keyframe {
+                    content: content.clone(),
+                    transforms: transforms.clone(),
+                    label: None,
+                }
+            });
+        }
+        if !made {
+            self.prev_kf = None; // no change → no command
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev_kf.clone() {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-CONVERT-BLANK — convert frames in [start,end] into BLANK keyframes
+/// (Part 07 §7.4.12 "Convert to Blank Keyframes"): every non-blank frame in the
+/// range becomes an explicit empty keyframe. One command; bit-exact revert.
+pub struct ConvertToBlankKeyframes {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    prev_kf: Option<BTreeMap<u32, Frame>>,
+}
+
+impl ConvertToBlankKeyframes {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            prev_kf: None,
+        }
+    }
+}
+
+impl Command for ConvertToBlankKeyframes {
+    fn label(&self) -> String {
+        "Convert to blank keyframes".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_kf = Some(l.keyframes.clone());
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        let mut made = false;
+        for f in self.start..=self.end {
+            if !matches!(l.keyframes.get(&f), Some(Frame::Blank)) {
+                l.keyframes.insert(f, Frame::Blank);
+                made = true;
+            }
+        }
+        if !made {
+            self.prev_kf = None;
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev_kf.clone() {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-SET-LABEL — set or clear the label on a CONTENT keyframe (Part 07 §7.2
+/// "red flag" / Part 33.8 `label`). One command; bit-exact revert.
+pub struct SetFrameLabel {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    pub after: Option<String>,
+    before: Option<Option<String>>,
+}
+
+impl SetFrameLabel {
+    pub fn new(scene: usize, layer: usize, frame: u32, after: Option<String>) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            after,
+            before: None,
+        }
+    }
+}
+
+impl Command for SetFrameLabel {
+    fn label(&self) -> String {
+        "Set frame label".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        let Some(Frame::Keyframe { label, .. }) = l.keyframes.get(&self.frame) else {
+            return; // only content keyframes carry labels
+        };
+        self.before = Some(label.clone());
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        if let Some(Frame::Keyframe { label, .. }) = l.keyframes.get_mut(&self.frame) {
+            *label = self.after.clone();
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(before) = self.before.clone() {
+            if let Some(Frame::Keyframe { label, .. }) = l.keyframes.get_mut(&self.frame) {
+                *label = before;
+            }
+        }
+    }
+}
+
 /// CMD-LAYER-ADD — insert a new layer above the active one (Part 20.1).
 pub struct CreateLayer {
     pub scene: usize,

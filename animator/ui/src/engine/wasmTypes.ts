@@ -43,6 +43,8 @@ export interface SelDetailJson {
 export interface FrameMarkerJson {
   frame: number
   blank: boolean
+  /** Named frame label (Part 33.8) — red flag in the timeline. */
+  label?: string
 }
 
 /** Classic tween span for the timeline (Part 09.2). */
@@ -139,6 +141,12 @@ export interface KineoraWasm {
   kineora_reverse_frames(layer: number, start: number, end: number): boolean
   kineora_set_classic_tween(layer: number, start: number, end: number, ease: number): boolean
   kineora_remove_classic_tween(layer: number, start: number): boolean
+  kineora_move_keyframe_sequence(layer: number, from: number, to: number, overwrite: boolean): boolean
+  kineora_resize_span(layer: number, anchor: number, delta: number): boolean
+  kineora_duplicate_frames(layer: number, start: number, end: number): boolean
+  kineora_convert_to_keyframes(layer: number, start: number, end: number): boolean
+  kineora_convert_to_blank_keyframes(layer: number, start: number, end: number): boolean
+  kineora_set_frame_label(layer: number, frame: number, label: string | null): boolean
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

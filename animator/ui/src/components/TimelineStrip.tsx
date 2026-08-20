@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { performAction, isLoopEnabled, setLoopEnabled } from '../engine/actions'
 import {
+  convertToBlankKeyframes,
+  convertToKeyframes,
   copyFrames,
   cutFrames,
+  duplicateFrames,
   duplicateKeyframe,
-  moveKeyframe,
+  moveKeyframeSequence,
   pasteFrames,
   removeClassicTween,
   removeFrames,
+  resizeSpan,
   reverseFrames,
   setActiveLayer,
   setClassicTween,
+  setFrameLabel,
   setPlayhead,
 } from '../engine/client'
 import type { FrameMarkerJson, StatusJson, TweenJson } from '../engine/wasmTypes'
@@ -93,9 +98,11 @@ export function TimelineStrip({ status, notify }: Props) {
   const statusRef = useRef<StatusJson | null>(status)
   statusRef.current = status
   const keyDragRef = useRef<{ layer: number; from: number; startX: number; moved: boolean } | null>(null)
+  const spanResizeRef = useRef<{ layer: number; anchor: number; startX: number } | null>(null)
   const [zoomIdx, setZoomIdx] = useState(1) // ZOOM_LEVELS[1] = 1×
   const [loopOn, setLoopOn] = useState(isLoopEnabled)
   const [easeDraft, setEaseDraft] = useState<number | null>(null)
+  const [labelDraft, setLabelDraft] = useState<string | null>(null)
   // idempotency guard for the ease commit (multiple release events per gesture
   // — pointerup/mouseup/keyup/blur — must produce ONE undoable command).
   const easeCommitRef = useRef<number | null>(null)
@@ -123,6 +130,23 @@ export function TimelineStrip({ status, notify }: Props) {
     ? selLayerObj.tweens.find((tw) => tw.end >= selMin && tw.start <= selMax)
     : undefined
   const activeEase = easeDraft ?? (selTween?.ease ?? 0)
+
+  // a label can be edited when exactly ONE CONTENT keyframe is selected
+  const labelTarget =
+    selLayer !== null && selFrames.size === 1
+      ? selLayerObj?.keyframes.find((k) => k.frame === selMin && !k.blank) ?? null
+      : null
+
+  const commitLabel = () => {
+    if (selLayer === null || labelTarget === null) return
+    const value = (labelDraft ?? labelTarget.label ?? '').trim()
+    if (value === (labelTarget.label ?? '')) {
+      setLabelDraft(null)
+      return
+    }
+    notify(setFrameLabel(selLayer, labelTarget.frame, value) ? (value ? `label → ${value}` : 'label cleared') : 'label: not a content keyframe')
+    setLabelDraft(null)
+  }
 
   const tweenAt = (layer: StatusJson['layers'][number], f: number): TweenJson | null =>
     layer.tweens.find((tw) => f >= tw.start && f <= tw.end) ?? null
@@ -291,9 +315,17 @@ export function TimelineStrip({ status, notify }: Props) {
       const target = frameFromClientX(ev.clientX)
       if (target === g.from) return
       if (ev.altKey) {
+        // Alt-drag = duplicate a single keyframe (F-07-12 E1)
         notify(duplicateKeyframe(g.layer, g.from, target) ? `keyframe duplicated ${g.from} → ${target}` : 'duplicate keyframe: target occupied or locked')
       } else {
-        notify(moveKeyframe(g.layer, g.from, target) ? `keyframe moved ${g.from} → ${target}` : 'move keyframe: target occupied or locked')
+        // drag = move the keyframe TOGETHER WITH its held span (Part 07 §7.4.9)
+        const ok = moveKeyframeSequence(g.layer, g.from, target, false)
+        if (ok) {
+          notify(`frame span moved ${g.from} → ${target}`)
+        } else if (window.confirm('The target has keyframes. Overwrite them?')) {
+          const ow = moveKeyframeSequence(g.layer, g.from, target, true)
+          notify(ow ? `frame span moved ${g.from} → ${target} (overwrite)` : 'move frame span: blocked')
+        }
       }
     }
     const onKey = (ev: KeyboardEvent) => {
@@ -305,6 +337,37 @@ export function TimelineStrip({ status, notify }: Props) {
       }
     }
     window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    window.addEventListener('keydown', onKey)
+  }
+
+  // span-edge resize (Part 07 §7.4.11 / F-15-05): drag the end of a held span
+  // to extend/shorten the exposure of the keyframe at `anchor`. One command on
+  // release; zero-delta = no command; Esc cancels.
+  const onSpanEdgeDown = (e: React.MouseEvent, layerIdx: number, anchor: number) => {
+    if (e.button !== 0) return
+    const locked = layers[layerIdx]?.locked ?? false
+    if (locked) return
+    e.preventDefault()
+    e.stopPropagation()
+    spanResizeRef.current = { layer: layerIdx, anchor, startX: e.clientX }
+    const up = (ev: MouseEvent) => {
+      const g = spanResizeRef.current
+      spanResizeRef.current = null
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('keydown', onKey)
+      if (!g) return
+      const delta = Math.round((ev.clientX - g.startX) / cellW)
+      if (delta === 0) return
+      notify(resizeSpan(g.layer, g.anchor, delta) ? `span resized by ${delta}` : 'resize span: nothing to resize')
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        spanResizeRef.current = null
+        window.removeEventListener('mouseup', up)
+        window.removeEventListener('keydown', onKey)
+      }
+    }
     window.addEventListener('mouseup', up)
     window.addEventListener('keydown', onKey)
   }
@@ -493,7 +556,30 @@ export function TimelineStrip({ status, notify }: Props) {
         })}
         {seqBtn('timeline-reverse', 'Reverse', 'Reverse selected keyframes', () => doRange(reverseFrames, 'reverse frames'))}
         {seqBtn('timeline-remove', 'Remove', 'Remove selected frames (leave gap)', () => doRange(removeFrames, 'remove frames'))}
+        {seqBtn('timeline-duplicate', '⧉ Dup', 'Duplicate the selected frame range', () => doRange(duplicateFrames, 'duplicate frames'))}
+        {seqBtn('timeline-convert', '▣ Keys', 'Convert held frames to keyframes', () => doRange(convertToKeyframes, 'convert to keyframes'))}
+        {seqBtn('timeline-convert-blank', '□ Blanks', 'Convert frames to blank keyframes', () => doRange(convertToBlankKeyframes, 'convert to blank keyframes'))}
         <span style={{ width: 1, height: 16, background: '#333', display: 'inline-block' }} />
+        {labelTarget !== null && (
+          <span data-testid="timeline-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#888', fontSize: 11 }}>label</span>
+            <input
+              data-testid="timeline-label-input"
+              value={labelDraft ?? labelTarget.label ?? ''}
+              placeholder="name"
+              onChange={(e) => setLabelDraft(e.target.value)}
+              onBlur={commitLabel}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') {
+                  setLabelDraft(null)
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+              style={{ width: 80, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 5px', fontSize: 11 }}
+            />
+          </span>
+        )}
         <button
           data-testid="timeline-create-tween"
           data-disabled={(!attached || selLayer === null || selKeyframes.length !== 2 || (selLayerObj?.locked ?? false)) ? 'true' : 'false'}
@@ -577,6 +663,19 @@ export function TimelineStrip({ status, notify }: Props) {
                     const selected = selLayer === engineIndex && selFrames.has(f)
                     const tw = tweenAt(l, f)
                     const bg = tw ? '#1d4e7f' : kind === 'held' ? '#333333' : 'transparent'
+                    const marker = l.keyframes.find((m) => m.frame === f)
+                    const label = marker?.label ?? undefined
+                    // span edge = the LAST held cell of a span (next cell isn't held)
+                    const isEdge = kind === 'held' && (i + 1 >= kinds.length || kinds[i + 1] !== 'held')
+                    // the anchor (start keyframe) of the hold that this edge ends
+                    const anchor = (() => {
+                      let last: number | null = null
+                      for (const m of l.keyframes) {
+                        if (m.frame <= f && !m.blank) last = m.frame
+                        if (m.frame > f) break
+                      }
+                      return last
+                    })()
                     return (
                       <div
                         key={f}
@@ -592,8 +691,27 @@ export function TimelineStrip({ status, notify }: Props) {
                           <span
                             data-testid={`kf-dot-${engineIndex}-${f}`}
                             data-blank={kind === 'blank' ? 'true' : 'false'}
+                            data-label={label ?? ''}
+                            title={label ? `label: ${label}` : undefined}
                             onMouseDown={(e) => onDotDown(e, engineIndex, f)}
                             style={{ position: 'absolute', left: cellW / 2 - 4, top: ROW_H / 2 - 4, width: 8, height: 8, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888', cursor: 'grab' }}
+                          />
+                        )}
+                        {label && (
+                          <span
+                            data-testid={`kf-label-${engineIndex}-${f}`}
+                            style={{ position: 'absolute', left: cellW / 2 + 3, top: 0, color: '#e33', fontSize: 9, pointerEvents: 'none' }}
+                          >
+                            ▸
+                          </span>
+                        )}
+                        {/* end-of-span marker (F-07-05 E2/E4: hollow rectangle at the
+                            last held frame) — view-only, never exported */}
+                        {isEdge && (
+                          <span
+                            data-testid={`span-end-${engineIndex}-${f}`}
+                            onMouseDown={(e) => anchor !== null && onSpanEdgeDown(e, engineIndex, anchor)}
+                            style={{ position: 'absolute', right: 0, top: 2, width: 5, height: ROW_H - 4, border: '1px solid #888', cursor: 'ew-resize', background: 'transparent' }}
                           />
                         )}
                       </div>

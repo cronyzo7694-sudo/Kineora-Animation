@@ -61,11 +61,12 @@ struct SelDetail {
 }
 
 /// Keyframe marker for the timeline (Part 07 §7.2): solid dot = keyframe,
-/// hollow dot = blank keyframe.
+/// hollow dot = blank keyframe; `label` = named-frame flag (red flag).
 #[derive(Serialize)]
 struct FrameMarkerOut {
     frame: u32,
     blank: bool,
+    label: Option<String>,
 }
 
 /// Classic tween span for the timeline (Part 09.2).
@@ -363,6 +364,42 @@ pub fn kineora_remove_classic_tween(layer: u32, start: u32) -> bool {
     with_session(|s| s.remove_classic_tween(layer as usize, start)).unwrap_or(false)
 }
 
+/// Drag a keyframe together with its held span (Part 07 §7.4.9).
+#[wasm_bindgen]
+pub fn kineora_move_keyframe_sequence(layer: u32, from: u32, to: u32, overwrite: bool) -> bool {
+    with_session(|s| s.move_keyframe_sequence(layer as usize, from, to, overwrite)).unwrap_or(false)
+}
+
+/// Drag a span edge to resize exposure (Part 07 §7.4.11 / F-15-05).
+#[wasm_bindgen]
+pub fn kineora_resize_span(layer: u32, anchor: u32, delta: i32) -> bool {
+    with_session(|s| s.resize_span(layer as usize, anchor, delta as i64)).unwrap_or(false)
+}
+
+/// Duplicate the selected frame range (Part 07 §7.4.8).
+#[wasm_bindgen]
+pub fn kineora_duplicate_frames(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.duplicate_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// Convert held frames in [start,end] into keyframes (Part 07 §7.4.12).
+#[wasm_bindgen]
+pub fn kineora_convert_to_keyframes(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.convert_to_keyframes(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// Convert frames in [start,end] into blank keyframes (Part 07 §7.4.12).
+#[wasm_bindgen]
+pub fn kineora_convert_to_blank_keyframes(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.convert_to_blank_keyframes(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// Set/clear a keyframe label (Part 07 §7.2 / Part 33.8).
+#[wasm_bindgen]
+pub fn kineora_set_frame_label(layer: u32, frame: u32, label: Option<String>) -> bool {
+    with_session(|s| s.set_frame_label(layer as usize, frame, label.as_deref())).unwrap_or(false)
+}
+
 #[wasm_bindgen]
 pub fn kineora_undo() -> bool {
     with_session(|s| s.undo()).unwrap_or(false)
@@ -632,6 +669,10 @@ pub fn kineora_status() -> String {
                             .map(|(f, fr)| FrameMarkerOut {
                                 frame: *f,
                                 blank: matches!(fr, crate::model::Frame::Blank),
+                                label: match fr {
+                                    crate::model::Frame::Keyframe { label, .. } => label.clone(),
+                                    crate::model::Frame::Blank => None,
+                                },
                             })
                             .collect();
                         let tweens = l

@@ -48,6 +48,7 @@ pub(crate) fn node_states_at(
         Frame::Keyframe {
             content,
             transforms,
+            ..
         } => (content, transforms),
         Frame::Blank => return res, // blank keyframe holds nothing
     };
@@ -67,6 +68,7 @@ pub(crate) fn node_states_at(
             if let Some(Frame::Keyframe {
                 content: c1,
                 transforms: t1,
+                ..
             }) = layer.keyframes.get(&tw.end)
             {
                 let span = (tw.end - pf) as f64;

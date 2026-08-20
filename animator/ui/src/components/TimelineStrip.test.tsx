@@ -216,3 +216,53 @@ describe('TimelineStrip — frame ops + keyboard', () => {
     expect(performActionMock).not.toHaveBeenCalled()
   })
 })
+
+describe('TimelineStrip — duration viewport (no artificial 60-frame limit)', () => {
+  it('scrubbing far right auto-extends the viewport past frame 60 (no clamp)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // scrub the ruler out to frame 100 → the viewport must extend, not clamp
+    const clientX = NAME_W + (100 - 1) * CELL_W + 2
+    fireEvent.mouseDown(screen.getByTestId('timeline-ruler'), { button: 0, clientX })
+    fireEvent.mouseUp(window)
+    expect(setPlayheadMock).toHaveBeenCalledWith(100)
+    // ruler + cells now extend well past 60
+    expect(screen.getByTestId('frame-num-100')).toBeInTheDocument()
+    expect(screen.getByTestId('cell-0-100')).toBeInTheDocument()
+  })
+
+  it('a playhead beyond 60 is rendered (viewport covers the playhead)', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 90, duration: 90 })} notify={notify} />)
+    expect(screen.getByTestId('cell-0-90')).toBeInTheDocument()
+    expect(screen.getByTestId('frame-num-90')).toBeInTheDocument()
+  })
+
+  it('the frame readout reflects the playhead, not a fixed cap', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 100, duration: 100 })} notify={notify} />)
+    expect(screen.getByTestId('timeline-frame-readout')).toHaveTextContent('100')
+  })
+})
+
+describe('TimelineStrip — locked-layer edit-state honesty', () => {
+  it('frame-op buttons are disabled when the ACTIVE layer is locked', () => {
+    const locked = makeStatus({
+      layers: [
+        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }] },
+        { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [] },
+      ],
+    })
+    render(<TimelineStrip status={locked} notify={notify} />)
+    expect(screen.getByTestId('timeline.key')).toBeDisabled()
+    expect(screen.getByTestId('timeline.blank')).toBeDisabled()
+    expect(screen.getByTestId('timeline.clear')).toBeDisabled()
+    expect(screen.getByTestId('timeline-locked-hint')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('timeline.key'))
+    expect(performActionMock).not.toHaveBeenCalled()
+  })
+
+  it('frame-op buttons are enabled when the active layer is unlocked', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline.key')).toBeEnabled()
+    expect(screen.getByTestId('timeline.blank')).toBeEnabled()
+    expect(screen.getByTestId('timeline.clear')).toBeEnabled()
+  })
+})

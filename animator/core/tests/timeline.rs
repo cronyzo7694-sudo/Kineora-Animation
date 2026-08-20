@@ -238,3 +238,38 @@ fn f6_is_blocked_on_locked_layer_consistently() {
     assert!(!s.insert_keyframe(5), "F6 blocked on locked layer");
     assert_eq!(s.history.undo_len(), n, "no command for blocked F6");
 }
+
+#[test]
+fn undo_redo_remain_global_while_layer_locked() {
+    // Lock = "not editable" (Part 20.2): NEW commands against the layer are
+    // blocked. But undo/redo are GLOBAL history ops (engineering 05) — they are
+    // not "editing the locked layer", they reverse already-created commands.
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000"); // cmd1: draw
+    s.move_selection(10.0, 0.0); // cmd2: move
+    s.set_layer_locked(0, true); // cmd3: lock
+
+    // new frame ops blocked (already covered), but history still works:
+    assert!(s.undo(), "undo #1: reverses the lock (global history)");
+    assert!(!s.doc.scene(0).unwrap().layers[0].locked);
+    assert!(s.undo(), "undo #2: reverses the move");
+    assert_eq!(s.evaluate(1)[0].x, 0.0);
+    assert!(s.undo(), "undo #3: reverses the draw");
+    assert!(s.evaluate(1).is_empty());
+}
+
+#[test]
+fn lock_toggle_is_an_undoable_command() {
+    // F-03-15 TS-12: "undo lock toggle" — the lock itself is a command.
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000");
+    let n = s.history.undo_len();
+    assert!(s.set_layer_locked(0, true));
+    assert_eq!(s.history.undo_len(), n + 1, "lock is a command");
+    assert!(s.doc.scene(0).unwrap().layers[0].locked);
+
+    s.undo();
+    assert!(!s.doc.scene(0).unwrap().layers[0].locked, "undo unlocks");
+    s.redo();
+    assert!(s.doc.scene(0).unwrap().layers[0].locked, "redo re-locks");
+}

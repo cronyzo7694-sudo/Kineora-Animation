@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 87 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 89 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -18,7 +18,7 @@
 | **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
 | **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
 | **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
-| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | REWORKED (UNIT A, this commit) — pending user re-acceptance | interactive frame grid + ruler + playhead scrub, F6/F7/Shift+F6 commands, timeline.rs (14 tests) + TimelineStrip tests |
+| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | REWORKED — UNIT C duration/viewport + lock-state (this commit); pending user re-acceptance | unbounded auto-extending viewport (no 60 cap), scroll-aware nav, locked-layer button honesty, timeline.rs (16) + TimelineStrip tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -32,6 +32,27 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Timeline duration/viewport + locked-layer honesty (per manual FAIL report #2)
+- **"Stops at 60" — root cause (proven)**: `MIN_CELLS = 60` was my hardcoded *minimum viewport* and was ALSO used as the navigation clamp in `frameFromClientX` — so it accidentally became an upper bound. It is NOT derived duration, NOT playback duration, NOT a blueprint maximum. **Fix**: the timeline is now a horizontally scrollable, auto-extending strip — navigation (ruler click/drag, playhead handle) can reach ANY frame ≥ 1 and extends the viewport on demand (scroll-aware via `scrollLeft`), so users can author frames beyond the current derived duration. The 60 is now only the *initial window* (a view convenience, not a limit). Playback still loops within `[1, duration]` (derived, Part 07 §7.0 / REQ-TIM-004).
+- **Locked-layer undo/redo — verdict (blueprint-verified, NOT a bug)**: Part 20.2 "locked = not editable" blocks NEW commands + selection. But **undo/redo remain GLOBAL** (engineering 05: history reverses already-created commands; F-03-15 TS-12: the lock toggle itself is an undoable command). Fix implemented: frame-op buttons are now **disabled + a "🔒 layer locked" hint** when the active layer is locked (honest state), so the blocked state is visible rather than a toast-after-click. Added Rust tests proving: new frame ops blocked on locked (no command); undo/redo still reverse draw/move/lock globally; lock toggle undoable.
+- **[NOT IN BLUEPRINT]** fixed/custom document duration, playback start/end range, start/end markers — duration is DERIVED (Part 07 §7.0 "computed", Part 33.2, eng 03). Not implemented. Loop-toggle BUTTON (Part 07 §7.1.5) deferred.
+- **[OUR DESIGN DECISION, grounded in §7.0 + F-07-08 "last frame → extends doc"]**: navigation is unbounded (auto-extending viewport) while playback clamps to duration — the KB "click past duration clamps" (F-07-03 M.1) describes a fixed-span document; our derived-duration model has no fixed span, so the equivalent clamp is playback-only.
+
+### Manual acceptance matrix — UNIT C (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | scrub the ruler far right (well past 60) | the timeline grows; you can reach frame 100+ and F6 there |
+| 2 | draw a rect, then F6 at frame 120 | keyframe dot at 120; duration extends; Play loops 1..120 |
+| 3 | End | playhead jumps to the last keyframe frame (no 60 cap) |
+| 4 | click a cell | selects (no playhead move) — unchanged from UNIT A |
+| 5 | ruler click / handle drag | jump / scrub — unchanged |
+| 6 | lock the active layer | Key/Blank/Clear buttons go disabled + "🔒 layer locked" hint |
+| 7 | unlock → buttons re-enable | — |
+| 8 | lock, then Ctrl+Z | undoes the LOCK (lock is a command, F-03-15 TS-12) — by design |
+| 9 | draw → move → lock; then Ctrl+Z ×3 | reverses lock, move, draw (global history — by design, NOT blocked) |
+| 10 | lock, press F6 (keyboard) | blocked with "locked layer" toast, no undo entry |
+| 11 | Play | loops within 1..duration, never past the animation |
 
 ## This commit — Timeline interaction correctness (UNIT A rework, per manual FAIL report)
 Root causes (proven from code + knowledge base):

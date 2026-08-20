@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 48 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 73 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -16,7 +16,8 @@
 | **Properties panel (context-bound)** | MOD-SHELL/MOD-XFR/MOD-DOC | COMPLETE | components/PropertiesPanel.tsx + properties.rs (11 tests) |
 | **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | COMPLETE | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
 | **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
-| **Color live preview** | MOD-SHELL/MOD-RENDER | **COMPLETE (this commit)** | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
+| **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
+| **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | **COMPLETE (this commit)** | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -30,6 +31,29 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Export unit (Part 28.1 / F-28-02 / C-31 exp.image)
+- **Implemented**: File ▸ Export opens a dialog — Format (SVG/PNG/JPEG/WebP) + Scale (1×/2×/4×), exporting the CURRENT frame from real engine state. SVG via Rust `export_svg_scaled` (stage dims × scale, viewBox = doc coords, clipPath, background, fill/stroke/width, rotation-around-center, layer order, hidden excluded / locked included, off-stage clipped). PNG/JPEG/WebP via a content-only rasterizer (`renderContent`/`rasterizeContent`) reusing the same `evaluate()` items → authoring = export (REQ-EXP-002-A). Overlays/pasteboard/selection/zoom/pan never leak (proven by tests). Export is non-mutating (no undo). Engine-not-attached = honest disabled dialog.
+- **"Exported file looks very large"** — NOT a bug: the stage IS 1920×1080, so the file is 1920×1080 and a viewer shows it 1:1. Correct behavior; Scale 2×/4× = supersampling.
+- **Deferred (IMP-DEC-005 / later units)**: PNG/JPEG sequence, animated GIF, video (MP4/WebM), HTML5 bundle, audio-only, publish profiles, progress+cancel, transparency ("no color"), JPEG quality UI, named-frame labels, skew rendering (no skew UI yet).
+
+### Manual acceptance matrix — Export (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| A | draw a rect, Export | dialog opens with frame number, format, scale |
+| B | Export SVG @1× | kineora.svg downloads; opens at exactly 1920×1080 (doc size) |
+| C | Export SVG @2× | width/height 3840×2160, content unchanged in doc coords |
+| D | Export PNG @1× | 1920×1080 raster; matches the SVG visually |
+| E | Export PNG @2× | 3840×2160 raster (supersampled) |
+| F | Export JPEG / WebP | correct mime + opens as image |
+| G | zoom/pan heavily, then export | output identical (viewport never affects export) |
+| H | draw off-stage on pasteboard, export | off-stage art clipped out |
+| I | select objects, export | no selection box/handles in output |
+| J | hide a layer, export | hidden layer's art absent; locked layer's art present |
+| K | rotate/scale/stroke an object, export | rotation/scale/stroke present (SVG + PNG match) |
+| L | set a background color, export | stage background color in output |
+| M | engine not attached (don't build wasm), Export | honest "engine not attached" + disabled button |
+| N | Cancel | dialog closes, nothing downloads |
 
 ## This commit — Color live preview (Part 26.12 "color controls live" + C-09 "live preview; commit on release")
 - **Root cause** (proven): `ColorField` committed ONLY on blur. React's `<input type="color">` onChange fires on `input` during a picker drag, so no engine mutation (and no canvas repaint) happened until the picker closed / focus left — hence "Stage updates only after clicking elsewhere".
@@ -139,4 +163,5 @@
 ## Next units (order)
 1. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps).
 2. Tool-options schema for Properties (REQ-PRP-001 step 1) + keyboard shortcut wiring (Ctrl+A select-all, etc.).
-3. Shape system (merge model), more tools, symbols… (Phase-3 P2+).
+3. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.
+4. Shape system (merge model), more tools, symbols… (Phase-3 P2+).

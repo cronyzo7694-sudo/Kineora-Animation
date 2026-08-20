@@ -3,7 +3,6 @@
 // never fakes success (no-fake-features rule).
 
 import {
-  exportSvg,
   getEngine,
   getEngineStatus,
   insertKeyframe,
@@ -24,13 +23,25 @@ function notAttached(action: string): string {
   return `${action}: engine not attached`
 }
 
-function downloadBlob(name: string, text: string, type: string): void {
+export function downloadBlob(name: string, text: string, type: string): void {
   const blob = new Blob([text], { type })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = name
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+/** Rasterize a canvas to a Blob and download it (PNG/JPEG/WebP image export). */
+export function downloadCanvasBlob(canvas: HTMLCanvasElement, name: string, mime: string, quality?: number): void {
+  canvas.toBlob((blob) => {
+    if (!blob) return
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }, mime, quality)
 }
 
 /** Discrete engine actions (undo/redo/keyframe/save/export). */
@@ -51,14 +62,6 @@ export function performAction(id: string, notify: Notify): void {
         const frame = st?.playhead ?? 1
         insertKeyframe(frame)
         notify(`keyframe inserted @ ${frame}`)
-      }
-      break
-    case 'file.export':
-      if (!engineAttached()) return void notify(notAttached('export'))
-      {
-        const svg = exportSvg(statusJson()?.playhead ?? 1)
-        downloadBlob('kineora.svg', svg, 'image/svg+xml')
-        notify('export: downloaded kineora.svg')
       }
       break
     case 'file.save':

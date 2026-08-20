@@ -9,11 +9,27 @@ use crate::model::Document;
 /// so pasteboard/off-stage objects are authored but NOT rendered at export —
 /// the viewport (zoom/pan) never participates.
 pub fn export_svg(doc: &Document, scene: usize, frame: u32) -> String {
+    export_svg_scaled(doc, scene, frame, 1.0)
+}
+
+/// SVG export with a supersampling scale (Part 28.1 "Scale 1×/2×/4×"): the
+/// outer `width`/`height` are multiplied by `scale` while `viewBox` keeps the
+/// document coordinate space, so every element (incl. stroke widths) scales
+/// uniformly — matching a raster export at the same scale (authoring=export).
+/// Non-finite or non-positive scale falls back to 1×.
+pub fn export_svg_scaled(doc: &Document, scene: usize, frame: u32, scale: f64) -> String {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
     let items = evaluate(doc, scene, frame);
     let w = doc.settings.width;
     let h = doc.settings.height;
+    let out_w = w * scale;
+    let out_h = h * scale;
     let mut s = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{out_w}" height="{out_h}" viewBox="0 0 {w} {h}">"#
     );
     // stage clip (pasteboard exclusion)
     s.push_str(&format!(

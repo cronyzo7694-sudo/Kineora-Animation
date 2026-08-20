@@ -6,7 +6,7 @@ use crate::command::{
     TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
-use crate::export::export_svg;
+use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId};
 use crate::model::{Document, Frame, Layer, Node, Settings, Transform};
 use crate::persist;
@@ -591,6 +591,11 @@ impl Session {
 
     pub fn export_svg(&self, frame: u32) -> String {
         export_svg(&self.doc, self.active_scene, frame)
+    }
+
+    /// SVG export with a supersampling scale (1×/2×/4× — Part 28.1).
+    pub fn export_svg_scaled(&self, frame: u32, scale: f64) -> String {
+        export_svg_scaled(&self.doc, self.active_scene, frame, scale)
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {

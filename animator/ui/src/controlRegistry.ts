@@ -25,6 +25,8 @@ export interface AppContext {
   togglePanel: (id: string) => void
   /** Current open/closed state of each docked panel. */
   panels: Record<string, boolean>
+  /** Open the export dialog (C-31 exp.image). */
+  openExport: () => void
 }
 
 export interface Control {
@@ -47,7 +49,7 @@ export const controls: Control[] = [
   { id: 'timeline.play', label: 'Play', a11y: 'Play/pause', tooltip: 'Play/pause (Enter)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Enter', action: (c) => togglePlay(c.notify) },
   { id: 'timeline.keyframe', label: 'Keyframe', a11y: 'Insert keyframe', tooltip: 'Insert keyframe (F6)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'F6', action: (c) => performAction('timeline.keyframe', c.notify) },
   { id: 'file.save', label: 'Save', a11y: 'Save project', tooltip: 'Save (downloads project JSON)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+S', action: (c) => performAction('file.save', c.notify) },
-  { id: 'file.export', label: 'Export', a11y: 'Export SVG', tooltip: 'Export frame as SVG', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => performAction('file.export', c.notify) },
+  { id: 'file.export', label: 'Export', a11y: 'Export image', tooltip: 'Export frame (SVG/PNG/JPEG/WebP)', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.openExport() },
   { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('layers') },
   { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('properties') },
   { id: 'nav.back', label: 'Back', a11y: 'Back one level', tooltip: 'Exit edit depth (Esc)', state: 'FUNCTIONAL', visibility: 'CONTEXTUAL', shortcut: 'Esc', action: (c) => c.notify('back: next unit') },

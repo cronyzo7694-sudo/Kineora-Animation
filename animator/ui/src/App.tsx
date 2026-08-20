@@ -10,6 +10,7 @@ import { DebugPanel } from './components/DebugPanel'
 import { LayersPanel } from './components/LayersPanel'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { ResizeHandle } from './components/ResizeHandle'
+import { ExportDialog } from './components/ExportDialog'
 import type { ColorPreview } from './render/canvasRenderer'
 
 /** Workspace panel widths (C-06 resize, Part 01 §1.1.2 app prefs). */
@@ -56,6 +57,7 @@ export default function App() {
   const [panelW, setPanelW] = useState<PanelWidths>(loadPanelWidths)
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const panelWRef = useRef(panelW)
   const originRef = useRef<PanelWidths>(panelW)
 
@@ -102,7 +104,7 @@ export default function App() {
     setPanels((p) => ({ ...p, [id]: !p[id] }))
   }
 
-  const ctx: AppContext = { engine, notify, setTool, togglePanel, panels }
+  const ctx: AppContext = { engine, notify, setTool, togglePanel, panels, openExport: () => setExportOpen(true) }
   const registryErrors = useMemo(() => validateRegistry(controls), [])
   const status = statusJson()
 
@@ -144,6 +146,7 @@ export default function App() {
       </div>
       <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} layer={status?.layer ?? '—'} />
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
+      <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
     </div>
   )
 }

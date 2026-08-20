@@ -155,6 +155,10 @@ export function exportSvg(frame: number): string {
   return mod?.kineora_export_svg(frame) ?? ''
 }
 
+export function exportSvgScaled(frame: number, scale: number): string {
+  return mod?.kineora_export_svg_scaled?.(frame, scale) ?? exportSvg(frame)
+}
+
 export function undo(): boolean {
   return mod?.kineora_undo() ?? false
 }

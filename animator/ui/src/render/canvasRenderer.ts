@@ -144,6 +144,52 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
   ctx.restore()
 }
 
+// ——— export rasterizer (Part 28.1 image export: PNG/JPEG/WebP) ———
+
+/** Minimal content-only draw state for export (no overlays, no viewport). */
+export interface ContentState {
+  background: string
+  stageW: number
+  stageH: number
+  items: RectItemJson[]
+}
+
+/**
+ * Content-only draw pass — the raster equivalent of the Rust `exportSvg`:
+ * fills the stage rect with the document background, then draws each item
+ * (rotation around center, scale via w/h, stroke). NO pasteboard, NO stage
+ * border, NO selection overlay/marquee/preview — so it can never leak into an
+ * export (REQ-EXP-002). Given an identity viewport + a stage-sized canvas, its
+ * geometry matches the SVG export exactly (authoring = export).
+ */
+export function renderContent(ctx: CanvasRenderingContext2D, vp: Viewport, s: ContentState): void {
+  const r = docRectToScreen(vp, { x: 0, y: 0, w: s.stageW, h: s.stageH })
+  ctx.fillStyle = s.background
+  ctx.fillRect(r.x, r.y, r.w, r.h)
+  for (const it of s.items) {
+    drawRectItem(ctx, vp, it, { x: 0, y: 0 }, { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width })
+  }
+}
+
+/**
+ * Rasterize the content pass into an offscreen canvas at exactly
+ * `stageW × stageH × scale` pixels (Part 28.1 "Match Movie (stage size)" +
+ * "Scale 1×/2×/4×"). Returns null when a 2D context is unavailable. The result
+ * is independent of the editor viewport (zoom/pan), selection, and overlays.
+ */
+export function rasterizeContent(s: ContentState, scale = 1): HTMLCanvasElement | null {
+  const z = scale > 0 && Number.isFinite(scale) ? scale : 1
+  const cw = Math.max(1, Math.round(s.stageW * z))
+  const ch = Math.max(1, Math.round(s.stageH * z))
+  const canvas = document.createElement('canvas')
+  canvas.width = cw
+  canvas.height = ch
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  renderContent(ctx, { zoom: z, panX: 0, panY: 0 }, s)
+  return canvas
+}
+
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {
   const p = docToScreen(vp, m.x, m.y)
   ctx.strokeStyle = SELECTION_STROKE

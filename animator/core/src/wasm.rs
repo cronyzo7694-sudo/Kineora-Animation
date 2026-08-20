@@ -274,6 +274,13 @@ pub fn kineora_export_svg(frame: u32) -> String {
     with_session(|s| s.export_svg(frame)).unwrap_or_default()
 }
 
+/// SVG export with a supersampling scale (1×/2×/4× — Part 28.1). Same content
+/// pass as `kineora_export_svg`; only the outer width/height scale.
+#[wasm_bindgen]
+pub fn kineora_export_svg_scaled(frame: u32, scale: f64) -> String {
+    with_session(|s| s.export_svg_scaled(frame, scale)).unwrap_or_default()
+}
+
 /// Save the document to the given absolute path (JSON).
 #[wasm_bindgen]
 pub fn kineora_save(path: String) -> bool {

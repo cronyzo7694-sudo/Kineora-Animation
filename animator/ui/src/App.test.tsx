@@ -133,3 +133,15 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
     expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
   })
 })
+
+describe('export dialog wiring', () => {
+  it('the Export toolbar control opens the export dialog (C-31 exp.image)', () => {
+    render(<App />)
+    expect(screen.queryByTestId('export-dialog')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('file.export'))
+    expect(screen.getByTestId('export-dialog')).toBeInTheDocument()
+    // engine not attached in jsdom → honest disabled export
+    expect(screen.getByTestId('export-not-attached')).toBeInTheDocument()
+    expect(screen.getByTestId('export-confirm')).toBeDisabled()
+  })
+})

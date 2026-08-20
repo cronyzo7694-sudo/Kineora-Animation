@@ -113,6 +113,7 @@ export interface KineoraWasm {
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string
   kineora_export_svg(frame: number): string
+  kineora_export_svg_scaled(frame: number, scale: number): string
   kineora_save(path: string): boolean
   kineora_load(path: string): boolean
   kineora_status(): string

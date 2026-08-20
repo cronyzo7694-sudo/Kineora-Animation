@@ -173,6 +173,16 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | Save → Reload | stage size/background/fps restored |
 | L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
 
+## Export (current unit)
+- **Image export per Part 28.1 / C-31 `exp.image`**: File ▸ Export now opens a dialog with **Format (SVG / PNG / JPEG / WebP)** and **Scale (1×/2×/4×)**, exporting the **current frame** from real engine state.
+  - **SVG** goes through the Rust exporter (`kineora_export_svg_scaled`): exactly the document stage (`width/height` × scale, `viewBox` = doc coords), stage-clipped (`clipPath`), background rect, fill/stroke/stroke-width, rotation around center, layer order bottom→top, hidden layers excluded, locked layers included, off-stage (pasteboard) art clipped.
+  - **PNG/JPEG/WebP** reuse the same `evaluate()` items through a content-only rasterizer (`renderContent`/`rasterizeContent` in canvasRenderer.ts) at exactly `stageW × stageH × scale` pixels — same geometry as the SVG export, so authoring = export (REQ-EXP-002-A).
+- **Invariants (test-proven)**: overlays/pasteboard/selection/zoom/pan never affect output; export is non-mutating (no undo); engine-not-attached = honest disabled dialog state.
+- **"The exported file looks very large" is NOT a bug** — the document stage is 1920×1080, so the file *is* 1920×1080; a viewer shows it 1:1 and you scroll. That is correct behavior (the Stage is your actual page). Use the Scale option (2×/4×) for supersampled output; raster formats give you a real pixel image.
+- **Deferred (IMP-DEC-005, native encoder jobs)**: PNG/JPEG *sequence*, animated GIF, video (MP4/WebM), HTML5 bundle, audio-only, publish profiles, progress+cancel (needed once multi-frame jobs exist), transparency ("no color" background), JPEG quality UI, named-frame labels.
+
+Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` "Export" matrix.
+
 ## Color live preview (current unit)
 - **Fill / Stroke / Background / Stroke-width now preview LIVE while you edit them.** Part 26.12 requires "color controls live"; C-09 requires "live preview; commit on release". While the picker is dragged (or a number is typed), a **renderer-only** `ColorPreview` repaints the stage background or the selected object's fill/stroke/stroke-width instantly — the engine is NOT written during the drag, so there is no undo fragmentation. ONE undoable command is committed on release (picker close / blur / Enter); Esc cancels back to the engine value.
 - The preview is renderer-only (like the move/transform previews) — it can never leak into SVG export or the project save (REQ-EXP-002). Export/save/undo always reflect the final committed engine state.
@@ -193,4 +203,4 @@ Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` matrix A–Q 
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **Color live preview** (this commit).
+See `STATUS.md`. Current unit: **Export (image: SVG/PNG/JPEG/WebP + scale)** (this commit).

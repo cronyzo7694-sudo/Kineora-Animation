@@ -56,3 +56,12 @@ interface CtxStub {
     lineWidth: 0,
   }
 }
+
+// jsdom has no HTMLCanvasElement.toBlob — provide a stub so the raster export
+// path (ExportDialog) is testable. The callback receives a plain Blob; the real
+// encoding happens in the browser.
+;(HTMLCanvasElement.prototype as any).toBlob = function toBlob(
+  cb: (blob: Blob | null) => void,
+): void {
+  cb(new Blob(['fake'], { type: 'image/png' }))
+}

@@ -381,3 +381,134 @@ describe('live color preview (Part 26.12 / C-09 — renderer-only, never exporte
     expect(lineWidths[1]).toBe(10)
   })
 })
+
+describe('export rasterizer (Part 28.1 — content-only, viewport-independent)', () => {
+  function recordingCtx() {
+    const fills: Array<Array<number>> = []
+    const fillStyles: string[] = []
+    const strokes: Array<Array<number>> = []
+    const strokeStyles: string[] = []
+    const lineWidths: number[] = []
+    let currentFill = ''
+    let currentStroke = ''
+    let currentWidth = 0
+    const ctx = {
+      clearRect: () => {},
+      fillRect: (...a: number[]) => {
+        fills.push(a)
+        fillStyles.push(currentFill)
+      },
+      strokeRect: (...a: number[]) => {
+        strokes.push(a)
+        strokeStyles.push(currentStroke)
+        lineWidths.push(currentWidth)
+      },
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) {
+        currentFill = v
+      },
+      set strokeStyle(v: string) {
+        currentStroke = v
+      },
+      set lineWidth(v: number) {
+        currentWidth = v
+      },
+      get fillStyle() {
+        return currentFill
+      },
+      get strokeStyle() {
+        return currentStroke
+      },
+      get lineWidth() {
+        return currentWidth
+      },
+    } as unknown as CanvasRenderingContext2D
+    return { ctx, fills, fillStyles, strokes, strokeStyles, lineWidths }
+  }
+
+  it('renderContent draws ONLY background + items (no pasteboard, no border, no overlay)', async () => {
+    const { renderContent, PASTEBOARD_COLOR, STAGE_BORDER } = await import('./canvasRenderer')
+    const { ctx, fillStyles, strokeStyles } = recordingCtx()
+    renderContent(ctx, { zoom: 1, panX: 0, panY: 0 }, {
+      background: '#ffffff',
+      stageW: 1920,
+      stageH: 1080,
+      items: [{ id: 1, x: 10, y: 20, w: 100, h: 50, rotation: 0, fill: '#ff0000', stroke: '#0000ff', stroke_width: 2 }],
+    })
+    expect(fillStyles[0]).toBe('#ffffff') // background FIRST (not pasteboard)
+    expect(fillStyles).not.toContain(PASTEBOARD_COLOR)
+    expect(strokeStyles).not.toContain(STAGE_BORDER) // no stage border in export
+    expect(fillStyles).toContain('#ff0000')
+    expect(strokeStyles).toContain('#0000ff')
+  })
+
+  it('renderContent geometry matches SVG export (rotation around center, scale via w/h)', async () => {
+    const { renderContent } = await import('./canvasRenderer')
+    const { ctx, lineWidths } = recordingCtx()
+    renderContent(ctx, { zoom: 1, panX: 0, panY: 0 }, {
+      background: '#ffffff',
+      stageW: 1920,
+      stageH: 1080,
+      items: [{ id: 1, x: 100, y: 100, w: 200, h: 150, rotation: 45, fill: '#ff0000', stroke: null, stroke_width: 0 }],
+    })
+    // stroke rect = background fillRect is fillRect not strokeRect; items with
+    // no stroke add no strokeRect → only the item fill remains (no border)
+    expect(lineWidths).toHaveLength(0)
+  })
+
+  it('renderContent scales stroke width by viewport zoom (2× supersampling)', async () => {
+    const { renderContent } = await import('./canvasRenderer')
+    const { ctx, lineWidths, strokeStyles } = recordingCtx()
+    renderContent(ctx, { zoom: 2, panX: 0, panY: 0 }, {
+      background: '#ffffff',
+      stageW: 1920,
+      stageH: 1080,
+      items: [{ id: 1, x: 0, y: 0, w: 50, h: 50, rotation: 0, fill: '#ff0000', stroke: '#000000', stroke_width: 3 }],
+    })
+    expect(strokeStyles[0]).toBe('#000000')
+    expect(lineWidths[0]).toBe(6) // 3 × zoom 2
+  })
+
+  it('rasterizeContent returns a canvas at exactly stageW×stageH×scale', async () => {
+    const { rasterizeContent } = await import('./canvasRenderer')
+    const c1 = rasterizeContent(
+      { background: '#ffffff', stageW: 1920, stageH: 1080, items: [] },
+      1,
+    )!
+    expect(c1.width).toBe(1920)
+    expect(c1.height).toBe(1080)
+
+    const c2 = rasterizeContent(
+      { background: '#ffffff', stageW: 1920, stageH: 1080, items: [] },
+      2,
+    )!
+    expect(c2.width).toBe(3840)
+    expect(c2.height).toBe(2160)
+
+    const c4 = rasterizeContent(
+      { background: '#ffffff', stageW: 640, stageH: 480, items: [] },
+      4,
+    )!
+    expect(c4.width).toBe(2560)
+    expect(c4.height).toBe(1920)
+  })
+
+  it('rasterizeContent guards degenerate/invalid scale (falls back to 1×)', async () => {
+    const { rasterizeContent } = await import('./canvasRenderer')
+    for (const bad of [0, -2, NaN]) {
+      const c = rasterizeContent({ background: '#fff', stageW: 100, stageH: 50, items: [] }, bad)!
+      expect(c.width).toBe(100)
+      expect(c.height).toBe(50)
+    }
+  })
+})

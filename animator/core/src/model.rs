@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::id::{LayerId, NodeId, SceneId};
+use crate::id::{LayerId, NodeId, SceneId, SymbolId};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
@@ -55,7 +55,51 @@ impl Default for Transform {
     }
 }
 
-/// Content node (slice 1: rectangle only; grows into shape/group/instance/text/bitmap).
+/// Symbol type (Part 11 §11.1): graphic syncs to the parent timeline; movie
+/// clip runs a free clock; button is state-driven (slice-1: rendered as a
+/// static frame-1 — interactivity deferred per UNIT H scope).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SymbolType {
+    Graphic,
+    MovieClip,
+    Button,
+}
+
+/// Graphic-instance loop mode (Part 11 §11.4). Movie clips ignore this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LoopMode {
+    Loop,
+    PlayOnce,
+    SingleFrame,
+}
+
+/// Symbol definition (Part 11 §11.10 / Part 33 §33.7): a reusable, self-contained
+/// timeline stored once in the Library. `registration` = where the symbol's
+/// (0,0) sits relative to its artwork (informational; content is re-based so
+/// the chosen point is local (0,0)).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Symbol {
+    pub id: SymbolId,
+    pub name: String,
+    pub symbol_type: SymbolType,
+    pub registration: Transform,
+    pub timeline: Vec<Layer>,
+}
+
+impl Symbol {
+    /// Derived duration of the symbol's internal timeline (max keyframe frame).
+    pub fn duration(&self) -> u32 {
+        let mut max = 0u32;
+        for l in &self.timeline {
+            for f in l.keyframes.keys() {
+                max = max.max(*f);
+            }
+        }
+        max.max(1)
+    }
+}
+
+/// Content node (slice: rectangle + symbol instance).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Node {
     Rect {
@@ -67,22 +111,39 @@ pub enum Node {
         stroke: Option<String>,
         stroke_width: f64,
     },
+    SymbolInstance {
+        id: NodeId,
+        transform: Transform,
+        symbol_id: SymbolId,
+        loop_mode: LoopMode,
+        first_frame: u32,
+    },
 }
 
 impl Node {
     pub fn id(&self) -> NodeId {
         match self {
             Node::Rect { id, .. } => *id,
+            Node::SymbolInstance { id, .. } => *id,
         }
     }
     pub fn transform(&self) -> &Transform {
         match self {
             Node::Rect { transform, .. } => transform,
+            Node::SymbolInstance { transform, .. } => transform,
         }
     }
     pub fn transform_mut(&mut self) -> &mut Transform {
         match self {
             Node::Rect { transform, .. } => transform,
+            Node::SymbolInstance { transform, .. } => transform,
+        }
+    }
+    /// The symbol id this node references, if it is an instance.
+    pub fn symbol_id(&self) -> Option<SymbolId> {
+        match self {
+            Node::SymbolInstance { symbol_id, .. } => Some(*symbol_id),
+            _ => None,
         }
     }
 }
@@ -100,6 +161,21 @@ pub enum Frame {
         label: Option<String>,
     },
     Blank,
+}
+
+impl Layer {
+    /// Hold rule on a single layer (Part 07 §7.3): content of the nearest
+    /// keyframe ≤ `frame` (blank = empty). Used by symbol timelines too.
+    pub fn content_at(&self, frame: u32) -> Vec<NodeId> {
+        let mut content: Vec<NodeId> = vec![];
+        for (_, fr) in self.keyframes.range(..=frame) {
+            match fr {
+                Frame::Keyframe { content: c, .. } => content = c.clone(),
+                Frame::Blank => content = vec![],
+            }
+        }
+        content
+    }
 }
 
 impl Frame {
@@ -161,6 +237,9 @@ pub struct Document {
     pub settings: Settings,
     pub scenes: Vec<Scene>,
     pub nodes: BTreeMap<NodeId, Node>,
+    /// Library of symbol definitions (Part 12 — one per document).
+    #[serde(default)]
+    pub library: Vec<Symbol>,
     pub next_id: u64,
 }
 
@@ -183,6 +262,7 @@ impl Document {
             settings,
             scenes: vec![scene],
             nodes: BTreeMap::new(),
+            library: Vec::new(),
             next_id: 1,
         }
     }
@@ -202,6 +282,28 @@ impl Document {
             }
         }
         LayerId(max + 1)
+    }
+
+    /// Next unique SymbolId (1 + max existing in the Library).
+    pub fn alloc_symbol_id(&self) -> SymbolId {
+        let mut max = 0u64;
+        for s in &self.library {
+            max = max.max(s.id.0);
+        }
+        SymbolId(max + 1)
+    }
+
+    /// Look up a symbol definition by id.
+    pub fn symbol(&self, id: SymbolId) -> Option<&Symbol> {
+        self.library.iter().find(|s| s.id == id)
+    }
+
+    /// How many instance nodes reference this symbol (use-count, Part 12.1).
+    pub fn symbol_use_count(&self, id: SymbolId) -> u32 {
+        self.nodes
+            .values()
+            .filter(|n| n.symbol_id() == Some(id))
+            .count() as u32
     }
 
     /// All node ids referenced by ANY layer's keyframe content (any frame).
@@ -269,17 +371,9 @@ impl Document {
 
     /// Hold rule: nearest keyframe (or blank) at or before `frame`.
     pub fn content_at(&self, scene: usize, layer: usize, frame: u32) -> Vec<NodeId> {
-        let Some(layer_) = self.layer(scene, layer) else {
-            return vec![];
-        };
-        let mut content: Vec<NodeId> = vec![];
-        for (_, fr) in layer_.keyframes.range(..=frame) {
-            match fr {
-                Frame::Keyframe { content: c, .. } => content = c.clone(),
-                Frame::Blank => content = vec![],
-            }
-        }
-        content
+        self.layer(scene, layer)
+            .map(|l| l.content_at(frame))
+            .unwrap_or_default()
     }
 
     /// Copy the previous keyframe's content into a new keyframe at `frame`

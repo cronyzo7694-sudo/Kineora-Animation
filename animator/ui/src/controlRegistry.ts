@@ -52,6 +52,7 @@ export const controls: Control[] = [
   { id: 'file.export', label: 'Export', a11y: 'Export image', tooltip: 'Export frame (SVG/PNG/JPEG/WebP)', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.openExport() },
   { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('layers') },
   { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('properties') },
+  { id: 'panel.library', label: 'Library', a11y: 'Library panel', tooltip: 'Toggle library panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('library') },
   { id: 'nav.back', label: 'Back', a11y: 'Back one level', tooltip: 'Exit edit depth (Esc)', state: 'FUNCTIONAL', visibility: 'CONTEXTUAL', shortcut: 'Esc', action: (c) => c.notify('back: next unit') },
 ]
 

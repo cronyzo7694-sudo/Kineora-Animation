@@ -156,6 +156,29 @@ describe('global undo/redo shortcuts (Part 29.2)', () => {
   })
 })
 
+describe('symbol dialogs + library panel wiring (Part 11/12)', () => {
+  it('F8 opens the Convert to Symbol dialog; Ctrl+F8 opens New Symbol', () => {
+    render(<App />)
+    expect(screen.queryByTestId('symbol-dialog')).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'F8' })
+    expect(screen.getByTestId('symbol-dialog')).toBeInTheDocument()
+    expect(screen.getByText('Convert to Symbol')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('symbol-cancel'))
+
+    fireEvent.keyDown(window, { key: 'F8', ctrlKey: true })
+    expect(screen.getByText('New Symbol')).toBeInTheDocument()
+  })
+
+  it('renders the Library panel by default and panel.library toggles it', () => {
+    render(<App />)
+    expect(screen.getByTestId('library-panel')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel.library'))
+    expect(screen.queryByTestId('library-panel')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel.library'))
+    expect(screen.getByTestId('library-panel')).toBeInTheDocument()
+  })
+})
+
 describe('export dialog wiring', () => {
   it('the Export toolbar control opens the export dialog (C-31 exp.image)', () => {
     render(<App />)

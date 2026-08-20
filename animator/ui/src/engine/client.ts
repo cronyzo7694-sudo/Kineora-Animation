@@ -22,6 +22,7 @@
 import type { EngineStatus } from '../controlRegistry'
 import type {
   KineoraWasm,
+  LibraryItemJson,
   NodePropsPatchJson,
   RectItemJson,
   SettingsPatchJson,
@@ -245,6 +246,45 @@ export function convertToBlankKeyframes(layer: number, start: number, end: numbe
 
 export function setFrameLabel(layer: number, frame: number, label: string): boolean {
   return mod?.kineora_set_frame_label(layer, frame, label) ?? false
+}
+
+// ——— Symbols + Library (Part 11/12) ———
+
+export function convertToSymbol(name: string, symbolType: string, regGrid: number): number {
+  return mod?.kineora_convert_to_symbol(name, symbolType, regGrid) ?? 0
+}
+
+export function newSymbol(name: string, symbolType: string): number {
+  return mod?.kineora_new_symbol(name, symbolType) ?? 0
+}
+
+export function placeSymbol(symbolId: number, x: number, y: number): number {
+  return mod?.kineora_place_symbol(symbolId, x, y) ?? 0
+}
+
+export function renameSymbol(symbolId: number, name: string): boolean {
+  return mod?.kineora_rename_symbol(symbolId, name) ?? false
+}
+
+export function deleteSymbol(symbolId: number, breakApart: boolean): boolean {
+  return mod?.kineora_delete_symbol(symbolId, breakApart) ?? false
+}
+
+export function swapInstance(instanceId: number, symbolId: number): boolean {
+  return mod?.kineora_swap_instance(instanceId, symbolId) ?? false
+}
+
+export function setInstanceLoop(instanceId: number, loopMode: string, firstFrame: number): boolean {
+  return mod?.kineora_set_instance_loop(instanceId, loopMode, firstFrame) ?? false
+}
+
+export function library(): LibraryItemJson[] {
+  if (!mod) return []
+  try {
+    return JSON.parse(mod.kineora_library()) as LibraryItemJson[]
+  } catch {
+    return []
+  }
 }
 
 export function setPlayhead(frame: number): void {

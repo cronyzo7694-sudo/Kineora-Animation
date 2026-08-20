@@ -1,17 +1,22 @@
 use std::path::Path;
 
 use crate::command::{
-    ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, CreateLayer, DeleteFrames,
-    DeleteLayer, DrawRect, DuplicateFrames, DuplicateKeyframe, History, InsertBlankKeyframe,
-    InsertFrames, InsertKeyframe, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
-    RemoveClassicTween, RemoveFrames, RenameLayer, ReorderLayer, ResizeSpan, ReverseFrames,
-    SetClassicTween, SetDocumentSettings, SetFrameLabel, SetLayerLocked, SetLayerVisible,
-    SetNodeProps, TransformSelection,
+    ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
+    CreateSymbol, DeleteFrames, DeleteLayer, DeleteSymbol, DrawRect, DuplicateFrames,
+    DuplicateKeyframe, History, InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe,
+    MoveKeyframeSequence, MoveSelection, PasteFrames, PlaceSymbol, RemoveClassicTween,
+    RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer, ResizeSpan, ReverseFrames,
+    SetClassicTween, SetDocumentSettings, SetFrameLabel, SetInstanceLoop, SetLayerLocked,
+    SetLayerVisible, SetNodeProps, SwapInstance, TransformSelection,
 };
-use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
+use crate::eval::{
+    evaluate, hit_test, hits_in_rect, node_bounds, node_transform_in_scene, RectItem,
+};
 use crate::export::{export_svg, export_svg_scaled};
-use crate::id::{LayerId, NodeId};
-use crate::model::{Document, Frame, Layer, Node, Settings, Transform};
+use crate::id::{LayerId, NodeId, SymbolId};
+use crate::model::{
+    Document, Frame, Layer, LoopMode, Node, Settings, Symbol, SymbolType, Transform,
+};
 use crate::persist;
 
 /// Partial transform edit (UI property fields). `None` = leave unchanged.
@@ -778,6 +783,287 @@ impl Session {
         true
     }
 
+    // ——— Symbols + Library (Part 11/12, engineering P4) ———
+
+    /// Convert the current selection into a symbol (F8, Part 11 §11.2).
+    /// `reg_grid` = 0..8 (TL/TC/TR/ML/C/MR/BL/BC/BR, 4 = center). The wrapped
+    /// nodes are re-based so the registration point is the symbol's local (0,0)
+    /// and replaced by one instance on the current frame. Returns the new
+    /// instance id (0 on no-op).
+    pub fn convert_selection_to_symbol(
+        &mut self,
+        name: &str,
+        symbol_type: SymbolType,
+        reg_grid: u8,
+    ) -> NodeId {
+        if self.selection.is_empty() {
+            return NodeId(0);
+        }
+        // selection bounds (scene-wide)
+        let mut minx = f64::INFINITY;
+        let mut miny = f64::INFINITY;
+        let mut maxx = f64::NEG_INFINITY;
+        let mut maxy = f64::NEG_INFINITY;
+        for id in &self.selection {
+            if let Some((a, b, c, d)) =
+                node_bounds(&self.doc, self.active_scene, self.playhead, *id)
+            {
+                minx = minx.min(a);
+                miny = miny.min(b);
+                maxx = maxx.max(c);
+                maxy = maxy.max(d);
+            }
+        }
+        if !minx.is_finite() {
+            return NodeId(0);
+        }
+        // 9-point registration grid
+        let cx = (minx + maxx) / 2.0;
+        let cy = (miny + maxy) / 2.0;
+        let (reg_x, reg_y) = match reg_grid {
+            0 => (minx, miny),
+            1 => (cx, miny),
+            2 => (maxx, miny),
+            3 => (minx, cy),
+            5 => (maxx, cy),
+            6 => (minx, maxy),
+            7 => (cx, maxy),
+            8 => (maxx, maxy),
+            _ => (cx, cy), // 4 (center) and any fallback
+        };
+
+        // ensure a keyframe at the playhead to host the instance
+        if self
+            .doc
+            .ensure_keyframe(self.active_scene, self.active_layer, self.playhead)
+            .is_none()
+        {
+            return NodeId(0);
+        }
+
+        let symbol_id = self.doc.alloc_symbol_id();
+        let instance_id = self.doc.alloc_node_id();
+        let node_ids = self.selection.clone();
+
+        let inner_layer = Layer {
+            id: LayerId(1),
+            name: "Layer 1".into(),
+            keyframes: std::collections::BTreeMap::from([(
+                1u32,
+                Frame::keyframe(node_ids.clone()),
+            )]),
+            tweens: std::collections::BTreeMap::new(),
+            visible: true,
+            locked: false,
+        };
+        let symbol = Symbol {
+            id: symbol_id,
+            name: name.trim().to_string(),
+            symbol_type,
+            registration: Transform {
+                x: reg_x - minx,
+                y: reg_y - miny,
+                ..Transform::default()
+            },
+            timeline: vec![inner_layer],
+        };
+        let instance = Node::SymbolInstance {
+            id: instance_id,
+            transform: Transform {
+                x: reg_x,
+                y: reg_y,
+                ..Transform::default()
+            },
+            symbol_id,
+            loop_mode: LoopMode::Loop,
+            first_frame: 1,
+        };
+        let cmd = ConvertToSymbol::new(
+            self.active_scene,
+            self.active_layer,
+            self.playhead,
+            symbol,
+            instance,
+            node_ids,
+        );
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.selection = vec![instance_id];
+        self.log(&format!("convert-to-symbol:{symbol_id:?}"));
+        instance_id
+    }
+
+    /// New Symbol (Ctrl+F8, Part 12 §12.2.2): create an empty symbol in the
+    /// Library. Returns its id (0 on failure).
+    pub fn new_symbol(&mut self, name: &str, symbol_type: SymbolType) -> SymbolId {
+        let name = name.trim();
+        if name.is_empty() {
+            return SymbolId(0);
+        }
+        let id = self.doc.alloc_symbol_id();
+        let layer = Layer {
+            id: LayerId(1),
+            name: "Layer 1".into(),
+            keyframes: std::collections::BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
+            tweens: std::collections::BTreeMap::new(),
+            visible: true,
+            locked: false,
+        };
+        let symbol = Symbol {
+            id,
+            name: name.to_string(),
+            symbol_type,
+            registration: Transform::default(),
+            timeline: vec![layer],
+        };
+        let cmd = CreateSymbol { symbol };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("new-symbol:{id:?}"));
+        id
+    }
+
+    /// Place an instance of `symbol_id` at (x, y) on the current frame
+    /// (drag library → stage, Part 12 §12.2.11). Returns the instance id.
+    pub fn place_symbol(&mut self, symbol_id: SymbolId, x: f64, y: f64) -> NodeId {
+        if self.doc.symbol(symbol_id).is_none() {
+            return NodeId(0);
+        }
+        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if !l.visible || l.locked {
+                return NodeId(0);
+            }
+        }
+        let instance_id = self.doc.alloc_node_id();
+        let instance = Node::SymbolInstance {
+            id: instance_id,
+            transform: Transform {
+                x,
+                y,
+                ..Transform::default()
+            },
+            symbol_id,
+            loop_mode: LoopMode::Loop,
+            first_frame: 1,
+        };
+        let cmd = PlaceSymbol::new(
+            self.active_scene,
+            self.active_layer,
+            self.playhead,
+            instance,
+        );
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.selection = vec![instance_id];
+        self.log(&format!("place-symbol:{symbol_id:?}"));
+        instance_id
+    }
+
+    /// Rename a symbol (ID-safe, Part 12 §12.2.3).
+    pub fn rename_symbol(&mut self, symbol_id: SymbolId, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
+        let Some(s) = self.doc.symbol(symbol_id).cloned() else {
+            return false;
+        };
+        if s.name == name {
+            return false;
+        }
+        let cmd = RenameSymbol {
+            symbol_id,
+            before: s.name,
+            after: name.to_string(),
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("rename-symbol:{symbol_id:?}"));
+        true
+    }
+
+    /// Delete a symbol from the Library (Part 12 §12.2.5). `break_apart` =
+    /// leave its instances as raw content. In-use deletion WITHOUT break_apart
+    /// is blocked (the UI prompts first). Returns true on success.
+    pub fn delete_symbol(&mut self, symbol_id: SymbolId, break_apart: bool) -> bool {
+        if self.doc.symbol(symbol_id).is_none() {
+            return false;
+        }
+        let in_use = self.doc.symbol_use_count(symbol_id) > 0;
+        if in_use && !break_apart {
+            self.log("delete-symbol:blocked(in use)");
+            return false;
+        }
+        let cmd = DeleteSymbol::new(symbol_id, break_apart);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        // prune selection of any now-removed instance nodes
+        self.prune_selection_existence();
+        self.log(&format!("delete-symbol:{symbol_id:?}"));
+        true
+    }
+
+    /// Swap an instance's symbol (Part 11 §11.6), keeping its transform.
+    pub fn swap_instance(&mut self, instance_id: NodeId, symbol_id: SymbolId) -> bool {
+        if self.doc.symbol(symbol_id).is_none() {
+            return false;
+        }
+        let Some(before) = self.doc.nodes.get(&instance_id).and_then(|n| n.symbol_id()) else {
+            return false;
+        };
+        if before == symbol_id {
+            return false;
+        }
+        let cmd = SwapInstance {
+            instance_id,
+            before,
+            after: symbol_id,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("swap-instance:{instance_id:?}"));
+        true
+    }
+
+    /// Set a graphic instance's loop mode / first frame (Part 11 §11.4).
+    pub fn set_instance_loop(
+        &mut self,
+        instance_id: NodeId,
+        loop_mode: LoopMode,
+        first_frame: u32,
+    ) -> bool {
+        let before = match self.doc.nodes.get(&instance_id) {
+            Some(Node::SymbolInstance {
+                loop_mode,
+                first_frame,
+                ..
+            }) => (*loop_mode, *first_frame),
+            _ => return false,
+        };
+        if before == (loop_mode, first_frame.max(1)) {
+            return false;
+        }
+        let cmd = SetInstanceLoop {
+            instance_id,
+            before,
+            after: (loop_mode, first_frame.max(1)),
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("set-instance-loop:{instance_id:?}"));
+        true
+    }
+
+    /// Library snapshot (id, name, type, use-count, duration) for the UI.
+    pub fn library(&self) -> Vec<(SymbolId, String, SymbolType, u32, u32)> {
+        self.doc
+            .library
+            .iter()
+            .map(|s| {
+                (
+                    s.id,
+                    s.name.clone(),
+                    s.symbol_type,
+                    self.doc.symbol_use_count(s.id),
+                    s.duration(),
+                )
+            })
+            .collect()
+    }
+
     // ——— Layers (MOD-LAYER, Part 20) ———
 
     /// Layer snapshot for the UI (bottom → top, engine order).
@@ -1246,5 +1532,7 @@ fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
                 stroke_width: sw,
             }
         }
+        // instances have no base rect props — patch is a no-op for them
+        other => other.clone(),
     }
 }

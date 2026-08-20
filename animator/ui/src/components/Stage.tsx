@@ -4,10 +4,12 @@ import {
   drawRect,
   evaluate,
   moveSelection,
+  placeSymbol,
   selectAt,
   selectInRect,
   selectToggleAt,
   statusJson,
+  swapInstance,
   transformSelection,
 } from '../engine/client'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
@@ -442,8 +444,36 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
     applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
   }
 
+  // Library drag-drop (Part 12 §12.2.11 place · §12.2.12 swap): dropping a
+  // symbol onto a SELECTED instance swaps it; otherwise places a new instance
+  // at the drop point.
+  const onDrop = (e: React.DragEvent) => {
+    const symbolId = Number(e.dataTransfer.getData('kineora/symbol'))
+    if (!symbolId) return
+    e.preventDefault()
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const rect = wrap.getBoundingClientRect()
+    const doc = screenToDoc(vpRef.current, e.clientX - rect.left, e.clientY - rect.top)
+    const st = statusJson()
+    const sel = st?.selection ?? []
+    if (sel.length === 1) {
+      // swap when the single selected object is an instance
+      const detail = st?.selection_details?.find((d) => d.id === sel[0])
+      if (detail?.kind === 'instance') {
+        const ok = swapInstance(sel[0], symbolId)
+        notify?.(ok ? `symbol swapped` : 'swap: blocked')
+        scheduleRedraw()
+        return
+      }
+    }
+    const id = placeSymbol(symbolId, doc.x, doc.y)
+    notify?.(id !== 0 ? 'symbol placed' : 'place symbol: blocked (locked/hidden layer)')
+    scheduleRedraw()
+  }
+
   return (
-    <div ref={wrapRef} data-testid="stage-wrap" style={{ flex: 1, position: 'relative', background: '#111', minWidth: 0, overflow: 'hidden' }}>
+    <div ref={wrapRef} data-testid="stage-wrap" style={{ flex: 1, position: 'relative', background: '#111', minWidth: 0, overflow: 'hidden' }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <canvas
         ref={canvasRef}
         data-testid="stage-canvas"

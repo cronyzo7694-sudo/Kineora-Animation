@@ -11,6 +11,8 @@ import { LayersPanel } from './components/LayersPanel'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { ResizeHandle } from './components/ResizeHandle'
 import { ExportDialog } from './components/ExportDialog'
+import { LibraryPanel } from './components/LibraryPanel'
+import { SymbolDialog, type SymbolDialogMode } from './components/SymbolDialog'
 import type { ColorPreview } from './render/canvasRenderer'
 
 /** Workspace panel widths (C-06 resize, Part 01 §1.1.2 app prefs). */
@@ -53,11 +55,12 @@ export default function App() {
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
   const [tick, setTick] = useState(0)
-  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true })
+  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true, library: true })
   const [panelW, setPanelW] = useState<PanelWidths>(loadPanelWidths)
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
   const panelWRef = useRef(panelW)
   const originRef = useRef<PanelWidths>(panelW)
 
@@ -116,6 +119,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Symbol shortcuts (Part 29.8: F8 = Convert to Symbol, Ctrl+F8 = New Symbol).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === 'F8') {
+        e.preventDefault()
+        setSymbolDialog({ open: true, mode: e.ctrlKey || e.metaKey ? 'new' : 'convert' })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])
@@ -160,14 +177,16 @@ export default function App() {
             onCancel={() => setPanelW((p) => ({ ...p, properties: originRef.current.properties }))}
           />
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties ? panelW.properties : 300, flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties || panels.library ? panelW.properties : 300, flexShrink: 0 }}>
           {panels.properties && <PropertiesPanel width={panelW.properties} status={status} notify={notify} onPreview={setColorPreview} />}
+          {panels.library && <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />}
           <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
         </div>
       </div>
       <TimelineStrip status={status} notify={notify} />
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
+      <SymbolDialog open={symbolDialog.open} mode={symbolDialog.mode} onClose={() => setSymbolDialog((s) => ({ ...s, open: false }))} notify={notify} />
     </div>
   )
 }

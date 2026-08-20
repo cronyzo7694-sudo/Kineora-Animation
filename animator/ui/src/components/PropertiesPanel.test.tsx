@@ -296,3 +296,19 @@ describe('PropertiesPanel — live color preview (Part 26.12 / C-09)', () => {
     expect(fill).toHaveValue('#ff0000') // reverted to engine value
   })
 })
+
+describe('PropertiesPanel — symbol instances (Part 11 §11.5)', () => {
+  it('an instance selection shows the symbol name + type (no fill/stroke)', () => {
+    const inst = makeStatus({
+      selection_details: [
+        { ...detail({ fill: '', stroke: null }), kind: 'instance', symbol_name: 'arm', symbol_type: 'graphic' },
+      ],
+    })
+    render(<PropertiesPanel status={inst} notify={notify} />)
+    expect(screen.getByTestId('prop-symbol')).toHaveTextContent('arm')
+    expect(screen.getByTestId('prop-symbol')).toHaveTextContent('graphic')
+    expect(screen.queryByTestId('prop-fill')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('prop-w')).not.toBeInTheDocument()
+    expect(screen.getByTestId('prop-x')).toBeInTheDocument()
+  })
+})

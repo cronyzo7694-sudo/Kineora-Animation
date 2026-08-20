@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 174 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 203 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -23,7 +23,8 @@
 | **Timeline navigation + zoom + transport** | MOD-TIMELINE | ACCEPTED (24269fe) | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
 | **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (e23c23f) | drag-range selection, copy/cut/paste/reverse/remove frames |
 | **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | ACCEPTED (cd6fc44) | explicit tween spans, hold-by-default, ease slider, span visuals |
-| **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT G) — pending manual acceptance** | sequence move (exposure-preserving), span-edge resize, duplicate range, convert-to-keys/blanks, frame labels, end-of-span marker, sequences.rs (30 tests) |
+| **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (d0c055b) | sequence move, span-edge resize, duplicate, convert, labels, end-of-span marker |
+| **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **COMPLETE (this commit, UNIT H) — pending manual acceptance** | symbol model + convert (F8) + new (Ctrl+F8) + place/rename/delete/swap + nested evaluation + recursive hit-test + Library panel, symbols.rs (29 tests) |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -37,6 +38,34 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT H: Symbols + Library foundation (Part 11/12, engineering P4)
+- **Data model**: `SymbolId` newtype; `Symbol { id, name, symbol_type: graphic|movieClip|button, registration, timeline: Vec<Layer> }`; `Document.library` (`#[serde(default)]` backward-compat); `Node::SymbolInstance { symbol_id, transform, loop_mode, first_frame }`. Node accessors handle both variants.
+- **Convert to Symbol (F8)** — dialog (name, type, 9-point registration grid): wraps the selection, re-bases the wrapped nodes so the registration point is the symbol's local (0,0), replaces them with ONE instance whose x/y = the registration point's stage position. All 9 grid points verified. Exact undo (base transforms + frame content restored).
+- **New Symbol (Ctrl+F8)** + **place** (drag library → stage) + **rename** (ID-safe) + **delete** (in-use prompts; break-apart flattens instances into raw rects via a full-document snapshot) + **swap** (drag onto a selected instance keeps its transform) + **set_instance_loop** (graphic Loop / Play Once / Single Frame + first_frame).
+- **Nested evaluation (Part 11.8)**: `evaluate` now recurses into symbol instances — graphic syncs to the parent clock (loop = `(first-1+(f-1))%dur+1`, play-once = clamp, single-frame = static), movie clip runs a free clock (`(f-1)%dur+1`), button = frame 1. Instance transforms compose (rigid: rotations add, scales multiply — non-uniform-scale+rotation skew is a documented approximation). Depth cap 32 (engineering RSK-002). `hit_test`/`hits_in_rect` recurse with inverse-transformed probes and select the OUTERMOST instance.
+- **Library panel** (Part 12): asset list (icon/name/type/use-count), create, double-click rename, delete-with-prompt, drag-out-to-place, drag-onto-instance-to-swap. **Properties** shows the symbol name/type for a selected instance.
+- **Persistence + export**: symbols + instances round-trip serde; SVG export flattens nested content (no overlays); locked layers block placement and hit-testing but still render.
+- **Bug fixed during this unit**: the Stage drop handler called `swapInstance` inside `notify?.(…)`, which short-circuits its argument when the toast is absent — swap silently never ran. Hoisted the engine call out.
+- **Deferred (as scoped)**: symbol edit modes / edit-in-place / breadcrumb, Break-Apart as a standalone feature (only the delete-flow flatten is included), duplicate-symbol, instance color-effect + filters, Frame Picker, button-state interactivity, library folders/search/sort, registration-point editing after creation, Motion Tween.
+
+### Manual acceptance matrix — UNIT H (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | draw two rects, select both → **F8** → name "arm", Graphic, center | they become ONE instance; Library shows "arm" (graphic ×1) |
+| 2 | select/move/rotate the instance | transforms as one object (existing transform system) |
+| 3 | Ctrl+Z / Ctrl+Shift+Z | restores the two rects exactly |
+| 4 | Properties shows "Symbol: arm (graphic)" | no fill/stroke/W-H section |
+| 5 | **Ctrl+F8** → empty symbol → drag it from the Library onto the stage | an (empty) instance is placed at the drop point |
+| 6 | make a 2-frame symbol (F6 @2 + move), place it, scrub 1↔2 | graphic Loop syncs to the main timeline |
+| 7 | rename the symbol (double-click in Library) | instances update (ID-safe); Ctrl+Z reverts |
+| 8 | delete an unused symbol | gone; Ctrl+Z restores |
+| 9 | delete an in-use symbol → prompt | Cancel = nothing; OK = instances break apart into raw content |
+| 10 | drag a Library symbol onto a SELECTED instance | swaps (transform kept) |
+| 11 | Save → Reload | symbols + instances intact; nested animation survives |
+| 12 | Export SVG | nested content flattened, no library UI/selection |
+| 13 | lock the layer → drag-drop place / click the instance | blocked / not selectable (still renders) |
+| 14 | marquee + click on an instance | selects the INSTANCE, not its inner rect |
 
 ## This commit — UNIT G: frame sequences, exposure & labels (Part 07 §7.4.8–12 + §7.2 + §7.3)
 - **Sequence move** (Part 07 §7.4.9 / F-07-12 E2): dragging a keyframe dot now moves the keyframe **together with its held span** (the next keyframe shifts by the same delta → exposure preserved). Collision → **overwrite prompt** (`window.confirm`); OK = overwrite, Cancel = nothing (one undoable command either way; blocked moves create no command). Alt-drag still duplicates a single keyframe.
@@ -379,9 +408,9 @@ Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyfra
 - **Tauri run in AI sandbox**: webkit2gtk system libs absent (IMP-DEC-007). Engine+UI build/test in CI; desktop runs on the user's Linux PC.
 
 ## Next units (order)
-1. Tweening completion (Part 09): motion tween spans + per-property keys + full Penner easing + motion presets (depends on symbols, Part 11) · shape tween (depends on shapes, Part 06).
-2. Symbols + Library (Part 11/12) — the prerequisite for motion tween; Release 1 step 7.
-3. Drawing tools (oval/line) + shape merge model (Part 05/06) — the prerequisite for shape tween.
-4. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps) + tool-options schema + shortcut wiring.
+1. **Motion tween** (Part 09.1) — span + per-property keys + full Penner easing + motion presets; the symbol model now exists so this is unblocked (Release 1 step 6 completion).
+2. Symbol edit modes (edit-in-place / breadcrumb / back) + Break-Apart + Duplicate-Symbol (Part 11.3/11.6/11.7).
+3. Drawing tools (oval/line) + shape merge model (Part 05/06) — prerequisite for shape tween (Part 09.3).
+4. Object-level lock/hide + draggable pivot + tool-options schema + shortcut wiring.
 5. Onion skin (Part 15) · camera/audio (Part 16/17) — Release 2.
 6. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.

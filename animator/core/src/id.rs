@@ -12,3 +12,4 @@ macro_rules! id_type {
 id_type!(NodeId);
 id_type!(LayerId);
 id_type!(SceneId);
+id_type!(SymbolId);

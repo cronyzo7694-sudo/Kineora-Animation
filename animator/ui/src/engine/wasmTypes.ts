@@ -37,6 +37,18 @@ export interface SelDetailJson {
   fill: string
   stroke: string | null
   stroke_width: number
+  kind?: string
+  symbol_name?: string | null
+  symbol_type?: string | null
+}
+
+/** Library entry (Part 12 §12.1). */
+export interface LibraryItemJson {
+  id: number
+  name: string
+  type: string
+  use_count: number
+  duration: number
 }
 
 /** Keyframe marker for the timeline (Part 07 §7.2). */
@@ -147,6 +159,14 @@ export interface KineoraWasm {
   kineora_convert_to_keyframes(layer: number, start: number, end: number): boolean
   kineora_convert_to_blank_keyframes(layer: number, start: number, end: number): boolean
   kineora_set_frame_label(layer: number, frame: number, label: string | null): boolean
+  kineora_convert_to_symbol(name: string, symbolType: string, regGrid: number): number
+  kineora_new_symbol(name: string, symbolType: string): number
+  kineora_place_symbol(symbolId: number, x: number, y: number): number
+  kineora_rename_symbol(symbolId: number, name: string): boolean
+  kineora_delete_symbol(symbolId: number, breakApart: boolean): boolean
+  kineora_swap_instance(instanceId: number, symbolId: number): boolean
+  kineora_set_instance_loop(instanceId: number, loopMode: string, firstFrame: number): boolean
+  kineora_library(): string
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

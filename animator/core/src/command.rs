@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::eval::{node_layer_index, node_transform_at};
-use crate::id::{LayerId, NodeId};
-use crate::model::{ClassicTween, Document, Frame, Layer, Node, Settings, Transform};
+use crate::eval::{collect_items, instance_child_frame, node_layer_index, node_transform_at};
+use crate::id::{LayerId, NodeId, SymbolId};
+use crate::model::{
+    ClassicTween, Document, Frame, Layer, LoopMode, Node, Settings, Symbol, Transform,
+};
 
 /// Remove tweens whose start OR end keyframe is the removed frame `frame`.
 fn drop_tweens_at(tweens: &mut BTreeMap<u32, ClassicTween>, frame: u32) {
@@ -1463,6 +1465,397 @@ impl Command for SetFrameLabel {
             if let Some(Frame::Keyframe { label, .. }) = l.keyframes.get_mut(&self.frame) {
                 *label = before;
             }
+        }
+    }
+}
+
+/// CMD-CONVERT-SYMBOL — F8: wrap the selected nodes into a symbol definition
+/// and replace them (on the current frame) with one instance (Part 11 §11.2).
+/// The wrapped nodes' base transforms are re-based so the chosen registration
+/// point becomes the symbol's local (0,0); the instance's x/y = the registration
+/// point's stage position. Exact undo restores base transforms + frame content.
+pub struct ConvertToSymbol {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    pub symbol: Symbol,
+    pub instance: Node,
+    pub node_ids: Vec<NodeId>,
+    prev_content: Option<Vec<NodeId>>,
+    prev_transforms: Option<Vec<(NodeId, Transform)>>,
+}
+
+impl ConvertToSymbol {
+    /// `instance` must be a SymbolInstance whose transform.x/y IS the
+    /// registration point's stage position (re-base subtracts it).
+    pub fn new(
+        scene: usize,
+        layer: usize,
+        frame: u32,
+        symbol: Symbol,
+        instance: Node,
+        node_ids: Vec<NodeId>,
+    ) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            symbol,
+            instance,
+            node_ids,
+            prev_content: None,
+            prev_transforms: None,
+        }
+    }
+}
+
+impl Command for ConvertToSymbol {
+    fn label(&self) -> String {
+        "Convert to symbol".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        // snapshot wrapped-node base transforms + the frame content
+        self.prev_transforms = Some(
+            self.node_ids
+                .iter()
+                .filter_map(|id| doc.nodes.get(id).map(|n| (*id, n.transform().clone())))
+                .collect(),
+        );
+        self.prev_content = doc
+            .layer(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get(&self.frame))
+            .and_then(|fr| match fr {
+                Frame::Keyframe { content, .. } => Some(content.clone()),
+                Frame::Blank => None,
+            });
+
+        // insert the symbol + instance
+        doc.library.push(self.symbol.clone());
+        doc.nodes.insert(self.instance.id(), self.instance.clone());
+
+        // re-base the wrapped nodes (registration point → local 0,0); the
+        // instance's transform.x/y IS the registration point's stage position
+        let (reg_x, reg_y) = match &self.instance {
+            Node::SymbolInstance { transform, .. } => (transform.x, transform.y),
+            _ => (0.0, 0.0),
+        };
+        for id in &self.node_ids {
+            if let Some(n) = doc.nodes.get_mut(id) {
+                let t = n.transform_mut();
+                t.x -= reg_x;
+                t.y -= reg_y;
+            }
+        }
+
+        // replace the wrapped nodes with the instance on the current frame
+        if let Some(Frame::Keyframe { content, .. }) = doc
+            .layer_mut(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get_mut(&self.frame))
+        {
+            content.retain(|id| !self.node_ids.contains(id));
+            content.push(self.instance.id());
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        // remove the instance + symbol
+        doc.nodes.remove(&self.instance.id());
+        doc.library.retain(|s| s.id != self.symbol.id);
+        // restore base transforms
+        if let Some(prev) = &self.prev_transforms {
+            for (id, t) in prev {
+                if let Some(n) = doc.nodes.get_mut(id) {
+                    *n.transform_mut() = t.clone();
+                }
+            }
+        }
+        // restore EXACT original frame content order
+        if let (Some(prev), Some(l)) = (
+            self.prev_content.clone(),
+            doc.layer_mut(self.scene, self.layer),
+        ) {
+            if let Some(Frame::Keyframe { content, .. }) = l.keyframes.get_mut(&self.frame) {
+                *content = prev;
+            }
+        }
+    }
+}
+
+/// CMD-CREATE-SYMBOL — Ctrl+F8: add an empty symbol to the Library.
+pub struct CreateSymbol {
+    pub symbol: Symbol,
+}
+
+impl Command for CreateSymbol {
+    fn label(&self) -> String {
+        "New symbol".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        doc.library.push(self.symbol.clone());
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        doc.library.retain(|s| s.id != self.symbol.id);
+    }
+}
+
+/// CMD-PLACE-SYMBOL — place an instance of a symbol on the current frame
+/// (drag library → stage, or after New Symbol).
+pub struct PlaceSymbol {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    pub instance: Node,
+    prev_content: Option<Vec<NodeId>>,
+}
+
+impl PlaceSymbol {
+    pub fn new(scene: usize, layer: usize, frame: u32, instance: Node) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            instance,
+            prev_content: None,
+        }
+    }
+}
+
+impl Command for PlaceSymbol {
+    fn label(&self) -> String {
+        "Place symbol instance".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        self.prev_content = doc
+            .layer(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get(&self.frame))
+            .and_then(|fr| match fr {
+                Frame::Keyframe { content, .. } => Some(content.clone()),
+                Frame::Blank => None,
+            });
+        doc.nodes.insert(self.instance.id(), self.instance.clone());
+        if doc
+            .ensure_keyframe(self.scene, self.layer, self.frame)
+            .is_none()
+        {
+            return;
+        }
+        if let Some(Frame::Keyframe { content, .. }) = doc
+            .layer_mut(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get_mut(&self.frame))
+        {
+            content.push(self.instance.id());
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        doc.nodes.remove(&self.instance.id());
+        if let (Some(prev), Some(l)) = (
+            self.prev_content.clone(),
+            doc.layer_mut(self.scene, self.layer),
+        ) {
+            if let Some(Frame::Keyframe { content, .. }) = l.keyframes.get_mut(&self.frame) {
+                *content = prev;
+            } else {
+                l.keyframes.remove(&self.frame);
+            }
+        }
+    }
+}
+
+/// CMD-RENAME-SYMBOL — rename a symbol (ID-safe; Part 12 §12.2.3).
+pub struct RenameSymbol {
+    pub symbol_id: SymbolId,
+    pub before: String,
+    pub after: String,
+}
+
+impl Command for RenameSymbol {
+    fn label(&self) -> String {
+        "Rename symbol".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(s) = doc.library.iter_mut().find(|s| s.id == self.symbol_id) {
+            s.name = self.after.clone();
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(s) = doc.library.iter_mut().find(|s| s.id == self.symbol_id) {
+            s.name = self.before.clone();
+        }
+    }
+}
+
+/// CMD-SWAP-INSTANCE — replace an instance's symbol (Part 11 §11.6), keeping
+/// its transform.
+pub struct SwapInstance {
+    pub instance_id: NodeId,
+    pub before: SymbolId,
+    pub after: SymbolId,
+}
+
+impl Command for SwapInstance {
+    fn label(&self) -> String {
+        "Swap symbol".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(Node::SymbolInstance { symbol_id, .. }) = doc.nodes.get_mut(&self.instance_id) {
+            *symbol_id = self.after;
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(Node::SymbolInstance { symbol_id, .. }) = doc.nodes.get_mut(&self.instance_id) {
+            *symbol_id = self.before;
+        }
+    }
+}
+
+/// CMD-SET-INSTANCE-LOOP — set the graphic loop mode / first frame.
+pub struct SetInstanceLoop {
+    pub instance_id: NodeId,
+    pub before: (LoopMode, u32),
+    pub after: (LoopMode, u32),
+}
+
+impl Command for SetInstanceLoop {
+    fn label(&self) -> String {
+        "Set instance loop".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(Node::SymbolInstance {
+            loop_mode,
+            first_frame,
+            ..
+        }) = doc.nodes.get_mut(&self.instance_id)
+        {
+            *loop_mode = self.after.0;
+            *first_frame = self.after.1.max(1);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(Node::SymbolInstance {
+            loop_mode,
+            first_frame,
+            ..
+        }) = doc.nodes.get_mut(&self.instance_id)
+        {
+            *loop_mode = self.before.0;
+            *first_frame = self.before.1;
+        }
+    }
+}
+
+/// CMD-DELETE-SYMBOL — delete a symbol from the Library (Part 12 §12.2.5).
+/// With `break_apart`, every instance of the symbol is flattened into raw rect
+/// content (full flatten, depth-capped) before the definition is removed.
+/// Undo = full-document snapshot (rare, exact).
+pub struct DeleteSymbol {
+    pub symbol_id: SymbolId,
+    pub break_apart: bool,
+    prev_doc: Option<Document>,
+}
+
+impl DeleteSymbol {
+    pub fn new(symbol_id: SymbolId, break_apart: bool) -> Self {
+        Self {
+            symbol_id,
+            break_apart,
+            prev_doc: None,
+        }
+    }
+}
+
+impl Command for DeleteSymbol {
+    fn label(&self) -> String {
+        "Delete symbol".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        self.prev_doc = Some(doc.clone());
+
+        if self.break_apart {
+            // instances referencing this symbol
+            let inst_ids: Vec<NodeId> = doc
+                .nodes
+                .values()
+                .filter(|n| n.symbol_id() == Some(self.symbol_id))
+                .map(|n| n.id())
+                .collect();
+            // flatten each instance → cloned rect nodes (allocated + inserted)
+            let mut repl: std::collections::HashMap<NodeId, Vec<NodeId>> =
+                std::collections::HashMap::new();
+            for iid in inst_ids {
+                let Some(Node::SymbolInstance {
+                    symbol_id,
+                    loop_mode,
+                    first_frame,
+                    ..
+                }) = doc.nodes.get(&iid)
+                else {
+                    continue;
+                };
+                let (t, lm, ff, sid) = (
+                    doc.nodes.get(&iid).unwrap().transform().clone(),
+                    *loop_mode,
+                    *first_frame,
+                    *symbol_id,
+                );
+                let Some(sym) = doc.symbol(sid).cloned() else {
+                    continue;
+                };
+                let child = instance_child_frame(&sym, lm, ff, 1);
+                let mut items = Vec::new();
+                collect_items(doc, &sym.timeline, child, 0, Some(&t), false, &mut items);
+                let clones: Vec<NodeId> = items
+                    .into_iter()
+                    .map(|it| {
+                        let nid = doc.alloc_node_id();
+                        doc.nodes.insert(
+                            nid,
+                            Node::Rect {
+                                id: nid,
+                                transform: Transform {
+                                    x: it.x,
+                                    y: it.y,
+                                    scale_x: 1.0,
+                                    scale_y: 1.0,
+                                    rotation: it.rotation,
+                                    ..Transform::default()
+                                },
+                                width: it.w,
+                                height: it.h,
+                                fill: it.fill.clone(),
+                                stroke: it.stroke.clone(),
+                                stroke_width: it.stroke_width,
+                            },
+                        );
+                        nid
+                    })
+                    .collect();
+                repl.insert(iid, clones);
+                doc.nodes.remove(&iid);
+            }
+            // sweep every content list, replacing instance ids with clones
+            for sc in doc.scenes.iter_mut() {
+                for layer in sc.layers.iter_mut() {
+                    for fr in layer.keyframes.values_mut() {
+                        if let Frame::Keyframe { content, .. } = fr {
+                            let mut next = Vec::new();
+                            for c in content.iter() {
+                                if let Some(cl) = repl.get(c) {
+                                    next.extend(cl.iter().copied());
+                                } else {
+                                    next.push(*c);
+                                }
+                            }
+                            *content = next;
+                        }
+                    }
+                }
+            }
+        }
+
+        doc.library.retain(|s| s.id != self.symbol_id);
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(prev) = self.prev_doc.clone() {
+            *doc = prev;
         }
     }
 }

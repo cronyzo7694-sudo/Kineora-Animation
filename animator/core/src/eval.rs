@@ -4,11 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::easing::ease_classic;
 use crate::id::NodeId;
-use crate::model::{Document, Frame, Layer, Node, Transform};
+use crate::model::{Document, Frame, Layer, LoopMode, Node, Symbol, SymbolType, Transform};
 
-/// A single draw command for the renderer (fill/stroke rect in slice 1).
-/// This is the export-side of the render tree — authoring overlays (selection
-/// box, handles, guides) are NEVER produced here (REQ-EXP-002).
+/// Maximum symbol nesting depth (engineering RSK-002 "Depth cap 32").
+pub const MAX_DEPTH: u32 = 32;
+
+/// A single draw command for the renderer (fill/stroke rect). Flattened
+/// render-tree leaf — authoring overlays (selection box, handles, guides) are
+/// NEVER produced here (REQ-EXP-002).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectItem {
     pub id: u64,
@@ -34,7 +37,7 @@ fn base_transform(doc: &Document, id: NodeId) -> Transform {
 /// A **classic tween span** (Part 09.2) interpolates the transforms of nodes
 /// present in BOTH the start and end keyframes (same object); frame-by-frame
 /// keyframes HOLD (Part 08 §8.0). A tween whose end keyframe is missing or
-/// whose content differs is BROKEN → holds the start (dashed in the UI).
+/// whose content differs is BROKEN → holds the start.
 pub(crate) fn node_states_at(
     doc: &Document,
     layer: &Layer,
@@ -117,10 +120,7 @@ fn lerp_transform(a: &Transform, b: &Transform, t: f64) -> Transform {
 }
 
 /// Interpolated/held transform of a node at `frame` — the SAME value the
-/// renderer draws. `None` if the node isn't present at this frame (blank
-/// keyframe, before the first keyframe, hidden from content). This is what a
-/// Move command must use as its "before" value so a drag on an ANIMATED object
-/// does not jump (PHASE F — interpolated positions are authoritative).
+/// renderer draws. `None` if the node isn't present at this frame.
 pub(crate) fn node_transform_at(
     doc: &Document,
     scene: usize,
@@ -132,10 +132,7 @@ pub(crate) fn node_transform_at(
     node_states_at(doc, layer_, frame).get(&id).cloned()
 }
 
-/// Scene-wide transform lookup: a selection can span layers (marquee / Select
-/// All), so the effective transform is found by scanning every layer for the
-/// first one that holds the node at `frame`. Returns `None` if the node isn't
-/// held on any layer at this frame.
+/// Scene-wide transform lookup for a selection (may span layers).
 pub(crate) fn node_transform_in_scene(
     doc: &Document,
     scene: usize,
@@ -143,8 +140,7 @@ pub(crate) fn node_transform_in_scene(
     id: NodeId,
 ) -> Option<Transform> {
     let scene_ = doc.scene(scene)?;
-    for layer in &scene_.layers {
-        let idx = layer_index(scene_, layer);
+    for (idx, _) in scene_.layers.iter().enumerate() {
         if let Some(t) = node_transform_at(doc, scene, idx, frame, id) {
             return Some(t);
         }
@@ -152,8 +148,7 @@ pub(crate) fn node_transform_in_scene(
     None
 }
 
-/// Index of the layer that holds `id` at `frame` (scene-wide). Commands use
-/// this so cross-layer selections write their overrides into the RIGHT layer.
+/// Index of the layer that holds `id` at `frame` (scene-wide).
 pub(crate) fn node_layer_index(
     doc: &Document,
     scene: usize,
@@ -165,26 +160,114 @@ pub(crate) fn node_layer_index(
         .layers
         .iter()
         .enumerate()
-        .find(|(i, _)| doc.content_at(scene, *i, frame).contains(&id))
+        .find(|(_, l)| l.content_at(frame).contains(&id))
         .map(|(i, _)| i)
 }
 
-/// Evaluate the document at `frame` into a flat, ordered render-item list.
-/// Bottom→top layers; back→front nodes (content order). Deterministic.
-pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
-    let mut out = Vec::new();
-    let Some(scene_) = doc.scene(scene) else {
-        return out;
-    };
-    for layer in &scene_.layers {
-        if !layer.visible {
+// ——— transform composition (Part 11.8 nested evaluation) ———
+
+/// Apply a transform to a point (rotate around the origin, scale, translate).
+fn apply_point(t: &Transform, px: f64, py: f64) -> (f64, f64) {
+    let rad = t.rotation.to_radians();
+    let (cos, sin) = (rad.cos(), rad.sin());
+    let rx = px * cos - py * sin;
+    let ry = px * sin + py * cos;
+    (rx * t.scale_x + t.x, ry * t.scale_y + t.y)
+}
+
+/// Inverse-apply a transform to a point (for hit-testing INTO an instance).
+fn inverse_point(t: &Transform, px: f64, py: f64) -> (f64, f64) {
+    let lx = (px - t.x) / t.scale_x;
+    let ly = (py - t.y) / t.scale_y;
+    let rad = -t.rotation.to_radians();
+    let (cos, sin) = (rad.cos(), rad.sin());
+    (lx * cos - ly * sin, lx * sin + ly * cos)
+}
+
+/// Compose parent ∘ child (rigid approximation: rotations add, scales multiply,
+/// the child's translation is transformed by the parent). Exact for uniform
+/// scale or zero rotation; non-uniform-scale + rotation skew is approximated
+/// (our Transform has no skew field) — documented limitation.
+pub(crate) fn compose_transforms(parent: &Transform, child: &Transform) -> Transform {
+    let (x, y) = apply_point(parent, child.x, child.y);
+    Transform {
+        x,
+        y,
+        scale_x: parent.scale_x * child.scale_x,
+        scale_y: parent.scale_y * child.scale_y,
+        rotation: parent.rotation + child.rotation,
+        skew_x: child.skew_x,
+        skew_y: child.skew_y,
+        pivot_x: child.pivot_x,
+        pivot_y: child.pivot_y,
+    }
+}
+
+/// Apply an instance context to a flattened rect item (Part 11.8).
+fn compose_rect_item(it: &RectItem, ctx: &Transform) -> RectItem {
+    let cx = it.x + it.w / 2.0;
+    let cy = it.y + it.h / 2.0;
+    let (ncx, ncy) = apply_point(ctx, cx, cy);
+    let w = it.w * ctx.scale_x;
+    let h = it.h * ctx.scale_y;
+    RectItem {
+        id: it.id,
+        x: ncx - w / 2.0,
+        y: ncy - h / 2.0,
+        w,
+        h,
+        rotation: it.rotation + ctx.rotation,
+        fill: it.fill.clone(),
+        stroke: it.stroke.clone(),
+        stroke_width: it.stroke_width * ((ctx.scale_x.abs() + ctx.scale_y.abs()) / 2.0),
+    }
+}
+
+/// The internal frame a symbol shows at `parent` (Part 11 §11.4 / §11.8):
+/// graphic syncs to the parent clock (loop / play-once / single-frame with
+/// first-frame); movie clip runs a free clock; button shows frame 1.
+pub(crate) fn instance_child_frame(
+    sym: &Symbol,
+    loop_mode: LoopMode,
+    first_frame: u32,
+    parent: u32,
+) -> u32 {
+    let dur = sym.duration().max(1);
+    match sym.symbol_type {
+        SymbolType::MovieClip => ((parent - 1) % dur) + 1,
+        SymbolType::Button => 1,
+        SymbolType::Graphic => {
+            let first = first_frame.max(1).min(dur);
+            match loop_mode {
+                LoopMode::Loop => ((first - 1 + (parent - 1)) % dur) + 1,
+                LoopMode::PlayOnce => (first + (parent - 1)).min(dur),
+                LoopMode::SingleFrame => first,
+            }
+        }
+    }
+}
+
+/// Recursively flatten a layer stack at `frame` into render items, applying the
+/// accumulated instance context `ctx` (None = identity). `skip_locked` gates
+/// locked layers (used by hit-testing/marquee; rendering keeps locked layers).
+pub(crate) fn collect_items(
+    doc: &Document,
+    layers: &[Layer],
+    frame: u32,
+    depth: u32,
+    ctx: Option<&Transform>,
+    skip_locked: bool,
+    out: &mut Vec<RectItem>,
+) {
+    for layer in layers {
+        if !layer.visible || (skip_locked && layer.locked) {
             continue;
         }
-        // preserve content order (back → front) for correct stacking
-        let order = doc.content_at(scene, layer_index(scene_, layer), frame);
         let states = node_states_at(doc, layer, frame);
-        for id in order {
-            let Some(t) = states.get(&id) else { continue };
+        for id in layer.content_at(frame) {
+            let Some(t) = states.get(&id).cloned() else {
+                continue;
+            };
             match doc.nodes.get(&id) {
                 Some(Node::Rect {
                     id,
@@ -195,7 +278,7 @@ pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
                     stroke_width,
                     ..
                 }) => {
-                    out.push(RectItem {
+                    let it = RectItem {
                         id: id.0,
                         x: t.x,
                         y: t.y,
@@ -205,24 +288,64 @@ pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
                         fill: fill.clone(),
                         stroke: stroke.clone(),
                         stroke_width: *stroke_width,
+                    };
+                    out.push(match ctx {
+                        Some(c) => compose_rect_item(&it, c),
+                        None => it,
                     });
+                }
+                Some(Node::SymbolInstance {
+                    symbol_id,
+                    loop_mode,
+                    first_frame,
+                    ..
+                }) => {
+                    if depth >= MAX_DEPTH {
+                        continue;
+                    }
+                    let Some(sym) = doc.symbol(*symbol_id) else {
+                        continue;
+                    };
+                    let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
+                    let composed = match ctx {
+                        Some(c) => compose_transforms(c, &t),
+                        None => t.clone(),
+                    };
+                    collect_items(
+                        doc,
+                        &sym.timeline,
+                        child,
+                        depth + 1,
+                        Some(&composed),
+                        skip_locked,
+                        out,
+                    );
                 }
                 None => {}
             }
         }
     }
+}
+
+/// Evaluate the document at `frame` into a flat, ordered render-item list
+/// (nested symbols flattened per Part 11.8). Deterministic.
+pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
+    let mut out = Vec::new();
+    let Some(scene_) = doc.scene(scene) else {
+        return out;
+    };
+    collect_items(doc, &scene_.layers, frame, 0, None, false, &mut out);
     out
 }
 
-/// Point-in-rotated-rect test: rect has top-left (x,y), size (w,h), rotation
-/// degrees around its CENTER (matches how the renderer draws it).
+/// Point-in-rotated-rect test (rotation around the rect CENTER).
 fn rect_contains(r: &RectItem, px: f64, py: f64) -> bool {
     if r.rotation == 0.0 {
         return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
     }
     let cx = r.x + r.w / 2.0;
     let cy = r.y + r.h / 2.0;
-    let rad = -r.rotation.to_radians(); // undo the rotation
+    let rad = -r.rotation.to_radians();
     let (cos, sin) = (rad.cos(), rad.sin());
     let dx = px - cx;
     let dy = py - cy;
@@ -231,9 +354,26 @@ fn rect_contains(r: &RectItem, px: f64, py: f64) -> bool {
     lx.abs() <= r.w / 2.0 && ly.abs() <= r.h / 2.0
 }
 
-/// All node ids whose rendered rect intersects (or is inside) the given
-/// DOCUMENT-space axis-aligned rectangle — marquee selection (contact ON:
-/// touching counts; a fully-inside test is the same when using bounds overlap).
+/// Axis-aligned bounding box size of a w×h rect rotated by `deg` degrees.
+fn rotated_aabb(deg: f64, w: f64, h: f64) -> (f64, f64) {
+    let rad = deg.to_radians();
+    let (cos, sin) = (rad.cos().abs(), rad.sin().abs());
+    (w * cos + h * sin, w * sin + h * cos)
+}
+
+fn aabb_overlaps(it: &RectItem, left: f64, right: f64, top: f64, bottom: f64) -> bool {
+    let (aabb_w, aabb_h) = rotated_aabb(it.rotation, it.w, it.h);
+    let cx = it.x + it.w / 2.0;
+    let cy = it.y + it.h / 2.0;
+    cx - aabb_w / 2.0 <= right
+        && cx + aabb_w / 2.0 >= left
+        && cy - aabb_h / 2.0 <= bottom
+        && cy + aabb_h / 2.0 >= top
+}
+
+/// All top-level node ids whose rendered geometry touches the marquee rect
+/// (contact ON). Instances are matched when ANY of their flattened content
+/// overlaps; the instance id is returned (Part 03 — click selects the instance).
 pub fn hits_in_rect(
     doc: &Document,
     scene: usize,
@@ -253,84 +393,177 @@ pub fn hits_in_rect(
         if !layer.visible || layer.locked {
             continue;
         }
-        let idx = layer_index(scene_, layer);
-        let order = doc.content_at(scene, idx, frame);
         let states = node_states_at(doc, layer, frame);
-        for id in order {
-            let Some(t) = states.get(&id) else { continue };
-            if let Some(Node::Rect { width, height, .. }) = doc.nodes.get(&id) {
-                let w = width * t.scale_x;
-                let h = height * t.scale_y;
-                // AABB of the (possibly rotated) rect for contact selection
-                let (aabb_w, aabb_h) = rotated_aabb(t.rotation, w, h);
-                let cx = t.x + w / 2.0;
-                let cy = t.y + h / 2.0;
-                if cx - aabb_w / 2.0 <= right
-                    && cx + aabb_w / 2.0 >= left
-                    && cy - aabb_h / 2.0 <= bottom
-                    && cy + aabb_h / 2.0 >= top
-                {
-                    out.push(id);
+        for id in layer.content_at(frame) {
+            let Some(t) = states.get(&id).cloned() else {
+                continue;
+            };
+            match doc.nodes.get(&id) {
+                Some(Node::Rect { width, height, .. }) => {
+                    let it = RectItem {
+                        id: id.0,
+                        x: t.x,
+                        y: t.y,
+                        w: width * t.scale_x,
+                        h: height * t.scale_y,
+                        rotation: t.rotation,
+                        fill: String::new(),
+                        stroke: None,
+                        stroke_width: 0.0,
+                    };
+                    if aabb_overlaps(&it, left, right, top, bottom) {
+                        out.push(id);
+                    }
                 }
+                Some(Node::SymbolInstance {
+                    symbol_id,
+                    loop_mode,
+                    first_frame,
+                    ..
+                }) => {
+                    let Some(sym) = doc.symbol(*symbol_id) else {
+                        continue;
+                    };
+                    let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
+                    let mut items = Vec::new();
+                    collect_items(doc, &sym.timeline, child, 1, Some(&t), true, &mut items);
+                    if items
+                        .iter()
+                        .any(|it| aabb_overlaps(it, left, right, top, bottom))
+                    {
+                        out.push(id);
+                    }
+                }
+                None => {}
             }
         }
     }
     out
 }
 
-/// Axis-aligned bounding box size of a w×h rect rotated by `deg` degrees.
-fn rotated_aabb(deg: f64, w: f64, h: f64) -> (f64, f64) {
-    let rad = deg.to_radians();
-    let (cos, sin) = (rad.cos().abs(), rad.sin().abs());
-    (w * cos + h * sin, w * sin + h * cos)
-}
-
-fn layer_index(scene: &crate::model::Scene, layer: &Layer) -> usize {
-    scene
-        .layers
-        .iter()
-        .position(|l| l.id == layer.id)
-        .unwrap_or(0)
-}
-
-/// Hit test at (x,y): top layer first (last in vec), front node first (reverse
-/// content order). Locked/hidden layers skipped (REQ-SEL-001). Rotation-aware.
-pub fn hit_test(doc: &Document, scene: usize, frame: u32, x: f64, y: f64) -> Option<NodeId> {
-    let scene_ = doc.scene(scene)?;
-    for layer in scene_.layers.iter().rev() {
+/// Recursive hit test into a layer stack (top layer first, front node first).
+/// Returns the OUTERMOST node id — clicking an instance selects the instance
+/// (double-click drills in, a later unit), never its inner rect.
+fn hit_layers(
+    doc: &Document,
+    layers: &[Layer],
+    frame: u32,
+    x: f64,
+    y: f64,
+    depth: u32,
+) -> Option<NodeId> {
+    for layer in layers.iter().rev() {
         if !layer.visible || layer.locked {
             continue;
         }
-        let idx = layer_index(scene_, layer);
-        let order = doc.content_at(scene, idx, frame);
         let states = node_states_at(doc, layer, frame);
-        for id in order.into_iter().rev() {
-            let Some(t) = states.get(&id) else { continue };
-            if let Some(Node::Rect {
-                width,
-                height,
-                fill,
-                stroke,
-                stroke_width,
-                ..
-            }) = doc.nodes.get(&id)
-            {
-                let item = RectItem {
-                    id: id.0,
-                    x: t.x,
-                    y: t.y,
-                    w: width * t.scale_x,
-                    h: height * t.scale_y,
-                    rotation: t.rotation,
-                    fill: fill.clone(),
-                    stroke: stroke.clone(),
-                    stroke_width: *stroke_width,
-                };
-                if rect_contains(&item, x, y) {
-                    return Some(id);
+        for id in layer.content_at(frame).into_iter().rev() {
+            let Some(t) = states.get(&id).cloned() else {
+                continue;
+            };
+            match doc.nodes.get(&id) {
+                Some(Node::Rect {
+                    width,
+                    height,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    ..
+                }) => {
+                    let it = RectItem {
+                        id: id.0,
+                        x: t.x,
+                        y: t.y,
+                        w: width * t.scale_x,
+                        h: height * t.scale_y,
+                        rotation: t.rotation,
+                        fill: fill.clone(),
+                        stroke: stroke.clone(),
+                        stroke_width: *stroke_width,
+                    };
+                    if rect_contains(&it, x, y) {
+                        return Some(id);
+                    }
                 }
+                Some(Node::SymbolInstance {
+                    symbol_id,
+                    loop_mode,
+                    first_frame,
+                    ..
+                }) => {
+                    if depth >= MAX_DEPTH {
+                        continue;
+                    }
+                    let Some(sym) = doc.symbol(*symbol_id) else {
+                        continue;
+                    };
+                    let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
+                    let (lx, ly) = inverse_point(&t, x, y);
+                    if hit_layers(doc, &sym.timeline, child, lx, ly, depth + 1).is_some() {
+                        return Some(id);
+                    }
+                }
+                None => {}
             }
         }
     }
     None
+}
+
+/// Hit test at (x,y): top layer first, front node first; locked/hidden skipped
+/// (REQ-SEL-001); rotation-aware; recurses into symbol instances.
+pub fn hit_test(doc: &Document, scene: usize, frame: u32, x: f64, y: f64) -> Option<NodeId> {
+    let scene_ = doc.scene(scene)?;
+    hit_layers(doc, &scene_.layers, frame, x, y, 0)
+}
+
+/// Axis-aligned bounds of a node's rendered appearance at `frame` (scene-wide).
+/// Used to compute the selection bounds for Convert-to-Symbol's registration
+/// grid. Recurses into symbol instances (depth-capped).
+pub(crate) fn node_bounds(
+    doc: &Document,
+    scene: usize,
+    frame: u32,
+    id: NodeId,
+) -> Option<(f64, f64, f64, f64)> {
+    let t = node_transform_in_scene(doc, scene, frame, id)?;
+    match doc.nodes.get(&id)? {
+        Node::Rect { width, height, .. } => {
+            let w = width * t.scale_x;
+            let h = height * t.scale_y;
+            let (aw, ah) = rotated_aabb(t.rotation, w, h);
+            let cx = t.x + w / 2.0;
+            let cy = t.y + h / 2.0;
+            Some((cx - aw / 2.0, cy - ah / 2.0, cx + aw / 2.0, cy + ah / 2.0))
+        }
+        Node::SymbolInstance {
+            symbol_id,
+            loop_mode,
+            first_frame,
+            ..
+        } => {
+            let sym = doc.symbol(*symbol_id)?;
+            let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
+            let mut items = Vec::new();
+            collect_items(doc, &sym.timeline, child, 1, Some(&t), true, &mut items);
+            let mut minx = f64::INFINITY;
+            let mut miny = f64::INFINITY;
+            let mut maxx = f64::NEG_INFINITY;
+            let mut maxy = f64::NEG_INFINITY;
+            for it in items {
+                let (aw, ah) = rotated_aabb(it.rotation, it.w, it.h);
+                let cx = it.x + it.w / 2.0;
+                let cy = it.y + it.h / 2.0;
+                minx = minx.min(cx - aw / 2.0);
+                miny = miny.min(cy - ah / 2.0);
+                maxx = maxx.max(cx + aw / 2.0);
+                maxy = maxy.max(cy + ah / 2.0);
+            }
+            if minx.is_finite() {
+                Some((minx, miny, maxx, maxy))
+            } else {
+                None
+            }
+        }
+    }
 }

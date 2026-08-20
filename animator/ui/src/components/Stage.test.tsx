@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // contract (screen→doc coords, ONE move command per drag, no command on cancel).
 vi.mock('../engine/client', () => ({
   getEngineStatus: () => ({ kind: 'ok' as const, detail: 'mock' }),
-  statusJson: () => ({
+  statusJson: vi.fn(() => ({
     playhead: 1,
     selection: [1],
     selection_rects: [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0 }],
@@ -22,7 +22,7 @@ vi.mock('../engine/client', () => ({
     doc_height: 1080,
     background: '#ffffff',
     event_log: [],
-  }),
+  })),
   evaluate: () => [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
   selectAt: vi.fn((_x: number, _y: number) => true),
   selectToggleAt: vi.fn((_x: number, _y: number) => true),
@@ -30,9 +30,11 @@ vi.mock('../engine/client', () => ({
   transformSelection: vi.fn(),
   moveSelection: vi.fn(),
   drawRect: vi.fn((_x: number, _y: number, _w: number, _h: number, _fill: string) => 2),
+  placeSymbol: vi.fn((_s: number, _x: number, _y: number) => 3),
+  swapInstance: vi.fn((_i: number, _s: number) => true),
 }))
 
-import { drawRect, moveSelection, selectAt, selectInRect, selectToggleAt, transformSelection } from '../engine/client'
+import { drawRect, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, statusJson, swapInstance, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
 
 const selectAtMock = vi.mocked(selectAt)
@@ -421,5 +423,59 @@ describe('Stage rect-tool drawing', () => {
     expect(drawRectMock.mock.calls[0][1]).toBeCloseTo(90, 5)
     expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(100, 5)
     expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(50, 5)
+  })
+})
+
+describe('Stage — library drag-drop (place + swap)', () => {
+  beforeEach(() => {
+    vi.mocked(placeSymbol).mockClear()
+    vi.mocked(swapInstance).mockClear()
+    vi.mocked(placeSymbol).mockReturnValue(3)
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [],
+      selection_rects: [],
+      selection_details: [],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1', layers: [], active_layer: 0,
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', duration: 60, clipboard_len: 0, event_log: [],
+    })
+  })
+
+  it('dropping a library symbol places an instance at finite doc coordinates', () => {
+    renderStage()
+    const wrap = screen.getByTestId('stage-wrap')
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => '5' } })
+    Object.defineProperty(event, 'clientX', { value: 100 })
+    Object.defineProperty(event, 'clientY', { value: 80 })
+    wrap.dispatchEvent(event)
+    expect(vi.mocked(placeSymbol)).toHaveBeenCalledTimes(1)
+    const [sid, x, y] = vi.mocked(placeSymbol).mock.calls[0]
+    expect(sid).toBe(5)
+    expect(Number.isFinite(x)).toBe(true)
+    expect(Number.isFinite(y)).toBe(true)
+    expect(vi.mocked(swapInstance)).not.toHaveBeenCalled()
+  })
+
+  it('dropping onto a selected instance swaps instead of placing', () => {
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [1],
+      selection_rects: [],
+      selection_details: [
+        { id: 1, x: 0, y: 0, w: 100, h: 100, base_w: 100, base_h: 100, scale_x: 1, scale_y: 1, rotation: 0, fill: '', stroke: null, stroke_width: 0, kind: 'instance', symbol_name: 'a', symbol_type: 'graphic' },
+      ],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1', layers: [], active_layer: 0,
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', duration: 60, clipboard_len: 0, event_log: [],
+    })
+    renderStage()
+    const wrap = screen.getByTestId('stage-wrap')
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { getData: () => '9' } })
+    Object.defineProperty(event, 'clientX', { value: 0 })
+    Object.defineProperty(event, 'clientY', { value: 0 })
+    wrap.dispatchEvent(event)
+    expect(vi.mocked(swapInstance)).toHaveBeenCalledWith(1, 9)
+    expect(vi.mocked(placeSymbol)).not.toHaveBeenCalled()
   })
 })

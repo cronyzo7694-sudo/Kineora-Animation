@@ -132,8 +132,19 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
             <SectionTitle>Position &amp; Size</SectionTitle>
             <NumberField testId="prop-x" label="X" value={sharedX === null ? '' : fmt(sharedX)} onCommit={(n) => commitTransform('x', n)} />
             <NumberField testId="prop-y" label="Y" value={sharedY === null ? '' : fmt(sharedY)} onCommit={(n) => commitTransform('y', n)} />
-            <NumberField testId="prop-w" label="W" value={sharedW === null ? '' : fmt(sharedW)} min={0} onCommit={(n) => commitBase('width', n)} />
-            <NumberField testId="prop-h" label="H" value={sharedH === null ? '' : fmt(sharedH)} min={0} onCommit={(n) => commitBase('height', n)} />
+            {single?.kind !== 'instance' && (
+              <>
+                <NumberField testId="prop-w" label="W" value={sharedW === null ? '' : fmt(sharedW)} min={0} onCommit={(n) => commitBase('width', n)} />
+                <NumberField testId="prop-h" label="H" value={sharedH === null ? '' : fmt(sharedH)} min={0} onCommit={(n) => commitBase('height', n)} />
+              </>
+            )}
+
+            {single && single.kind === 'instance' && (
+              <div data-testid="prop-symbol" style={{ marginTop: 6, padding: '4px 6px', background: '#232f3d', borderRadius: 4, color: '#8ec8ff', fontSize: 11 }}>
+                Symbol: <strong>{single.symbol_name ?? '(unknown)'}</strong>
+                <span style={{ color: '#666', marginLeft: 6 }}>{single.symbol_type}</span>
+              </div>
+            )}
 
             {single && (
               <>
@@ -142,22 +153,26 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
                 <NumberField testId="prop-scale-x" label="Scale X (%)" value={fmt(single.scale_x * 100)} onCommit={(n) => commitScale('scale_x', n)} />
                 <NumberField testId="prop-scale-y" label="Scale Y (%)" value={fmt(single.scale_y * 100)} onCommit={(n) => commitScale('scale_y', n)} />
 
-                <SectionTitle>Fill</SectionTitle>
-                <ColorField testId="prop-fill" label="Fill color" value={single.fill} onPreview={previewFill} onCommit={commitFill} />
-
-                <SectionTitle>Stroke</SectionTitle>
-                <Field label="Enabled">
-                  <input
-                    type="checkbox"
-                    data-testid="prop-stroke-enabled"
-                    checked={single.stroke !== null}
-                    onChange={(e) => commitStrokeEnabled(e.target.checked, single.stroke ?? '#000000')}
-                  />
-                </Field>
-                {single.stroke !== null && (
+                {single.kind !== 'instance' && (
                   <>
-                    <ColorField testId="prop-stroke" label="Stroke color" value={single.stroke} onPreview={previewStrokeColor} onCommit={(c) => commitStrokeEnabled(true, c)} />
-                    <NumberField testId="prop-stroke-width" label="Stroke width" value={fmt(single.stroke_width)} min={0} onPreview={previewStrokeWidth} onCommit={(n) => commitStrokeWidth(n)} />
+                    <SectionTitle>Fill</SectionTitle>
+                    <ColorField testId="prop-fill" label="Fill color" value={single.fill} onPreview={previewFill} onCommit={commitFill} />
+
+                    <SectionTitle>Stroke</SectionTitle>
+                    <Field label="Enabled">
+                      <input
+                        type="checkbox"
+                        data-testid="prop-stroke-enabled"
+                        checked={single.stroke !== null}
+                        onChange={(e) => commitStrokeEnabled(e.target.checked, single.stroke ?? '#000000')}
+                      />
+                    </Field>
+                    {single.stroke !== null && (
+                      <>
+                        <ColorField testId="prop-stroke" label="Stroke color" value={single.stroke} onPreview={previewStrokeColor} onCommit={(c) => commitStrokeEnabled(true, c)} />
+                        <NumberField testId="prop-stroke-width" label="Stroke width" value={fmt(single.stroke_width)} min={0} onPreview={previewStrokeWidth} onCommit={(n) => commitStrokeWidth(n)} />
+                      </>
+                    )}
                   </>
                 )}
               </>

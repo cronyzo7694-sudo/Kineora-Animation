@@ -11,8 +11,8 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::command::History;
-use crate::id::NodeId;
-use crate::model::Document;
+use crate::id::{NodeId, SymbolId};
+use crate::model::{Document, LoopMode, SymbolType};
 use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
 use crate::{Session, Settings};
 
@@ -58,6 +58,11 @@ struct SelDetail {
     fill: String,
     stroke: Option<String>,
     stroke_width: f64,
+    /// "rect" | "instance" (Part 11 — the Properties panel branches on this).
+    kind: &'static str,
+    /// Present for instances: the referenced symbol's name + type.
+    symbol_name: Option<String>,
+    symbol_type: Option<String>,
 }
 
 /// Keyframe marker for the timeline (Part 07 §7.2): solid dot = keyframe,
@@ -400,6 +405,97 @@ pub fn kineora_set_frame_label(layer: u32, frame: u32, label: Option<String>) ->
     with_session(|s| s.set_frame_label(layer as usize, frame, label.as_deref())).unwrap_or(false)
 }
 
+// ——— Symbols + Library (Part 11/12) ———
+
+/// F8 — convert the selection into a symbol. `reg_grid` = 0..8 (9-point grid,
+/// 4 = center). Returns the new instance id (0 on no-op).
+#[wasm_bindgen]
+pub fn kineora_convert_to_symbol(name: String, symbol_type: String, reg_grid: u32) -> u64 {
+    let ty = match symbol_type.as_str() {
+        "movieClip" => SymbolType::MovieClip,
+        "button" => SymbolType::Button,
+        _ => SymbolType::Graphic,
+    };
+    with_session(|s| s.convert_selection_to_symbol(&name, ty, reg_grid as u8).0).unwrap_or(0)
+}
+
+/// Ctrl+F8 — create an empty symbol. Returns its id (0 on failure).
+#[wasm_bindgen]
+pub fn kineora_new_symbol(name: String, symbol_type: String) -> u64 {
+    let ty = match symbol_type.as_str() {
+        "movieClip" => SymbolType::MovieClip,
+        "button" => SymbolType::Button,
+        _ => SymbolType::Graphic,
+    };
+    with_session(|s| s.new_symbol(&name, ty).0).unwrap_or(0)
+}
+
+/// Place an instance of a symbol at (x, y) on the current frame. Returns the
+/// instance id (0 on failure).
+#[wasm_bindgen]
+pub fn kineora_place_symbol(symbol_id: u64, x: f64, y: f64) -> u64 {
+    with_session(|s| s.place_symbol(SymbolId(symbol_id), x, y).0).unwrap_or(0)
+}
+
+#[wasm_bindgen]
+pub fn kineora_rename_symbol(symbol_id: u64, name: String) -> bool {
+    with_session(|s| s.rename_symbol(SymbolId(symbol_id), &name)).unwrap_or(false)
+}
+
+/// Delete a symbol. `break_apart` = leave its instances as raw content.
+#[wasm_bindgen]
+pub fn kineora_delete_symbol(symbol_id: u64, break_apart: bool) -> bool {
+    with_session(|s| s.delete_symbol(SymbolId(symbol_id), break_apart)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_swap_instance(instance_id: u64, symbol_id: u64) -> bool {
+    with_session(|s| s.swap_instance(NodeId(instance_id), SymbolId(symbol_id))).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_instance_loop(instance_id: u64, loop_mode: String, first_frame: u32) -> bool {
+    let mode = match loop_mode.as_str() {
+        "playOnce" => LoopMode::PlayOnce,
+        "singleFrame" => LoopMode::SingleFrame,
+        _ => LoopMode::Loop,
+    };
+    with_session(|s| s.set_instance_loop(NodeId(instance_id), mode, first_frame)).unwrap_or(false)
+}
+
+/// Library snapshot as JSON: [{id, name, type, use_count, duration}].
+#[wasm_bindgen]
+pub fn kineora_library() -> String {
+    #[derive(serde::Serialize)]
+    struct LibOut {
+        id: u64,
+        name: String,
+        #[serde(rename = "type")]
+        symbol_type: String,
+        use_count: u32,
+        duration: u32,
+    }
+    with_session(|s| {
+        let list: Vec<LibOut> = s
+            .library()
+            .into_iter()
+            .map(|(id, name, ty, use_count, dur)| LibOut {
+                id: id.0,
+                name,
+                symbol_type: match ty {
+                    SymbolType::Graphic => "graphic".into(),
+                    SymbolType::MovieClip => "movieClip".into(),
+                    SymbolType::Button => "button".into(),
+                },
+                use_count,
+                duration: dur,
+            })
+            .collect();
+        serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())
+    })
+    .unwrap_or_else(|_| "[]".into())
+}
+
 #[wasm_bindgen]
 pub fn kineora_undo() -> bool {
     with_session(|s| s.undo()).unwrap_or(false)
@@ -616,23 +712,49 @@ pub fn kineora_status() -> String {
             })
             .collect();
         // Per-node detail (base dims + current scale/rotation + base style)
-        // for exact math and the Properties panel (Part 26.2).
+        // for exact math and the Properties panel (Part 26.2). Instances carry
+        // their symbol's name/type (Part 11 — Properties shows the symbol name).
         let selection_details = s
             .selection
             .iter()
             .filter_map(|id| {
                 let t = s.selected_transform(*id)?;
                 let base = s.doc.nodes.get(id)?;
-                let (base_w, base_h, fill, stroke, stroke_width) = match base {
-                    crate::model::Node::Rect {
-                        width,
-                        height,
-                        fill,
-                        stroke,
-                        stroke_width,
-                        ..
-                    } => (*width, *height, fill.clone(), stroke.clone(), *stroke_width),
-                };
+                let (base_w, base_h, fill, stroke, stroke_width, kind, symbol_name, symbol_type) =
+                    match base {
+                        crate::model::Node::Rect {
+                            width,
+                            height,
+                            fill,
+                            stroke,
+                            stroke_width,
+                            ..
+                        } => (
+                            *width,
+                            *height,
+                            fill.clone(),
+                            stroke.clone(),
+                            *stroke_width,
+                            "rect",
+                            None,
+                            None,
+                        ),
+                        crate::model::Node::SymbolInstance { symbol_id, .. } => {
+                            let sym = s.doc.symbol(*symbol_id);
+                            let name = sym.map(|x| x.name.clone());
+                            let ty = sym.map(|x| {
+                                match x.symbol_type {
+                                    crate::model::SymbolType::Graphic => "graphic",
+                                    crate::model::SymbolType::MovieClip => "movieClip",
+                                    crate::model::SymbolType::Button => "button",
+                                }
+                                .to_string()
+                            });
+                            // W/H of an instance are its rendered bounds (not
+                            // exposed yet) — the panel shows the symbol name.
+                            (0.0, 0.0, String::new(), None, 0.0, "instance", name, ty)
+                        }
+                    };
                 Some(SelDetail {
                     id: id.0,
                     x: t.x,
@@ -647,6 +769,9 @@ pub fn kineora_status() -> String {
                     fill,
                     stroke,
                     stroke_width,
+                    kind,
+                    symbol_name,
+                    symbol_type,
                 })
             })
             .collect();

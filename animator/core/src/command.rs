@@ -372,6 +372,107 @@ impl Command for SetDocumentSettings {
     }
 }
 
+/// CMD-INSERT-BLANK-KEY — F7: convert the current frame to an EMPTY keyframe
+/// (breaks the hold; content disappears from here until the next keyframe).
+/// Part 07 §7.4.3.
+pub struct InsertBlankKeyframe {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    prev_entry: Option<Frame>,
+}
+
+impl InsertBlankKeyframe {
+    pub fn new(scene: usize, layer: usize, frame: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            prev_entry: None,
+        }
+    }
+}
+
+impl Command for InsertBlankKeyframe {
+    fn label(&self) -> String {
+        "Insert blank keyframe".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_entry = l.keyframes.get(&self.frame).cloned();
+        if let Some(l) = doc.layer_mut(self.scene, self.layer) {
+            l.keyframes.insert(self.frame, Frame::Blank);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        match &self.prev_entry {
+            Some(prev) => {
+                l.keyframes.insert(self.frame, prev.clone());
+            }
+            None => {
+                l.keyframes.remove(&self.frame);
+            }
+        }
+    }
+}
+
+/// CMD-CLEAR-KEY — Shift+F6: remove the keyframe STATUS (the frame reverts to
+/// a held/static frame) but keep the timeline length. Part 07 §7.4.5.
+/// Deleting the LAST remaining keyframe leaves the layer empty (Part 08 §8.4.2).
+pub struct ClearKeyframe {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    prev_entry: Option<Frame>,
+    existed: bool,
+}
+
+impl ClearKeyframe {
+    pub fn new(scene: usize, layer: usize, frame: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            prev_entry: None,
+            existed: false,
+        }
+    }
+}
+
+impl Command for ClearKeyframe {
+    fn label(&self) -> String {
+        "Clear keyframe".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev_entry = l.keyframes.get(&self.frame).cloned();
+        self.existed = self.prev_entry.is_some();
+        if self.existed {
+            if let Some(l) = doc.layer_mut(self.scene, self.layer) {
+                l.keyframes.remove(&self.frame);
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if !self.existed {
+            return;
+        }
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = &self.prev_entry {
+            l.keyframes.insert(self.frame, prev.clone());
+        }
+    }
+}
+
 /// CMD-LAYER-ADD — insert a new layer above the active one (Part 20.1).
 pub struct CreateLayer {
     pub scene: usize,

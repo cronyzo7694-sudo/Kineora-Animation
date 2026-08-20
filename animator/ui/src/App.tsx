@@ -144,7 +144,7 @@ export default function App() {
           <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
         </div>
       </div>
-      <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} layer={status?.layer ?? '—'} />
+      <TimelineStrip status={status} notify={notify} />
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
     </div>

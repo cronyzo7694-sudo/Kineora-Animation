@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::command::{
-    CreateLayer, DeleteLayer, DrawRect, History, InsertKeyframe, MoveSelection, RenameLayer,
-    ReorderLayer, SetDocumentSettings, SetLayerLocked, SetLayerVisible, SetNodeProps,
-    TransformSelection,
+    ClearKeyframe, CreateLayer, DeleteLayer, DrawRect, History, InsertBlankKeyframe,
+    InsertKeyframe, MoveSelection, RenameLayer, ReorderLayer, SetDocumentSettings, SetLayerLocked,
+    SetLayerVisible, SetNodeProps, TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
 use crate::export::{export_svg, export_svg_scaled};
@@ -220,6 +220,48 @@ impl Session {
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.set_playhead(frame);
         self.log(&format!("keyframe:insert@{frame}"));
+    }
+
+    /// F7 — insert a BLANK keyframe at `frame` (breaks the hold → empty
+    /// content). Blocked on a locked layer ([OUR DESIGN DECISION]: frame ops on
+    /// a locked layer are disabled, matching Part 20.2 "protect finished art";
+    /// hidden layers still allow frame editing). Undoable.
+    pub fn insert_blank_keyframe(&mut self, frame: u32) -> bool {
+        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if l.locked {
+                self.log("blank-keyframe:blocked(locked)");
+                return false;
+            }
+        }
+        let cmd = InsertBlankKeyframe::new(self.active_scene, self.active_layer, frame);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("blank-keyframe@{frame}"));
+        true
+    }
+
+    /// Shift+F6 — remove the keyframe STATUS at `frame` (revert to hold).
+    /// No-op (no command) when there is no keyframe there or the layer is
+    /// locked. Undoable.
+    pub fn clear_keyframe(&mut self, frame: u32) -> bool {
+        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if l.locked {
+                self.log("clear-keyframe:blocked(locked)");
+                return false;
+            }
+            if !l.keyframes.contains_key(&frame) {
+                self.log("clear-keyframe:(none)");
+                return false;
+            }
+        }
+        let cmd = ClearKeyframe::new(self.active_scene, self.active_layer, frame);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("clear-keyframe@{frame}"));
+        true
+    }
+
+    /// Derived timeline duration (max keyframe frame, min 1) — Part 07 §7.0.
+    pub fn timeline_duration(&self) -> u32 {
+        self.doc.timeline_duration(self.active_scene)
     }
 
     // ——— Layers (MOD-LAYER, Part 20) ———

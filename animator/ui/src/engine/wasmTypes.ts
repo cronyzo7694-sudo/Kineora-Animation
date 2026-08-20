@@ -39,7 +39,13 @@ export interface SelDetailJson {
   stroke_width: number
 }
 
-/** Layer row for the Layers panel (matches Rust `LayerOut`). */
+/** Keyframe marker for the timeline (Part 07 §7.2). */
+export interface FrameMarkerJson {
+  frame: number
+  blank: boolean
+}
+
+/** Layer row for the Layers panel / timeline (matches Rust `LayerOut`). */
 export interface LayerJson {
   id: number
   name: string
@@ -47,6 +53,7 @@ export interface LayerJson {
   locked: boolean
   active: boolean
   selected_objects: number
+  keyframes: FrameMarkerJson[]
 }
 
 export interface StatusJson {
@@ -64,6 +71,7 @@ export interface StatusJson {
   doc_width: number
   doc_height: number
   background: string
+  duration: number
   event_log: string[]
 }
 
@@ -109,6 +117,8 @@ export interface KineoraWasm {
   kineora_move_selection(dx: number, dy: number): void
   kineora_set_playhead(frame: number): void
   kineora_insert_keyframe(frame: number): void
+  kineora_insert_blank_keyframe(frame: number): boolean
+  kineora_clear_keyframe(frame: number): boolean
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

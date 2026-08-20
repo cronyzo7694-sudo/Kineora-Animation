@@ -171,6 +171,14 @@ export function insertKeyframe(frame: number): void {
   mod?.kineora_insert_keyframe(frame)
 }
 
+export function insertBlankKeyframe(frame: number): boolean {
+  return mod?.kineora_insert_blank_keyframe(frame) ?? false
+}
+
+export function clearKeyframe(frame: number): boolean {
+  return mod?.kineora_clear_keyframe(frame) ?? false
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

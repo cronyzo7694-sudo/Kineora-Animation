@@ -52,6 +52,7 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
     doc_width: 1920,
     doc_height: 1080,
     background: '#ffffff',
+    duration: 60,
     event_log: [],
     ...overrides,
   }

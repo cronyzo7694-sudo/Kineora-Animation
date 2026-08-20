@@ -193,6 +193,21 @@ impl Document {
         set
     }
 
+    /// Derived timeline duration (Part 07 §7.0): max keyframe frame across all
+    /// layers of the scene, minimum 1. Computed, never stored.
+    pub fn timeline_duration(&self, scene: usize) -> u32 {
+        let Some(sc) = self.scene(scene) else {
+            return 1;
+        };
+        let mut max = 0u32;
+        for l in &sc.layers {
+            for f in l.keyframes.keys() {
+                max = max.max(*f);
+            }
+        }
+        max.max(1)
+    }
+
     pub fn scene(&self, i: usize) -> Option<&Scene> {
         self.scenes.get(i)
     }

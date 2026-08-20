@@ -173,6 +173,14 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | Save → Reload | stage size/background/fps restored |
 | L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
 
+## Timeline + keyframes (current unit)
+- **Real interactive timeline (Part 07)**: frame ruler with numbers (click-to-jump, drag-to-scrub), per-layer frame cells with the blueprint's visual language — solid dot = keyframe, hollow dot = blank keyframe, gray cell = held frame of a content keyframe, white = empty — a draggable red playhead, and a frontmost-first layer column. Everything reads from real engine status; playhead moves are engine view-state; the frontmost layer row click activates that layer.
+- **Frame ops (Part 07 §7.4 / Part 29.5)**: **F6** Insert Keyframe (copy prev content), **F7** Insert Blank Keyframe (breaks the hold → empty), **Shift+F6** Clear Keyframe (revert to hold, keep length) — all undoable Rust commands (`InsertBlankKeyframe`, `ClearKeyframe`), plus Home/End transport. Frame ops are blocked on locked layers (Part 20.2 "protect finished art") and allowed on hidden layers.
+- **Derived duration** (`timeline_duration` = max keyframe frame, min 1) is exposed in status; the timeline renders `max(duration, 60)` cells.
+- **Deferred (later units)**: F5 insert-frame / Shift+F5 delete-frame (span shifting), frame copy/paste/move/reverse, keyframe selection, tweens (Part 09), onion skin (Part 15), audio waveform.
+
+Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` "Timeline" matrix.
+
 ## Export (current unit)
 - **Image export per Part 28.1 / C-31 `exp.image`**: File ▸ Export now opens a dialog with **Format (SVG / PNG / JPEG / WebP)** and **Scale (1×/2×/4×)**, exporting the **current frame** from real engine state.
   - **SVG** goes through the Rust exporter (`kineora_export_svg_scaled`): exactly the document stage (`width/height` × scale, `viewBox` = doc coords), stage-clipped (`clipPath`), background rect, fill/stroke/stroke-width, rotation around center, layer order bottom→top, hidden layers excluded, locked layers included, off-stage (pasteboard) art clipped.
@@ -203,4 +211,4 @@ Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` matrix A–Q 
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **Export (image: SVG/PNG/JPEG/WebP + scale)** (this commit).
+See `STATUS.md`. Current unit: **Timeline + keyframes + frame ops** (this commit).

@@ -3,8 +3,10 @@
 // never fakes success (no-fake-features rule).
 
 import {
+  clearKeyframe,
   getEngine,
   getEngineStatus,
+  insertBlankKeyframe,
   insertKeyframe,
   projectJson,
   redo,
@@ -62,6 +64,22 @@ export function performAction(id: string, notify: Notify): void {
         const frame = st?.playhead ?? 1
         insertKeyframe(frame)
         notify(`keyframe inserted @ ${frame}`)
+      }
+      break
+    case 'timeline.blank':
+      if (!engineAttached()) return void notify(notAttached('blank keyframe'))
+      {
+        const st = statusJson()
+        const frame = st?.playhead ?? 1
+        notify(insertBlankKeyframe(frame) ? `blank keyframe @ ${frame}` : 'blank keyframe: blocked (locked layer)')
+      }
+      break
+    case 'timeline.clear':
+      if (!engineAttached()) return void notify(notAttached('clear keyframe'))
+      {
+        const st = statusJson()
+        const frame = st?.playhead ?? 1
+        notify(clearKeyframe(frame) ? `keyframe cleared @ ${frame}` : 'clear keyframe: no keyframe here')
       }
       break
     case 'file.save':

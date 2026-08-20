@@ -60,7 +60,15 @@ struct SelDetail {
     stroke_width: f64,
 }
 
-/// Layer row for the Layers panel (Part 20 / C-22).
+/// Keyframe marker for the timeline (Part 07 §7.2): solid dot = keyframe,
+/// hollow dot = blank keyframe.
+#[derive(Serialize)]
+struct FrameMarkerOut {
+    frame: u32,
+    blank: bool,
+}
+
+/// Layer row for the Layers panel / timeline (Part 20 / C-22 / Part 07).
 #[derive(Serialize)]
 struct LayerOut {
     id: u64,
@@ -70,6 +78,8 @@ struct LayerOut {
     active: bool,
     /// number of selected objects that live on this layer at the playhead
     selected_objects: u32,
+    /// sparse keyframe markers (ascending) for the timeline frame cells
+    keyframes: Vec<FrameMarkerOut>,
 }
 
 #[derive(serde::Deserialize)]
@@ -149,6 +159,8 @@ struct StatusOut {
     doc_width: f64,
     doc_height: f64,
     background: String,
+    /// derived timeline duration (max keyframe frame, min 1) — Part 07 §7.0
+    duration: u32,
     event_log: Vec<String>,
 }
 
@@ -249,6 +261,20 @@ pub fn kineora_set_playhead(frame: u32) {
 #[wasm_bindgen]
 pub fn kineora_insert_keyframe(frame: u32) {
     let _ = with_session(|s| s.insert_keyframe(frame));
+}
+
+/// F7 — insert a BLANK keyframe at `frame` (breaks the hold). Returns false
+/// when the layer is locked (or the engine is absent).
+#[wasm_bindgen]
+pub fn kineora_insert_blank_keyframe(frame: u32) -> bool {
+    with_session(|s| s.insert_blank_keyframe(frame)).unwrap_or(false)
+}
+
+/// Shift+F6 — remove the keyframe status at `frame` (revert to hold). Returns
+/// false when there is no keyframe there or the layer is locked.
+#[wasm_bindgen]
+pub fn kineora_clear_keyframe(frame: u32) -> bool {
+    with_session(|s| s.clear_keyframe(frame)).unwrap_or(false)
 }
 
 #[wasm_bindgen]
@@ -513,6 +539,14 @@ pub fn kineora_status() -> String {
                         let content = s.doc.content_at(s.active_scene, i, s.playhead);
                         let selected_objects =
                             content.iter().filter(|id| sel.contains(&id.0)).count() as u32;
+                        let keyframes = l
+                            .keyframes
+                            .iter()
+                            .map(|(f, fr)| FrameMarkerOut {
+                                frame: *f,
+                                blank: matches!(fr, crate::model::Frame::Blank),
+                            })
+                            .collect();
                         LayerOut {
                             id: l.id.0,
                             name: l.name.clone(),
@@ -520,6 +554,7 @@ pub fn kineora_status() -> String {
                             locked: l.locked,
                             active: i == s.active_layer,
                             selected_objects,
+                            keyframes,
                         }
                     })
                     .collect::<Vec<_>>()
@@ -541,6 +576,7 @@ pub fn kineora_status() -> String {
             doc_width: s.doc.settings.width,
             doc_height: s.doc.settings.height,
             background: s.doc.settings.background.clone(),
+            duration: s.timeline_duration(),
             event_log: s.event_log.clone(),
         };
         serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())

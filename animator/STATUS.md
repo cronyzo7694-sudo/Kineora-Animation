@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 73 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 83 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -17,7 +17,8 @@
 | **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | COMPLETE | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
 | **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
 | **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
-| **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | **COMPLETE (this commit)** | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
+| **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
+| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit)** | interactive frame grid + ruler + playhead scrub, F6/F7/Shift+F6 commands, timeline.rs (10 tests) + TimelineStrip tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -31,6 +32,28 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Timeline + keyframes + frame ops (Part 07 / Part 08 / engineering P3)
+- **Engine**: new undoable commands `InsertBlankKeyframe` (F7 — breaks the hold → empty) and `ClearKeyframe` (Shift+F6 — reverts to hold, keeps length; deleting the last keyframe empties the layer per Part 08 §8.4.2). Derived `timeline_duration` (max keyframe frame, min 1, Part 07 §7.0). Status now carries per-layer keyframe markers (frame + blank flag) + `duration`. Frame ops blocked on locked layers (Part 20.2); allowed on hidden layers.
+- **UI**: `TimelineStrip` is now a real timeline — frame ruler (1,5,10,… click-to-jump / drag-to-scrub), per-layer frame cells (solid keyframe dots, hollow blank-keyframe dots, gray held spans, white empty), draggable playhead, frontmost-first layer column (click name = activate layer), Key/Blank/Clear buttons, and keyboard F6 / F7 / Shift+F6 / Home / End. All reads from real engine status; playhead = engine view-state; frame ops = undoable commands.
+- **Deferred (later units)**: F5/Shift+F5 (frame insert/delete with span shifting), frame copy/paste/move/reverse, keyframe selection & dragging, tweens (Part 09), onion skin (Part 15), audio waveform.
+
+### Manual acceptance matrix — Timeline (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| A | draw a rect on Layer 1 | timeline row 1 shows a solid dot at frame 1 |
+| B | scrub: drag the playhead / click a frame | stage updates to that frame |
+| C | click frame number 10 in the ruler | playhead jumps to 10 |
+| D | press F6 at frame 10 | solid dot appears at 10 (content copied) |
+| E | move the rect at frame 10, play 1→10 | rect animates (interpolation) |
+| F | press F7 at frame 15 | hollow dot at 15; stage goes empty from 15 |
+| G | press Shift+F6 at frame 15 | hollow dot gone; hold reverts to frame-10 content |
+| H | Undo / Redo | each frame op is one exact undo step |
+| I | lock Layer 1, press F7 | blocked (no command); unlock → works |
+| J | add Layer 2, draw | second row appears above; keyframes independent |
+| K | click a layer name in the timeline | that layer becomes active |
+| L | Home / End | playhead jumps to first / last frame |
+| M | export at frame 5 vs 10 | SVG differs (interpolated position), timeline dots never in export |
 
 ## This commit — Export unit (Part 28.1 / F-28-02 / C-31 exp.image)
 - **Implemented**: File ▸ Export opens a dialog — Format (SVG/PNG/JPEG/WebP) + Scale (1×/2×/4×), exporting the CURRENT frame from real engine state. SVG via Rust `export_svg_scaled` (stage dims × scale, viewBox = doc coords, clipPath, background, fill/stroke/width, rotation-around-center, layer order, hidden excluded / locked included, off-stage clipped). PNG/JPEG/WebP via a content-only rasterizer (`renderContent`/`rasterizeContent`) reusing the same `evaluate()` items → authoring = export (REQ-EXP-002-A). Overlays/pasteboard/selection/zoom/pan never leak (proven by tests). Export is non-mutating (no undo). Engine-not-attached = honest disabled dialog.
@@ -161,7 +184,9 @@
 - **Tauri run in AI sandbox**: webkit2gtk system libs absent (IMP-DEC-007). Engine+UI build/test in CI; desktop runs on the user's Linux PC.
 
 ## Next units (order)
-1. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps).
-2. Tool-options schema for Properties (REQ-PRP-001 step 1) + keyboard shortcut wiring (Ctrl+A select-all, etc.).
-3. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.
-4. Shape system (merge model), more tools, symbols… (Phase-3 P2+).
+1. Tweening (Part 09): motion tween spans + per-property keys + easing — completes the "it animates" release (blueprint Release 1 step 6).
+2. Frame ops completion: F5 insert-frame / Shift+F5 delete-frame (span shifting), frame copy/paste/move/reverse.
+3. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps).
+4. Tool-options schema for Properties (REQ-PRP-001 step 1) + keyboard shortcut wiring (Ctrl+A select-all, etc.).
+5. Drawing tools (oval/line) + shape merge model (Part 05/06), symbols/library (Part 11/12).
+6. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.

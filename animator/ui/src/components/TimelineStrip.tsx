@@ -1,18 +1,203 @@
-import type { AppContext } from '../controlRegistry'
+import { useEffect, useRef } from 'react'
+import { performAction } from '../engine/actions'
+import { setActiveLayer, setPlayhead } from '../engine/client'
+import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
 
-export function TimelineStrip({ ctx, playhead, layer }: { ctx: AppContext; playhead: number; layer: string }) {
+/** Cell width in px (exported for tests). */
+export const CELL_W = 18
+/** Layer-name column width in px (exported for tests). */
+export const NAME_W = 92
+const RULER_H = 20
+const ROW_H = 22
+const MIN_CELLS = 60
+
+interface Props {
+  status: StatusJson | null
+  notify: (msg: string) => void
+}
+
+type CellKind = 'key' | 'blank' | 'held' | 'empty'
+
+function cellKinds(markers: FrameMarkerJson[], n: number): CellKind[] {
+  const byFrame = new Map(markers.map((m) => [m.frame, m]))
+  const frames = markers.map((m) => m.frame).sort((a, b) => a - b)
+  const out: CellKind[] = []
+  for (let f = 1; f <= n; f++) {
+    const m = byFrame.get(f)
+    if (m) {
+      out.push(m.blank ? 'blank' : 'key')
+      continue
+    }
+    let last: FrameMarkerJson | null = null
+    for (const kf of frames) {
+      if (kf <= f) last = byFrame.get(kf)!
+      else break
+    }
+    // held: gray span of a CONTENT keyframe; blank keyframes hold nothing (white)
+    out.push(last !== null && !last.blank ? 'held' : 'empty')
+  }
+  return out
+}
+
+/**
+ * Timeline (Part 07) — the "clock + score" panel: frame ruler (click-to-jump,
+ * drag-to-scrub), per-layer frame cells (keyframe dots / blank-keyframe hollow
+ * dots / held spans / empty), a draggable playhead, and frame-op buttons
+ * (Key F6 / Blank F7 / Clear Shift+F6). Everything reads from real engine
+ * status; playhead moves are engine view-state (kineora_set_playhead); frame
+ * ops are undoable engine commands. Top row = frontmost layer.
+ */
+export function TimelineStrip({ status, notify }: Props) {
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const scrubRef = useRef(false)
+  const statusRef = useRef<StatusJson | null>(status)
+  statusRef.current = status
+
+  const attached = status !== null
+  const playhead = status?.playhead ?? 1
+  const duration = status?.duration ?? 1
+  const nCells = Math.max(duration, MIN_CELLS)
+  const layers = status?.layers ?? []
+  // frontmost layer at top (engine order = bottom→top)
+  const rows = [...layers].reverse()
+
+  const frameFromClientX = (clientX: number): number => {
+    const grid = gridRef.current
+    if (!grid) return 1
+    const left = grid.getBoundingClientRect().left + NAME_W
+    const f = 1 + Math.floor((clientX - left) / CELL_W)
+    return Math.min(nCells, Math.max(1, f))
+  }
+
+  // scrub: mousedown jumps + arms drag; window move scrubs; up disarms
+  const onGridMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    if (!attached) return
+    e.preventDefault()
+    setPlayhead(frameFromClientX(e.clientX))
+    scrubRef.current = true
+
+    const move = (ev: MouseEvent) => {
+      if (!scrubRef.current) return
+      setPlayhead(frameFromClientX(ev.clientX))
+    }
+    const up = () => {
+      scrubRef.current = false
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
+  // keyboard frame ops + transport (Part 29.5/29.6)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key === 'F6') {
+        e.preventDefault()
+        performAction(e.shiftKey ? 'timeline.clear' : 'timeline.keyframe', notify)
+      } else if (e.key === 'F7') {
+        e.preventDefault()
+        performAction('timeline.blank', notify)
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        setPlayhead(1)
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        setPlayhead(Math.max(1, statusRef.current?.duration ?? 1))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const btn = (id: string, label: string, title: string, action: string) => (
+    <button
+      data-testid={id}
+      aria-label={title}
+      title={title}
+      disabled={!attached}
+      onClick={() => performAction(action, notify)}
+      style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}
+    >
+      {label}
+    </button>
+  )
+
   return (
-    <div data-testid="timeline" style={{ height: 96, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
-      <span data-testid="timeline-layer" style={{ color: '#aaa', fontSize: 12 }}>{layer}</span>
-      <div style={{ flex: 1, height: 40, background: '#2a2a2a', borderRadius: 4, position: 'relative', overflow: 'hidden' }}>
-        {[1, 5, 10, 15, 20].map((f) => (
-          <div key={f} style={{ position: 'absolute', left: f * 24, top: 4, color: '#666', fontSize: 11 }}>{f}</div>
-        ))}
-        <div data-testid="playhead" style={{ position: 'absolute', left: Math.max(0, (playhead - 1) * 24), top: 16, width: 2, height: 24, background: '#e33', transition: 'left 120ms linear' }} />
+    <div data-testid="timeline" style={{ height: 24 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 12px', borderBottom: '1px solid #2a2a2a' }}>
+        <span style={{ color: '#aaa', fontSize: 11, minWidth: 120 }}>
+          frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(nCells, playhead)}
+        </span>
+        {btn('timeline.key', '◈ Key', 'Insert keyframe (F6)', 'timeline.keyframe')}
+        {btn('timeline.blank', '○ Blank', 'Insert blank keyframe (F7)', 'timeline.blank')}
+        {btn('timeline.clear', '✕ Clear', 'Clear keyframe (Shift+F6)', 'timeline.clear')}
+        {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
       </div>
-      <button data-testid="timeline.insert-keyframe" aria-label="Insert keyframe" onClick={() => ctx.notify('use the Keyframe toolbar button')} style={{ padding: 4, borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee' }}>
-        ◈ Key
-      </button>
+
+      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }} onMouseDown={onGridMouseDown}>
+        {/* ruler */}
+        <div style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a' }}>
+          {Array.from({ length: Math.ceil(nCells / 5) }, (_, i) => (i === 0 ? 1 : i * 5)).map((f) => (
+            <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * CELL_W, top: 3, color: '#666', fontSize: 10 }}>
+              {f}
+            </span>
+          ))}
+        </div>
+
+        {/* layer rows */}
+        {rows.map((l, ri) => {
+          const engineIndex = layers.length - 1 - ri
+          const kinds = cellKinds(l.keyframes, nCells)
+          return (
+            <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #242424', background: l.active ? '#232f3d' : 'transparent' }}>
+              <span
+                data-testid={`timeline-layer-name-${engineIndex}`}
+                title={l.locked ? `${l.name} (locked)` : l.name}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (attached) setActiveLayer(engineIndex)
+                }}
+                style={{ position: 'absolute', left: 4, top: 3, width: NAME_W - 8, color: l.locked ? '#777' : '#bbb', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+              >
+                {l.locked ? '🔒 ' : ''}{l.name}
+              </span>
+              <div style={{ position: 'absolute', left: NAME_W, top: 0, right: 0, bottom: 0 }}>
+                {kinds.map((kind, i) => {
+                  const f = i + 1
+                  const bg = kind === 'held' ? '#333333' : 'transparent'
+                  return (
+                    <div
+                      key={f}
+                      data-testid={`cell-${engineIndex}-${f}`}
+                      data-kind={kind}
+                      style={{ position: 'absolute', left: (f - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', background: bg, borderRight: '1px solid #2a2a2a' }}
+                    >
+                      {(kind === 'key' || kind === 'blank') && (
+                        <span
+                          data-testid={`kf-dot-${engineIndex}-${f}`}
+                          data-blank={kind === 'blank' ? 'true' : 'false'}
+                          style={{ position: 'absolute', left: CELL_W / 2 - 3, top: ROW_H / 2 - 3, width: 6, height: 6, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888' }}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* playhead */}
+        <div
+          data-testid="playhead"
+          style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W - 1, top: 0, bottom: 0, width: 2, background: '#e33', pointerEvents: 'none' }}
+        />
+      </div>
     </div>
   )
 }

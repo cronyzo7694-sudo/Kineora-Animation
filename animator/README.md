@@ -59,6 +59,27 @@ Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo bu
 
 Manual test (after `npm run dev`): create doc → draw rect (engine) → rect visible on Stage → select it → blue dashed selection box + handles → **wheel-zoom (immediate) / middle-drag pan (immediate + smooth, no browser autoscroll) / double-click fit (immediate)** → Play → stage updates → Export SVG → no selection box in the SVG.
 
+## Select + Move (current unit)
+- `ui/src/editor/gesture.ts` — pure drag math: 3px threshold, screen→doc delta (÷zoom), pan-independent. Unit-tested.
+- Select tool (left button): screen→doc via viewport, engine hit-test (`selectAt`), selection overlay updates immediately; drag preview is renderer-only (never a document write); pointerup commits exactly ONE `MoveSelection` command (undoable); pointercancel/blur discard with no command.
+- Rust `MoveSelection` now captures the node's INTERPOLATED position as "before" (dragging an animated object lands exactly where the preview showed), and auto-keys a keyframe when editing a held frame (F6 semantics) — undo removes that keyframe exactly.
+
+Manual test (after `npm run wasm && npm run dev`):
+| # | Action | Expect |
+|---|---|---|
+| A | click a rect | it selects (blue dashed box + handles) |
+| B | click empty stage | selection clears |
+| C | drag selected rect | it follows the cursor (preview), settles on release |
+| D | drag out of the canvas and release outside | still commits correctly |
+| E | drag then pointer-cancel | no movement, no undo entry |
+| F | Undo | rect returns to previous position |
+| G | Redo | rect returns to moved position |
+| H | zoom (wheel) then click | selection still hits the right spot |
+| I | pan (middle-drag) then drag | move still correct (doc coords) |
+| J | zoom to 200%+ then drag | move stays correct (no screen-px drift) |
+| K | draw rect, keyframe@10, move it, scrub to 5, drag | moves from the interpolated position (no jump) |
+| L | move, then Export SVG | no selection box / no preview in the SVG |
+
 ## Manual test checklist (vertical slice 1)
 1. `cd core && cargo test` → 10 acceptance tests green.
 2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).

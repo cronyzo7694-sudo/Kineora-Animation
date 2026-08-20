@@ -101,6 +101,10 @@ impl Session {
         if self.selection.is_empty() {
             return;
         }
+        // zero-distance drag must not pollute undo history (PHASE G)
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
         let ids = self.selection.clone();
         let cmd = MoveSelection::new(
             ids,

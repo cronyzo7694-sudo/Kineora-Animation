@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EngineStatus } from '../controlRegistry'
-import { evaluate, statusJson } from '../engine/client'
+import { evaluate, moveSelection, selectAt, statusJson } from '../engine/client'
 import { render, type RenderState } from '../render/canvasRenderer'
-import { createViewport, fitViewport, panBy, zoomAt, type Viewport } from '../render/viewport'
+import { createViewport, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
+import { pastDragThreshold, screenDeltaToDoc } from '../editor/gesture'
 
 interface Props {
   engine: EngineStatus
@@ -11,31 +12,44 @@ interface Props {
   tick: number // bump from App to trigger a redraw (status poll)
 }
 
+interface SelectGesture {
+  startX: number // screen CSS px at pointerdown
+  startY: number
+  dragging: boolean // passed the drag threshold
+}
+
 export function Stage({ engine, tool, playhead, tick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
-  // Bump this to re-run the render effect → immediate canvas redraw on any
-  // viewport mutation (zoom/pan/fit). This is the interaction-wiring fix:
-  // previously viewport refs changed without triggering a redraw.
-  const [vpVersion, setVpVersion] = useState(0)
+  const toolRef = useRef(tool)
+  toolRef.current = tool
+
+  // Bump to re-run the render effect → immediate redraw on viewport/preview change.
+  const [redrawVersion, setRedrawVersion] = useState(0)
   const [zoomReadout, setZoomReadout] = useState('100%')
   const [panReadout, setPanReadout] = useState('0,0')
-  const dragRef = useRef<{ x: number; y: number } | null>(null)
+
+  const panDragRef = useRef<{ x: number; y: number } | null>(null)
+  const selectGestureRef = useRef<SelectGesture | null>(null)
+  const previewRef = useRef<{ x: number; y: number } | null>(null)
   const rafRef = useRef<number | null>(null)
 
-  // Coalesced redraw: at most one canvas redraw per animation frame, no matter
-  // how many zoom/pan events arrive (Phase-3 Step 7 / rAF strategy).
+  // Coalesced redraw: at most one canvas redraw per animation frame (Phase-3 rAF).
+  const scheduleRedraw = () => {
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        setRedrawVersion((v) => v + 1)
+      })
+    }
+  }
+
   const applyViewport = (vp: Viewport) => {
     vpRef.current = vp
     setZoomReadout(`${Math.round(vp.zoom * 100)}%`)
     setPanReadout(`${Math.round(vp.panX)},${Math.round(vp.panY)}`)
-    if (rafRef.current == null) {
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null
-        setVpVersion((v) => v + 1)
-      })
-    }
+    scheduleRedraw()
   }
 
   // cancel any pending rAF on unmount
@@ -45,23 +59,65 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     }
   }, [])
 
-  // Middle-button pan uses WINDOW-level mouse listeners so the drag keeps
-  // working when the pointer leaves the canvas. (Middle button is mouse-only,
-  // and `mousedown` is where browsers trigger autoscroll — handled below.)
+  // Window-level drag handling: pointer/mouse keeps working when the cursor
+  // leaves the canvas (Phase D), and browser autoscroll is bypassed.
   useEffect(() => {
     const move = (e: MouseEvent) => {
-      if (!dragRef.current) return
-      applyViewport(panBy(vpRef.current, e.clientX - dragRef.current.x, e.clientY - dragRef.current.y))
-      dragRef.current = { x: e.clientX, y: e.clientY }
+      const wrap = wrapRef.current
+      if (!wrap) return
+      const rect = wrap.getBoundingClientRect()
+
+      // middle-button pan
+      if (panDragRef.current) {
+        applyViewport(panBy(vpRef.current, e.clientX - panDragRef.current.x, e.clientY - panDragRef.current.y))
+        panDragRef.current = { x: e.clientX, y: e.clientY }
+        return
+      }
+
+      // select-tool drag (left button)
+      const g = selectGestureRef.current
+      if (!g || toolRef.current !== 'select') return
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      if (!g.dragging) {
+        if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return // click, not yet a drag
+        g.dragging = true
+      }
+      previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
+      scheduleRedraw()
     }
+
     const up = () => {
-      dragRef.current = null
+      // end pan
+      panDragRef.current = null
+      // end select drag → COMMIT exactly one move command
+      const g = selectGestureRef.current
+      selectGestureRef.current = null
+      const p = previewRef.current
+      previewRef.current = null
+      if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
+        moveSelection(p.x, p.y)
+      }
+      scheduleRedraw()
     }
+
+    const cancel = () => {
+      // pointer cancel / window blur: discard preview, NO command (Phase D/G)
+      panDragRef.current = null
+      selectGestureRef.current = null
+      previewRef.current = null
+      scheduleRedraw()
+    }
+
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', cancel)
     return () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', cancel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -91,9 +147,10 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       background: status.background ?? '#ffffff',
       items,
       selection: status.selection_rects ?? [],
+      previewDelta: previewRef.current,
     }
     render(ctx, vpRef.current, state, viewW, viewH)
-  }, [engine.kind, playhead, tick, vpVersion])
+  }, [engine.kind, playhead, tick, redrawVersion])
 
   // initial fit + refit on resize
   useEffect(() => {
@@ -117,19 +174,30 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     applyViewport(zoomAt(vpRef.current, e.clientX - rect.left, e.clientY - rect.top, factor))
   }
 
-  // Middle-button autoscroll is triggered by `mousedown` in Chrome/Firefox and
-  // is NOT stopped by pointer-event preventDefault — suppress it here, and start
-  // the pan drag (continued by the window-level listeners above).
   const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 1) return
-    e.preventDefault()
-    dragRef.current = { x: e.clientX, y: e.clientY }
-  }
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const rect = wrap.getBoundingClientRect()
+    const sx = e.clientX - rect.left
+    const sy = e.clientY - rect.top
 
-  // Phase-3 §22: pointer must never be "lost" mid-drag — every end/cancel path
-  // safely terminates the gesture (mouse path handled by window mouseup).
-  const endPan = () => {
-    dragRef.current = null
+    if (e.button === 1) {
+      // middle button: autoscroll lives on mousedown in Chrome/Firefox — kill
+      // it here, then start the pan (continued by the window listeners).
+      e.preventDefault()
+      panDragRef.current = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    if (e.button === 0 && toolRef.current === 'select') {
+      // left button + Select tool: hit-test → select (or clear), then arm a
+      // potential drag (committed only if the threshold is crossed).
+      const d = screenToDoc(vpRef.current, sx, sy)
+      const hit = selectAt(d.x, d.y)
+      selectGestureRef.current = hit ? { startX: sx, startY: sy, dragging: false } : null
+      previewRef.current = null
+      scheduleRedraw() // selection overlay updates immediately
+    }
   }
 
   const onDoubleClick = () => {
@@ -147,8 +215,6 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
-        onPointerUp={endPan}
-        onPointerCancel={endPan}
         onDoubleClick={onDoubleClick}
       />
       {engine.kind === 'error' && (

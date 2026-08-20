@@ -1,5 +1,4 @@
-use std::collections::BTreeMap;
-
+use crate::eval::node_transform_at;
 use crate::id::NodeId;
 use crate::model::{Document, Frame, Node, Transform};
 
@@ -97,7 +96,10 @@ impl Command for DrawRect {
     }
 }
 
-/// CMD-MOVE — move selection at the current frame via per-keyframe override.
+/// CMD-MOVE — move a selection at the current frame via a per-keyframe
+/// transform override. "before" is the node's INTERPOLATED/HELD transform at
+/// that frame (not the nearest-keyframe override), so moving an animated object
+/// lands exactly where the preview showed it.
 pub struct MoveSelection {
     pub ids: Vec<NodeId>,
     pub dx: f64,
@@ -105,8 +107,8 @@ pub struct MoveSelection {
     pub scene: usize,
     pub layer: usize,
     pub frame: u32,
-    /// id → (before, after) for exact revert.
-    before_after: Vec<(NodeId, Transform, Transform)>,
+    /// Exact frame record BEFORE apply (for exact revert incl. keyframe creation).
+    prev_frame: Option<Frame>,
 }
 
 impl MoveSelection {
@@ -118,7 +120,7 @@ impl MoveSelection {
             scene,
             layer,
             frame,
-            before_after: Vec::new(),
+            prev_frame: None,
         }
     }
 }
@@ -128,17 +130,28 @@ impl Command for MoveSelection {
         "Move selection".into()
     }
     fn apply(&mut self, doc: &mut Document) {
-        // capture effective transforms first (before mutation)
-        let before: Vec<(NodeId, Transform)> = self
+        if self.ids.is_empty() {
+            return;
+        }
+        // capture interpolated/held "before" transforms (PHASE F correctness)
+        let befores: Vec<(NodeId, Transform)> = self
             .ids
             .iter()
             .filter_map(|id| {
-                effective_override(doc, self.scene, self.layer, self.frame, *id)
-                    .or_else(|| doc.nodes.get(id).map(|n| n.transform().clone()))
-                    .map(|t| (*id, t))
+                node_transform_at(doc, self.scene, self.layer, self.frame, *id).map(|t| (*id, t))
             })
             .collect();
+        if befores.is_empty() {
+            return; // nothing selectable at this frame — no-op (no undo entry)
+        }
 
+        // remember frame existence for exact revert
+        self.prev_frame = doc
+            .layer(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get(&self.frame).cloned());
+
+        // auto-key: ensure a keyframe at this frame (F6 copy semantics) so the
+        // override has somewhere to live
         if doc
             .ensure_keyframe(self.scene, self.layer, self.frame)
             .is_none()
@@ -146,54 +159,32 @@ impl Command for MoveSelection {
             return;
         }
 
-        let mut after_map: BTreeMap<NodeId, Transform> = BTreeMap::new();
-        for (id, t) in &before {
-            let mut nt = t.clone();
-            nt.x += self.dx;
-            nt.y += self.dy;
-            after_map.insert(*id, nt.clone());
-            self.before_after.push((*id, t.clone(), nt));
-        }
         if let Some(Frame::Keyframe { transforms, .. }) = doc
             .layer_mut(self.scene, self.layer)
             .and_then(|l| l.keyframes.get_mut(&self.frame))
         {
-            for (id, t) in after_map {
-                transforms.insert(id, t);
+            for (id, before) in &befores {
+                let mut after = before.clone();
+                after.x += self.dx;
+                after.y += self.dy;
+                transforms.insert(*id, after);
             }
         }
     }
     fn revert(&mut self, doc: &mut Document) {
-        if let Some(Frame::Keyframe { transforms, .. }) = doc
-            .layer_mut(self.scene, self.layer)
-            .and_then(|l| l.keyframes.get_mut(&self.frame))
-        {
-            for (id, before, _) in &self.before_after {
-                transforms.insert(*id, before.clone());
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        match &self.prev_frame {
+            Some(prev) => {
+                l.keyframes.insert(self.frame, prev.clone());
+            }
+            None => {
+                // the keyframe was created by this command → remove it so the
+                // frame reverts to its previous hold (exact undo)
+                l.keyframes.remove(&self.frame);
             }
         }
-    }
-}
-
-/// Effective override at a frame (before apply), or the node base transform.
-fn effective_override(
-    doc: &Document,
-    scene: usize,
-    layer: usize,
-    frame: u32,
-    id: NodeId,
-) -> Option<Transform> {
-    let layer_ = doc.layer(scene, layer)?;
-    let entry = layer_.keyframes.range(..=frame).next_back()?;
-    match entry.1 {
-        Frame::Keyframe {
-            transforms,
-            content,
-        } if content.contains(&id) => transforms
-            .get(&id)
-            .cloned()
-            .or_else(|| doc.nodes.get(&id).map(|n| n.transform().clone())),
-        _ => None,
     }
 }
 

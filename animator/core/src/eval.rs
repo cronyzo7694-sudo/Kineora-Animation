@@ -46,7 +46,11 @@ fn base_transform(doc: &Document, id: NodeId) -> Transform {
 
 /// Node → transform at `frame`: linearly interpolates x/y between the previous
 /// and next keyframes that both hold the node (classic-tween seed, IMP-DEC-006).
-fn node_states_at(doc: &Document, layer: &Layer, frame: u32) -> BTreeMap<NodeId, Transform> {
+pub(crate) fn node_states_at(
+    doc: &Document,
+    layer: &Layer,
+    frame: u32,
+) -> BTreeMap<NodeId, Transform> {
     let mut res = BTreeMap::new();
     let prev = layer.keyframes.range(..=frame).next_back();
     let next = layer.keyframes.range((frame + 1)..).next();
@@ -82,6 +86,22 @@ fn node_states_at(doc: &Document, layer: &Layer, frame: u32) -> BTreeMap<NodeId,
         }
     }
     res
+}
+
+/// Interpolated/held transform of a node at `frame` — the SAME value the
+/// renderer draws. `None` if the node isn't present at this frame (blank
+/// keyframe, before the first keyframe, hidden from content). This is what a
+/// Move command must use as its "before" value so a drag on an ANIMATED object
+/// does not jump (PHASE F — interpolated positions are authoritative).
+pub(crate) fn node_transform_at(
+    doc: &Document,
+    scene: usize,
+    layer: usize,
+    frame: u32,
+    id: NodeId,
+) -> Option<Transform> {
+    let layer_ = doc.layer(scene, layer)?;
+    node_states_at(doc, layer_, frame).get(&id).cloned()
 }
 
 /// Evaluate the document at `frame` into a flat, ordered render-item list.

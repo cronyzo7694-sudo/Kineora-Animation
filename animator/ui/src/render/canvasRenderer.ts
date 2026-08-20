@@ -3,9 +3,9 @@
 // is the thin imperative layer the Stage owns.
 //
 // Overlay separation (Phase-3 §06): the CONTENT pass (background + rects) is
-// the only thing drawn here from evaluate(). The SELECTION overlay is a
-// separate pass drawn only by the editor canvas — export goes through the Rust
-// `exportSvg`, which never contains overlays.
+// the only thing drawn here from evaluate(). The SELECTION overlay and the
+// DRAG PREVIEW are editor-only passes drawn only by the editor canvas — export
+// goes through the Rust `exportSvg`, which never contains overlays.
 
 import type { RectItemJson, SelRectJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
@@ -15,12 +15,16 @@ export interface RenderState {
   background: string
   items: RectItemJson[]
   selection: SelRectJson[]
+  /** Editor-only drag preview: selected objects are drawn translated by this
+   *  DOCUMENT-space delta. `null` = no drag in progress. Never exported. */
+  previewDelta?: { x: number; y: number } | null
 }
 
 export const SELECTION_STROKE = '#0a7cff'
 export const HANDLE_SIZE = 6
 
-/** Content pass + selection overlay, using CSS-pixel coordinates (dpr pre-scaled by caller). */
+/** Content pass + selection overlay + drag preview, using CSS-pixel coords
+ *  (dpr pre-scaled by caller). */
 export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderState, viewW: number, viewH: number): void {
   ctx.clearRect(0, 0, viewW, viewH)
 
@@ -28,19 +32,23 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
   ctx.fillStyle = s.background
   ctx.fillRect(0, 0, viewW, viewH)
 
+  const preview = s.previewDelta ?? null
+  const selectedIds = new Set(s.selection.map((r) => r.id))
+
   // draw order = evaluate() order (bottom→top layer, back→front node)
   for (const it of s.items) {
-    drawRectItem(ctx, vp, it)
+    const off = preview && selectedIds.has(it.id) ? preview : { x: 0, y: 0 }
+    drawRectItem(ctx, vp, it, off)
   }
 
   // selection overlay (editor-only, never exported)
   for (const sel of s.selection) {
-    drawSelection(ctx, vp, sel)
+    drawSelection(ctx, vp, sel, preview)
   }
 }
 
-function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson): void {
-  const r = docRectToScreen(vp, { x: it.x, y: it.y, w: it.w, h: it.h })
+function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: { x: number; y: number }): void {
+  const r = docRectToScreen(vp, { x: it.x + off.x, y: it.y + off.y, w: it.w, h: it.h })
   ctx.fillStyle = it.fill
   ctx.fillRect(r.x, r.y, r.w, r.h)
   if (it.stroke) {
@@ -50,8 +58,9 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
   }
 }
 
-function drawSelection(ctx: CanvasRenderingContext2D, vp: Viewport, sel: SelRectJson): void {
-  const r = docRectToScreen(vp, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+function drawSelection(ctx: CanvasRenderingContext2D, vp: Viewport, sel: SelRectJson, preview: { x: number; y: number } | null): void {
+  const off = preview ?? { x: 0, y: 0 }
+  const r = docRectToScreen(vp, { x: sel.x + off.x, y: sel.y + off.y, w: sel.w, h: sel.h })
   ctx.strokeStyle = SELECTION_STROKE
   ctx.lineWidth = 1.5
   ctx.setLineDash([4, 3])
@@ -59,11 +68,11 @@ function drawSelection(ctx: CanvasRenderingContext2D, vp: Viewport, sel: SelRect
   ctx.setLineDash([])
 
   // corner handles
-  ctx.fillStyle = '#ffffff'
   for (const [hx, hy] of corners(r)) {
     ctx.strokeStyle = SELECTION_STROKE
     ctx.lineWidth = 1
     ctx.strokeRect(hx - HANDLE_SIZE / 2, hy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+    ctx.fillStyle = '#ffffff'
     ctx.fillRect(hx - HANDLE_SIZE / 2, hy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
   }
 }

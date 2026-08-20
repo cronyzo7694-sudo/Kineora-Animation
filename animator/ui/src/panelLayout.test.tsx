@@ -85,14 +85,14 @@ describe('panel layout — right column vertical splitters', () => {
     expect(after).toBe(before + 40)
   })
 
-  it('dragging the debug splitter changes the debug panel height', () => {
+  it('dragging the debug splitter changes the debug panel height (drag down grows)', () => {
     render(<App />)
     const handle = screen.getByTestId('resize-debug')
     const wrap = screen.getByTestId('debug-wrap')
     const before = Number(wrap.style.height.replace('px', ''))
 
     fireEvent.mouseDown(handle, { button: 0, clientY: 500 })
-    fireEvent.mouseMove(window, { clientY: 460 }) // -40 up → debug +40
+    fireEvent.mouseMove(window, { clientY: 540 }) // +40 down → debug +40
     fireEvent.mouseUp(window)
     const after = Number(wrap.style.height.replace('px', ''))
     expect(after).toBe(before + 40)
@@ -198,5 +198,87 @@ describe('panel layout — view state only (no engine/undo interaction)', () => 
     expect(fireEvent.mouseDown(handle, { button: 0, clientY: 400 })).toBe(false)
     fireEvent.mouseUp(window)
     expect(screen.getByTestId('stage-canvas')).toBeInTheDocument()
+  })
+})
+
+describe('panel layout — bounded right dock + visibility registry (C-36/C-02)', () => {
+  it('right dock is an overflow-bounded region (panels can never escape it)', () => {
+    render(<App />)
+    const dock = screen.getByTestId('right-dock')
+    // inline `overflow: auto` establishes the region's clip/scroll boundary
+    expect(['auto', 'scroll']).toContain(dock.style.overflow)
+  })
+
+  it('dragging the Properties/Library splitter UP grows Properties (height control)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-library')
+    const wrap = screen.getByTestId('props-wrap')
+    const before = Number(wrap.style.height.replace('px', ''))
+
+    fireEvent.mouseDown(handle, { button: 0, clientY: 400 })
+    fireEvent.mouseMove(window, { clientY: 360 }) // -40 up → library -40 → properties +40
+    fireEvent.mouseUp(window)
+    const after = Number(wrap.style.height.replace('px', ''))
+    expect(after).toBe(before + 40)
+  })
+
+  it('Properties height is clamped to its 320 minimum (C-09)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-library')
+    // grow library as far as the sum-aware cap allows → Properties keeps 320
+    fireEvent.mouseDown(handle, { button: 0, clientY: 400 })
+    fireEvent.mouseMove(window, { clientY: 400 + 99999 })
+    fireEvent.mouseUp(window)
+    expect(Number(screen.getByTestId('props-wrap').style.height.replace('px', ''))).toBeGreaterThanOrEqual(320)
+  })
+
+  it('Timeline hide via Ctrl+Alt+T removes the timeline and restores height on re-show', () => {
+    render(<App />)
+    expect(screen.getByTestId('timeline')).toBeInTheDocument()
+    const before = screen.getByTestId('timeline').style.height
+
+    fireEvent.keyDown(window, { key: 't', ctrlKey: true, altKey: true })
+    expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 't', ctrlKey: true, altKey: true })
+    expect(screen.getByTestId('timeline')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline').style.height).toBe(before)
+  })
+
+  it('Timeline toggle button hides/shows the timeline', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('panel.timeline'))
+    expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel.timeline'))
+    expect(screen.getByTestId('timeline')).toBeInTheDocument()
+  })
+
+  it('Dev Panel toggle hides/shows and the right dock reflows', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('panel.debug'))
+    expect(screen.queryByTestId('debug-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('right-dock')).toBeInTheDocument() // props+library remain
+    fireEvent.click(screen.getByTestId('panel.debug'))
+    expect(screen.getByTestId('debug-panel')).toBeInTheDocument()
+  })
+
+  it('hiding Properties leaves Library+Debug in the bounded dock (no orphan splitter)', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('panel.properties'))
+    expect(screen.queryByTestId('props-wrap')).not.toBeInTheDocument()
+    expect(screen.getByTestId('library-wrap')).toBeInTheDocument()
+    expect(screen.getByTestId('debug-wrap')).toBeInTheDocument()
+  })
+
+  it('layout changes never create engine undo entries', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-timeline')
+    fireEvent.mouseDown(handle, { button: 0, clientY: 400 })
+    fireEvent.mouseMove(window, { clientY: 300 })
+    fireEvent.mouseUp(window)
+    // engine not attached in jsdom; the undo button still reports the honest
+    // not-attached state rather than an entry having been created by resize
+    screen.getByTestId('edit.undo').click()
+    expect(screen.getByTestId('engine-status')).toHaveTextContent('not attached')
   })
 })

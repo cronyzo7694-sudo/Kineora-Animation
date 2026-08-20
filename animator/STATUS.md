@@ -25,7 +25,7 @@
 | **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | ACCEPTED (cd6fc44) | explicit tween spans, hold-by-default, ease slider, span visuals |
 | **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (d0c055b) | sequence move, span-edge resize, duplicate, convert, labels, end-of-span marker |
 | **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **COMPLETE (566f0a3) — pending manual acceptance (held behind panel unit)** | symbol model + convert/new/place/nested evaluation + Library panel |
-| **Reusable panel/splitter system + vertical resize** | MOD-WORKSPACE/MOD-PANEL | **COMPLETE (this commit, PANEL UNIT) — pending manual acceptance** | one splitter (H+V), panel-spec table, timeline/library/debug vertical resize, workspace persistence + Reset Workspace, Properties min 240 |
+| **Reusable panel/splitter system + vertical resize** | MOD-WORKSPACE/MOD-PANEL | **CORRECTED (this commit) — pending manual acceptance** | bounded overflow-safe right dock, sum-aware splitters, Properties flex+min320, visibility registry (incl. Timeline Ctrl+Alt+T + Dev), generic distribute/clampPanePref |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -40,6 +40,14 @@
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
 
+## This commit — PANEL CORRECTION: bounded right dock + visibility registry (per manual FAIL 7/8/9)
+- **Root cause (fixed)**: the right dock column had no bounded height and no overflow policy, and used `flex:1`+`minHeight:320` for Properties with absolute (not sum-aware) splitter clamps. When Properties+Library+Dev's minimum heights exceeded the region, the flex container overflowed → the Dev panel rendered below/outside the viewport ("disappeared behind Timeline").
+- **Fix — bounded dock**: the right column is now an explicit **overflow:auto region** (`right-dock`, measured height via ResizeObserver). Panel heights come from the generic `distribute()` engine: **Properties is the flex pane** (fills the remainder, clamped to its 320 minimum), **Library/Debug keep preferred sizes**. If the stack's total exceeds the region, the region scrolls — no panel can ever render off-screen or behind the Timeline (C-36).
+- **Fix — sum-aware splitters**: a vertical splitter resizes the pane BELOW it via `clampPanePref()`, whose upper bound = `region − (other panes' minimums)`. Dragging one splitter can never squeeze a sibling below its min or to zero (C-06 "min-clamp, never 0").
+- **Visibility registry (C-02 §D)**: one `panels` map now covers Layers / Properties / Library / **Timeline** / **Dev** (default all visible). Timeline hide/show uses **Ctrl+Alt+T** (Part 29.9) and a toolbar toggle; its height is preserved across hide/show. Dev/Library/Properties toggles reflow the remaining dock. No per-panel one-off logic.
+- **Properties constraints**: width min **240** (C-09), height min **320** (C-09) — both enforced by the pane spec, never by overflow.
+- **Unchanged**: frame zoom independence, playhead/cell mapping, all Timeline ops, splitter Esc/pointercancel/lostpointercapture/blur cancel, workspace persistence (app prefs), Reset Workspace, zero engine changes (Rust 203).
+
 ## This commit — PANEL UNIT: reusable splitter + vertical panel resize (C-06/C-08/C-09, engineering 11)
 - **One reusable splitter** (`ResizeHandle`): `orientation` horizontal/vertical, 6px hit area, live drag, min/max clamp by the caller, **Esc / pointercancel / lostpointercapture / blur** all cancel back to the drag origin (C-34), `preventDefault`+`stopPropagation` (no Stage/panel bleed). Every panel now shares it — no one-off resize code.
 - **One panel-spec table** (`panelLayout.ts`) driving the whole workspace layout:
@@ -53,23 +61,28 @@
 - **Properties min-width fix**: 180 → **240** (C-09).
 - **Deferred (classified)**: docking / floating / tabs / ghost preview, collapse chevrons (header-only), layer-name/frame divider + per-layer row height, mobile breakpoint system + C-36 suite, command palette.
 
-### Manual acceptance matrix — PANEL UNIT (test on your PC)
+### Manual acceptance matrix — PANEL CORRECTION (test on your PC)
 | # | Action | Expect |
 |---|---|---|
-| 1 | drag the timeline's top edge UP / DOWN | timeline grows / shrinks |
-| 2 | drag it far down | stops at 96px (never 0) |
-| 3 | drag it far up | stops at ~60% of the window height |
-| 4 | many layers + short timeline | layer rows scroll vertically (none hidden) |
-| 5 | resize timeline, then scrub + zoom (50–400%) | frame mapping still exact; zoom readout unchanged |
-| 6 | resize timeline then press F6/F7/Shift+F6, drag keyframes | all timeline ops unaffected |
-| 7 | drag the Properties ⇄ Library splitter | Library height changes, never 0 |
-| 8 | drag the Library ⇄ Debug splitter | Debug height changes |
-| 9 | try to make Properties narrower than 240px | clamps at 240 |
-| 10 | Esc mid-drag on any splitter | returns to the pre-drag size |
-| 11 | resize never moves/selects stage objects | no accidental Stage interaction |
-| 12 | resize, then Ctrl+Z | no undo entries created (view state) |
-| 13 | resize, Save/Export | document + export unchanged by panel sizes |
-| 14 | reload the app | panel sizes restored |
+| 1 | shrink the window height with all 3 right panels visible | Dev Panel stays reachable (region scrolls; never off-screen) |
+| 2 | drag the Properties⇄Library splitter UP/DOWN | Library grows/shrinks; Properties resizes inversely |
+| 3 | drag Library to its max | Properties never goes below 320px height |
+| 4 | try to make Properties narrower than 240px | clamps at 240 |
+| 5 | drag the Library⇄Debug splitter | Debug height changes, never 0 |
+| 6 | drag splitters to extremes | no panel reaches 0, none pushed off-screen |
+| 7 | Ctrl+Alt+T (or Timeline toolbar button) | Timeline hides; Stage gains the space |
+| 8 | Ctrl+Alt+T again | Timeline returns at its previous height |
+| 9 | toggle Dev off/on | Dev hides/reappears; others reflow, no overlap |
+| 10 | toggle Properties/Library off/on | remaining panels reflow correctly |
+| 11 | Esc mid-drag on any splitter | returns to the pre-drag size |
+| 12 | resize/hide/show, then Ctrl+Z | no undo entries (view state) |
+| 13 | resize/hide/show then scrub + zoom 50–400% | frame mapping exact, zoom unchanged |
+| 14 | F6/F7/Shift+F6 + keyframe drag after layout changes | unaffected |
+| 15 | reload the app | sizes + visibility restored |
+| 16 | ⟲ Reset Workspace | all sizes/visibility to defaults |
+| 17 | Save / Export after layout churn | document + export unchanged |
+
+### Manual acceptance matrix — PANEL UNIT (previous, superseded — keep 1–6/10–14)
 | 15 | click ⟲ Reset Workspace | all sizes return to defaults |
 
 ## This commit — UNIT H: Symbols + Library foundation (Part 11/12, engineering P4)

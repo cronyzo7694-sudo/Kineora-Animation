@@ -53,6 +53,8 @@ export const controls: Control[] = [
   { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('layers') },
   { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('properties') },
   { id: 'panel.library', label: 'Library', a11y: 'Library panel', tooltip: 'Toggle library panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('library') },
+  { id: 'panel.timeline', label: 'Timeline', a11y: 'Timeline panel', tooltip: 'Show/hide timeline (Ctrl+Alt+T)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+Alt+T', action: (c) => c.togglePanel('timeline') },
+  { id: 'panel.debug', label: 'Dev', a11y: 'Developer panel', tooltip: 'Toggle developer panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('debug') },
   { id: 'nav.back', label: 'Back', a11y: 'Back one level', tooltip: 'Exit edit depth (Esc)', state: 'FUNCTIONAL', visibility: 'CONTEXTUAL', shortcut: 'Esc', action: (c) => c.notify('back: next unit') },
 ]
 

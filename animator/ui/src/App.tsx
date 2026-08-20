@@ -3,17 +3,20 @@ import { controls, validateRegistry, type AppContext, type EngineStatus } from '
 import { getEngineStatus, loadEngine, statusJson } from './engine/client'
 import { performAction, stopPlayback } from './engine/actions'
 import {
-  DEBUG_H,
-  LIBRARY_H,
+  DEBUG_PANE,
   LAYERS_W,
+  LIBRARY_PANE,
+  PROPS_PANE,
   PROPS_W,
-  PROPS_H_MIN,
   TIMELINE_H_MIN,
   clamp,
+  clampPanePref,
+  distribute,
   loadLayout,
   resetLayout,
   saveLayout,
   timelineMaxH,
+  type PaneSpec,
   type PanelLayout,
 } from './panelLayout'
 import { Toolbar } from './components/Toolbar'
@@ -35,7 +38,7 @@ export default function App() {
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
   const [tick, setTick] = useState(0)
-  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true, library: true })
+  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true, library: true, timeline: true, debug: true })
   const [layout, setLayout] = useState<PanelLayout>(loadLayout)
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
@@ -43,10 +46,27 @@ export default function App() {
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
   const layoutRef = useRef(layout)
   const originRef = useRef<PanelLayout>(layout)
+  // measured height of the right dock region (bounded; drives sum-aware sizing)
+  const colRef = useRef<HTMLDivElement | null>(null)
+  const [colH, setColH] = useState(800)
 
   useEffect(() => {
     layoutRef.current = layout
   }, [layout])
+
+  // measure the right dock region height so panes never overflow it
+  useEffect(() => {
+    const el = colRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const h = e.contentRect.height
+        if (h > 0) setColH(h)
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // persist workspace layout to app prefs (Part 01 §1.1.2; engineering 13)
   useEffect(() => {
@@ -109,6 +129,20 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Timeline hide/show (Part 29.9: Ctrl+Alt+T, ours).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (e.key.toLowerCase() === 't' && (e.ctrlKey || e.metaKey) && e.altKey) {
+        e.preventDefault()
+        setPanels((p) => ({ ...p, timeline: !p.timeline }))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])
@@ -132,6 +166,46 @@ export default function App() {
     notify('workspace reset to defaults')
   }
 
+  // ——— right dock: bounded, sum-aware vertical pane stack ———
+  // Order is fixed: Properties (flex) → Library → Dev. A splitter between two
+  // panes resizes the pane BELOW it. Heights come from the generic distribute()
+  // so the stack can never escape the region (C-36); if the total exceeds the
+  // region, the region scrolls (deliberate last-resort).
+  type RightPaneId = 'props' | 'library' | 'debug'
+  const rightVisible: RightPaneId[] = [
+    panels.properties ? 'props' : null,
+    panels.library ? 'library' : null,
+    panels.debug ? 'debug' : null,
+  ].filter((x): x is RightPaneId => x !== null)
+
+  const rightSpecs: PaneSpec[] = rightVisible.map((id) => {
+    if (id === 'props') return { min: PROPS_PANE[0], max: PROPS_PANE[1], pref: 0, flex: true }
+    const spec = id === 'library' ? LIBRARY_PANE : DEBUG_PANE
+    const pref = id === 'library' ? layout.libraryH : layout.debugH
+    return { min: spec[0], max: spec[1], pref }
+  })
+  const rightSplitCount = Math.max(0, rightVisible.length - 1)
+  const rightSizes = distribute(colH, rightSpecs, rightSplitCount)
+  const rightH = (id: RightPaneId) => {
+    const i = rightVisible.indexOf(id)
+    return i >= 0 ? rightSizes[i] : 0
+  }
+
+  const rightSplitter = (id: 'library' | 'debug', testId: string) => {
+    const idx = rightVisible.indexOf(id)
+    const key = id === 'library' ? 'libraryH' : 'debugH'
+    return (
+      <ResizeHandle
+        testId={testId}
+        orientation="vertical"
+        direction={1}
+        onBegin={beginResize}
+        onDelta={(dy) => setLayout((p) => ({ ...p, [key]: clampPanePref(colH, rightSpecs, idx, p[key] + dy, rightSplitCount) }))}
+        onCancel={() => setLayout((p) => ({ ...p, [key]: originRef.current[key] }))}
+      />
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#101010', color: '#8ef', fontSize: 14, fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #2a2a2a' }}>
@@ -153,7 +227,7 @@ export default function App() {
           />
         )}
         <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} />
-        {panels.properties && (
+        {rightVisible.length > 0 && (
           <ResizeHandle
             testId="resize-props"
             direction={-1}
@@ -162,53 +236,43 @@ export default function App() {
             onCancel={() => setLayout((p) => ({ ...p, propsW: originRef.current.propsW }))}
           />
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties || panels.library ? layout.propsW : 300, flexShrink: 0 }}>
-          {panels.properties && (
-            <PropertiesPanel
-              width={layout.propsW}
-              status={status}
-              notify={notify}
-              onPreview={setColorPreview}
-              minHeight={PROPS_H_MIN}
-            />
-          )}
-          {panels.properties && panels.library && (
-            <ResizeHandle
-              testId="resize-library"
-              orientation="vertical"
-              direction={1}
-              onBegin={beginResize}
-              onDelta={(dy) => setLayout((p) => ({ ...p, libraryH: clamp(p.libraryH + dy, LIBRARY_H[0], LIBRARY_H[1]) }))}
-              onCancel={() => setLayout((p) => ({ ...p, libraryH: originRef.current.libraryH }))}
-            />
-          )}
-          {panels.library && (
-            <div data-testid="library-wrap" style={{ height: layout.libraryH, flexShrink: 0, minHeight: 0, display: 'flex' }}>
-              <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />
-            </div>
-          )}
-          <ResizeHandle
-            testId="resize-debug"
-            orientation="vertical"
-            direction={-1}
-            onBegin={beginResize}
-            onDelta={(dy) => setLayout((p) => ({ ...p, debugH: clamp(p.debugH + dy, DEBUG_H[0], DEBUG_H[1]) }))}
-            onCancel={() => setLayout((p) => ({ ...p, debugH: originRef.current.debugH }))}
-          />
-          <div data-testid="debug-wrap" style={{ height: layout.debugH, flexShrink: 0, minHeight: 0, display: 'flex' }}>
-            <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+        {rightVisible.length > 0 && (
+          <div
+            ref={colRef}
+            data-testid="right-dock"
+            style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: layout.propsW, flexShrink: 0, overflow: 'auto' }}
+          >
+            {panels.properties && (
+              <div data-testid="props-wrap" style={{ height: rightH('props'), flexShrink: 0, minHeight: 0, display: 'flex' }}>
+                <PropertiesPanel width={layout.propsW} status={status} notify={notify} onPreview={setColorPreview} />
+              </div>
+            )}
+            {panels.properties && panels.library && rightSplitter('library', 'resize-library')}
+            {panels.library && (
+              <div data-testid="library-wrap" style={{ height: rightH('library'), flexShrink: 0, minHeight: 0, display: 'flex' }}>
+                <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />
+              </div>
+            )}
+            {panels.library && panels.debug && rightSplitter('debug', 'resize-debug')}
+            {panels.debug && (
+              <div data-testid="debug-wrap" style={{ height: rightH('debug'), flexShrink: 0, minHeight: 0, display: 'flex' }}>
+                <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
-      <ResizeHandle
-        testId="resize-timeline"
-        orientation="vertical"
-        direction={-1}
-        onBegin={beginResize}
-        onDelta={(dy) => setLayout((p) => ({ ...p, timelineH: clamp(p.timelineH + dy, TIMELINE_H_MIN, timelineMaxH()) }))}
-        onCancel={() => setLayout((p) => ({ ...p, timelineH: originRef.current.timelineH }))}
-      />
-      <TimelineStrip status={status} notify={notify} height={layout.timelineH} />
+      {panels.timeline && (
+        <ResizeHandle
+          testId="resize-timeline"
+          orientation="vertical"
+          direction={-1}
+          onBegin={beginResize}
+          onDelta={(dy) => setLayout((p) => ({ ...p, timelineH: clamp(p.timelineH + dy, TIMELINE_H_MIN, timelineMaxH()) }))}
+          onCancel={() => setLayout((p) => ({ ...p, timelineH: originRef.current.timelineH }))}
+        />
+      )}
+      {panels.timeline && <TimelineStrip status={status} notify={notify} height={layout.timelineH} />}
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
       <SymbolDialog open={symbolDialog.open} mode={symbolDialog.mode} onClose={() => setSymbolDialog((s) => ({ ...s, open: false }))} notify={notify} />

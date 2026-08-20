@@ -10,7 +10,7 @@ import {
   statusJson,
   transformSelection,
 } from '../engine/client'
-import { render, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
+import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
@@ -35,6 +35,8 @@ interface Props {
   playhead: number
   tick: number
   notify?: (msg: string) => void
+  /** Live color/stroke preview while a Properties field is being edited. */
+  colorPreview?: ColorPreview | null
 }
 
 interface SelectGesture {
@@ -57,7 +59,7 @@ interface TransformGesture {
   details: SelDetail[]
 }
 
-export function Stage({ engine, tool, playhead, tick, notify }: Props) {
+export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
@@ -343,10 +345,11 @@ export function Stage({ engine, tool, playhead, tick, notify }: Props) {
       marquee: marqueeRef.current,
       previewDelta: previewRef.current,
       previewRect: rectPreviewRef.current,
+      colorPreview,
     }
     render(ctx, vpRef.current, state, viewW, viewH)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine.kind, playhead, tick, redrawVersion])
+  }, [engine.kind, playhead, tick, redrawVersion, colorPreview])
 
   // initial fit + refit on resize
   useEffect(() => {

@@ -264,3 +264,120 @@ describe('canvas renderer contract', () => {
     expect(fillStyles).toContain('rgba(63, 155, 245, 0.2)')
   })
 })
+
+describe('live color preview (Part 26.12 / C-09 — renderer-only, never exported)', () => {
+  function recordingCtx() {
+    const fillStyles: string[] = []
+    const strokeStyles: string[] = []
+    const lineWidths: number[] = []
+    let currentFill = ''
+    let currentStroke = ''
+    let currentWidth = 0
+    const ctx = {
+      clearRect: () => {},
+      fillRect: () => fillStyles.push(currentFill),
+      strokeRect: () => {
+        strokeStyles.push(currentStroke)
+        lineWidths.push(currentWidth)
+      },
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) {
+        currentFill = v
+      },
+      set strokeStyle(v: string) {
+        currentStroke = v
+      },
+      set lineWidth(v: number) {
+        currentWidth = v
+      },
+      get fillStyle() {
+        return currentFill
+      },
+      get strokeStyle() {
+        return currentStroke
+      },
+      get lineWidth() {
+        return currentWidth
+      },
+    } as unknown as CanvasRenderingContext2D
+    return { ctx, fillStyles, strokeStyles, lineWidths }
+  }
+
+  it('colorPreview.background overrides the drawn stage fill (live doc-bg preview)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, fillStyles } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [],
+        colorPreview: { background: '#123456' },
+      },
+      100,
+      100,
+    )
+    // fills: [pasteboard #2b2b2b, stage #123456]
+    expect(fillStyles[1]).toBe('#123456')
+  })
+
+  it('colorPreview.item overrides fill/stroke/strokeWidth of the matching object', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, fillStyles, strokeStyles, lineWidths } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 2, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [
+          { id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: '#0000ff', stroke_width: 10 },
+          { id: 2, x: 100, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0 },
+        ],
+        colorPreview: { item: { id: 1, fill: '#aa00aa', stroke: '#ffff00', strokeWidth: 4 } },
+      },
+      200,
+      200,
+    )
+    // object 1 fill overridden; object 2 untouched
+    expect(fillStyles[2]).toBe('#aa00aa') // fills[0]=pasteboard, [1]=stage, [2]=obj1
+    expect(fillStyles[3]).toBe('#00ff00') // obj2 keeps its fill
+    // strokeRect[0] = stage border; [1] = object 1 stroke (color + width×zoom); obj2 has no stroke
+    expect(strokeStyles[1]).toBe('#ffff00')
+    expect(lineWidths[1]).toBe(8) // 4 × zoom 2
+  })
+
+  it('without colorPreview the engine values are drawn unchanged', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, fillStyles, strokeStyles, lineWidths } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: '#0000ff', stroke_width: 10 }],
+      },
+      100,
+      100,
+    )
+    expect(fillStyles[2]).toBe('#ff0000')
+    // strokeRect[0] = stage border; [1] = the object's stroke
+    expect(strokeStyles[1]).toBe('#0000ff')
+    expect(lineWidths[1]).toBe(10)
+  })
+})

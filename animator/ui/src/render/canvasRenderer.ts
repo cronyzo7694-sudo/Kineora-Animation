@@ -16,6 +16,25 @@ export interface Pt {
   y: number
 }
 
+/**
+ * Live color preview (Part 26.12 "color controls live" + C-09 "live preview;
+ * commit on release"). Renderer-only — it overrides the DRAWN background or a
+ * single object's style while a color/stroke-width field is being edited, and
+ * is cleared on commit/cancel. It never touches engine state, so it cannot
+ * leak into SVG export or the project save (REQ-EXP-002).
+ */
+export interface ColorPreview {
+  /** Stage background override (document background being previewed). */
+  background?: string
+  /** Single-object style override (fill/stroke/stroke-width being previewed). */
+  item?: {
+    id: number
+    fill?: string
+    stroke?: string | null
+    strokeWidth?: number
+  }
+}
+
 export interface RenderState {
   background: string
   /** Document stage bounds (doc units) — the published frame (Part 01 §1.4.1).
@@ -38,6 +57,8 @@ export interface RenderState {
   previewDelta?: { x: number; y: number } | null
   /** Editor-only draw preview: DOC-space rect being drawn (Rect tool). */
   previewRect?: { x: number; y: number; w: number; h: number } | null
+  /** Editor-only live color preview (color/stroke-width field editing). */
+  colorPreview?: ColorPreview | null
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -57,8 +78,9 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
 
   // 2) the document stage — the published frame (Part 01 §1.4.1), filled with
   //    the document background and outlined so the user sees "THIS is my page".
+  //    A live background preview (doc-bg field) overrides the drawn fill only.
   const stage = docRectToScreen(vp, { x: 0, y: 0, w: s.stageW, h: s.stageH })
-  ctx.fillStyle = s.background
+  ctx.fillStyle = s.colorPreview?.background ?? s.background
   ctx.fillRect(stage.x, stage.y, stage.w, stage.h)
   ctx.strokeStyle = STAGE_BORDER
   ctx.lineWidth = 1
@@ -66,10 +88,18 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
 
   const preview = s.previewDelta ?? null
   const selected = new Set(s.selectedIds ?? [])
+  const pv = s.colorPreview?.item ?? null
 
   for (const it of s.items) {
     const off = preview && selected.has(it.id) ? preview : { x: 0, y: 0 }
-    drawRectItem(ctx, vp, it, off)
+    const style: ItemStyle = pv && pv.id === it.id
+      ? {
+          fill: pv.fill ?? it.fill,
+          stroke: pv.stroke !== undefined ? pv.stroke : it.stroke,
+          strokeWidth: pv.strokeWidth ?? it.stroke_width,
+        }
+      : { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width }
+    drawRectItem(ctx, vp, it, off, style)
   }
 
   // marquee (editor-only)
@@ -88,7 +118,14 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
   }
 }
 
-function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt): void {
+/** Effective draw style for a rect (engine value, or live preview override). */
+interface ItemStyle {
+  fill: string
+  stroke: string | null
+  strokeWidth: number
+}
+
+function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt, style: ItemStyle): void {
   const cx = it.x + it.w / 2 + off.x
   const cy = it.y + it.h / 2 + off.y
   const p = docToScreen(vp, cx, cy)
@@ -97,11 +134,11 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
   ctx.save()
   ctx.translate(p.x, p.y)
   if (it.rotation !== 0) ctx.rotate((it.rotation * Math.PI) / 180)
-  ctx.fillStyle = it.fill
+  ctx.fillStyle = style.fill
   ctx.fillRect(-w / 2, -h / 2, w, h)
-  if (it.stroke) {
-    ctx.strokeStyle = it.stroke
-    ctx.lineWidth = it.stroke_width * vp.zoom
+  if (style.stroke) {
+    ctx.strokeStyle = style.stroke
+    ctx.lineWidth = style.strokeWidth * vp.zoom
     ctx.strokeRect(-w / 2, -h / 2, w, h)
   }
   ctx.restore()

@@ -15,7 +15,8 @@
 | **Layers panel (engine-backed)** | MOD-LAYER/MOD-SHELL | COMPLETE | components/LayersPanel.tsx + layers.rs (12 tests) |
 | **Properties panel (context-bound)** | MOD-SHELL/MOD-XFR/MOD-DOC | COMPLETE | components/PropertiesPanel.tsx + properties.rs (11 tests) |
 | **Document / Stage / Viewport foundation** | MOD-DOC/MOD-RENDER | COMPLETE | stage boundary + pasteboard, canonical 1920×1080 default, view commands, stage-clipped export, document.rs (9 tests) |
-| **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | **COMPLETE (this commit)** | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
+| **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
+| **Color live preview** | MOD-SHELL/MOD-RENDER | **COMPLETE (this commit)** | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -30,6 +31,12 @@
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
 
+## This commit — Color live preview (Part 26.12 "color controls live" + C-09 "live preview; commit on release")
+- **Root cause** (proven): `ColorField` committed ONLY on blur. React's `<input type="color">` onChange fires on `input` during a picker drag, so no engine mutation (and no canvas repaint) happened until the picker closed / focus left — hence "Stage updates only after clicking elsewhere".
+- **Fix**: live renderer-only preview. During picker drag / typing, `onInput` pushes a `ColorPreview` (background override or per-object fill/stroke/stroke-width override) straight into the canvas renderer — **no engine write**, so no undo fragmentation. ONE command commits on release (picker close / blur / Enter); Esc cancels back to the engine value. Commits are idempotent (`lastCommitted` dedupe) so close-then-blur = exactly one command.
+- **Architecture**: the preview lives in `RenderState.colorPreview` (renderer-only, exactly like `previewDelta`/`previewRect`/transform preview) — it can never leak into SVG export or project save (REQ-EXP-002). Export/save/undo semantics are unchanged (final value = committed engine state).
+- **Verified**: live preview does not write the engine (PropertiesPanel tests); renderer draws background/item overrides and reverts to engine values without a preview (canvasRenderer tests); fill/background/stroke-width preview+commit+Esc-cancel each produce exactly one command.
+
 ## This commit — Document properties + fill/stroke + workspace panels
 - **Root causes** (proven, not guessed):
   1. **Fill / Stroke / Background color fields were read-only in React** — a controlled `<input type="color" value={…}>` with only `onBlur` (no `onChange`) renders read-only, so picking a color did nothing. Fix: a `ColorField` with local draft + `onChange` (editable) that commits ONE command on blur/Enter and cancels on Esc (consistent with the numeric-field rule).
@@ -37,6 +44,20 @@
   3. **Panel resizing was absent** — implemented per **C-06** (`pnl.resize`: 6px edges, live preview, min-clamp never-zero, Esc cancels back to origin). Workspace panel widths persist to app prefs (`localStorage`, Part 01 §1.1.2 / engineering 13) — never into the project file.
 - **Aspect ratio presets / link / scale-content**: [NOT SPECIFIED IN BLUEPRINT] — Part 26.1 lists only Width/Height/Ruler-units/fps/Background. Independent W/H editing (already present) is the blueprint behavior; no 16:9/4:3 presets or Link toggle added. Adobe's "Link + Scale Content" noted as [ADOBE REFERENCE] but NOT adopted.
 - **Verified**: fill/stroke color + stroke width flow engine → evaluate → canvas → SVG → save/load (Rust `stroke_props_flow_into_evaluate_and_svg_export`, `fill_change_flows_into_export_and_survives_save_load`); resizing never touches zoom/document state (UI tests).
+
+### Manual acceptance matrix — Color live preview (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| A | draw a rect, select it | Properties shows Object |
+| B | open the Fill picker and drag | the rect recolors LIVE on stage while dragging |
+| C | confirm/close the picker | color stays; ONE undo entry (Ctrl+Z reverts exactly) |
+| D | open Background picker (deselect) and drag | the stage fill changes LIVE |
+| E | enable Stroke, drag the stroke color picker | outline recolors LIVE |
+| F | type a Stroke width | outline width updates LIVE while typing |
+| G | Esc in a field | preview reverts to engine value, no commit, no undo entry |
+| H | Export SVG | final committed colors/stroke only (no preview artifact) |
+| I | Save → Reload | final values round-trip |
+| J | Undo/Redo after several color edits | one step per picker interaction (no hundreds of entries) |
 
 ### Manual acceptance matrix — Document properties + fill/stroke + panels (test on your PC)
 | # | Action | Expect |

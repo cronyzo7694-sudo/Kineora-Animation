@@ -10,6 +10,7 @@ import { DebugPanel } from './components/DebugPanel'
 import { LayersPanel } from './components/LayersPanel'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { ResizeHandle } from './components/ResizeHandle'
+import type { ColorPreview } from './render/canvasRenderer'
 
 /** Workspace panel widths (C-06 resize, Part 01 §1.1.2 app prefs). */
 interface PanelWidths {
@@ -53,6 +54,8 @@ export default function App() {
   const [tick, setTick] = useState(0)
   const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true })
   const [panelW, setPanelW] = useState<PanelWidths>(loadPanelWidths)
+  // live color/stroke preview (renderer-only; engine written only on commit)
+  const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const panelWRef = useRef(panelW)
   const originRef = useRef<PanelWidths>(panelW)
 
@@ -124,7 +127,7 @@ export default function App() {
             onCancel={() => setPanelW((p) => ({ ...p, layers: originRef.current.layers }))}
           />
         )}
-        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} />
+        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} />
         {panels.properties && (
           <ResizeHandle
             testId="resize-props"
@@ -135,7 +138,7 @@ export default function App() {
           />
         )}
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties ? panelW.properties : 300, flexShrink: 0 }}>
-          {panels.properties && <PropertiesPanel width={panelW.properties} status={status} notify={notify} />}
+          {panels.properties && <PropertiesPanel width={panelW.properties} status={status} notify={notify} onPreview={setColorPreview} />}
           <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
         </div>
       </div>

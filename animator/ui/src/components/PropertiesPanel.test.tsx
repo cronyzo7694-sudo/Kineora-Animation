@@ -225,3 +225,72 @@ describe('PropertiesPanel — fill / stroke / fps / background (foundation regre
     expect(setDocumentSettingsMock).toHaveBeenCalledWith({ background: '#000000' })
   })
 })
+
+describe('PropertiesPanel — live color preview (Part 26.12 / C-09)', () => {
+  it('fill input emits a LIVE preview and NO engine write', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus()} notify={notify} onPreview={onPreview} />)
+    fireEvent.input(screen.getByTestId('prop-fill'), { target: { value: '#00ff00' } })
+    expect(onPreview).toHaveBeenCalledWith({ item: { id: 1, fill: '#00ff00' } })
+    expect(setNodePropsMock).not.toHaveBeenCalled()
+  })
+
+  it('fill blur commits ONCE and clears the preview', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus()} notify={notify} onPreview={onPreview} />)
+    const fill = screen.getByTestId('prop-fill')
+    fireEvent.input(fill, { target: { value: '#00ff00' } })
+    fireEvent.blur(fill)
+    expect(setNodePropsMock).toHaveBeenCalledTimes(1)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, fill: '#00ff00' }])
+    expect(onPreview).toHaveBeenLastCalledWith(null)
+  })
+
+  it('change-then-blur produces exactly ONE command (no undo fragmentation)', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus()} notify={notify} onPreview={onPreview} />)
+    const fill = screen.getByTestId('prop-fill')
+    fireEvent.change(fill, { target: { value: '#00ff00' } }) // native change = picker closed
+    fireEvent.blur(fill)
+    expect(setNodePropsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('background input emits { background } preview; blur commits once', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} onPreview={onPreview} />)
+    const bg = screen.getByTestId('doc-bg')
+    fireEvent.input(bg, { target: { value: '#000000' } })
+    expect(onPreview).toHaveBeenCalledWith({ background: '#000000' })
+    expect(setDocumentSettingsMock).not.toHaveBeenCalled()
+    fireEvent.blur(bg)
+    expect(setDocumentSettingsMock).toHaveBeenCalledTimes(1)
+    expect(setDocumentSettingsMock).toHaveBeenCalledWith({ background: '#000000' })
+  })
+
+  it('stroke width typing emits a live preview; blur commits once; Esc cancels', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus({ selection_details: [detail({ stroke: '#000000' })] })} notify={notify} onPreview={onPreview} />)
+    const sw = screen.getByTestId('prop-stroke-width')
+    fireEvent.change(sw, { target: { value: '10' } })
+    expect(onPreview).toHaveBeenCalledWith({ item: { id: 1, strokeWidth: 10 } })
+    expect(setNodePropsMock).not.toHaveBeenCalled()
+    fireEvent.blur(sw)
+    expect(setNodePropsMock).toHaveBeenCalledTimes(1)
+    // Esc mid-edit cancels: no extra commit, preview cleared, draft reverted
+    fireEvent.change(sw, { target: { value: '99' } })
+    fireEvent.keyDown(sw, { key: 'Escape' })
+    expect(setNodePropsMock).toHaveBeenCalledTimes(1)
+    expect(onPreview).toHaveBeenLastCalledWith(null)
+  })
+
+  it('Esc during fill preview cancels: no commit, preview cleared, draft reverted', () => {
+    const onPreview = vi.fn()
+    render(<PropertiesPanel status={makeStatus()} notify={notify} onPreview={onPreview} />)
+    const fill = screen.getByTestId('prop-fill')
+    fireEvent.input(fill, { target: { value: '#00ff00' } })
+    fireEvent.keyDown(fill, { key: 'Escape' })
+    expect(setNodePropsMock).not.toHaveBeenCalled()
+    expect(onPreview).toHaveBeenLastCalledWith(null)
+    expect(fill).toHaveValue('#ff0000') // reverted to engine value
+  })
+})

@@ -173,6 +173,12 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | Save → Reload | stage size/background/fps restored |
 | L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
 
+## Color live preview (current unit)
+- **Fill / Stroke / Background / Stroke-width now preview LIVE while you edit them.** Part 26.12 requires "color controls live"; C-09 requires "live preview; commit on release". While the picker is dragged (or a number is typed), a **renderer-only** `ColorPreview` repaints the stage background or the selected object's fill/stroke/stroke-width instantly — the engine is NOT written during the drag, so there is no undo fragmentation. ONE undoable command is committed on release (picker close / blur / Enter); Esc cancels back to the engine value.
+- The preview is renderer-only (like the move/transform previews) — it can never leak into SVG export or the project save (REQ-EXP-002). Export/save/undo always reflect the final committed engine state.
+
+Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` "Color live preview" matrix A–J.
+
 ## Document properties + fill/stroke + workspace panels (current unit)
 - **Fill / Stroke / Background are now truly editable.** The fill/stroke/background color inputs were controlled React inputs with no `onChange` → they rendered **read-only** (that was the manual "fill does not change" failure). They now use a `ColorField` (local draft + `onChange`, commit on blur/Enter = one undoable command, Esc cancels). Colors are stored as hex `#RRGGBB` (Part 23).
 - **FPS / W / H / background are real document settings** (Part 01 §1.7): edited in Properties → `kineora_set_document_settings` → Rust command (undoable, clamped: w/h ≥ 2, fps 1–120) → renderer / playback / save / export all read the same state. A toast confirms each commit. Aspect presets / Link / Scale-Content are **[NOT SPECIFIED IN BLUEPRINT]** — only independent W/H editing (Part 26.1) is implemented.
@@ -187,4 +193,4 @@ Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` matrix A–Q 
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **Document properties + fill/stroke + workspace panels** (this commit).
+See `STATUS.md`. Current unit: **Color live preview** (this commit).

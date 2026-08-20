@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { patchTransforms, setDocumentSettings, setNodeProps } from '../engine/client'
+import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 
 interface Props {
@@ -7,6 +8,13 @@ interface Props {
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize); the panel fills the dock column. */
   width?: number
+  /**
+   * Live preview channel (Part 26.12 "color controls live" + C-09 "live
+   * preview; commit on release"): called during field editing so the Stage
+   * can repaint instantly, and with `null` on commit/cancel/unmount. The
+   * preview is renderer-only — engine state is only written on commit.
+   */
+  onPreview?: (p: ColorPreview | null) => void
 }
 
 /**
@@ -14,15 +22,12 @@ interface Props {
  * Precedence for slice-1 (REQ-PRP-001): stage selection (single → object
  * schema; multi → common fields X/Y/W/H + "mixed" badge) → document schema
  * (nothing selected). Tool-options schema is a later unit.
- * Every commit = one engine command (one undo entry); Enter/blur commit,
- * Esc cancels, invalid input reverts with an inline error (never silent).
- *
- * Color fields (Part 23: colors entered as hex) commit on blur/Enter so a
- * single picker interaction = one command (matching the numeric-field rule);
- * they are fully editable via local draft + onChange (a controlled input
- * without onChange would render read-only — the fill/stroke regression).
+ * Every commit = one engine command (one undo entry). Color controls update
+ * LIVE (renderer-only preview during drag/typing) and commit one command on
+ * release (blur / picker-close / Enter); Esc cancels. Numeric fields commit on
+ * Enter/blur with validation (Part 26.12).
  */
-export function PropertiesPanel({ status, notify, width }: Props) {
+export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
   const attached = status !== null
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
@@ -87,6 +92,12 @@ export function PropertiesPanel({ status, notify, width }: Props) {
   const sharedW = shared((d) => d.base_w)
   const sharedH = shared((d) => d.base_h)
 
+  // ——— live-preview builders (renderer-only; engine written only on commit) ———
+  const previewBg = (c: string | null) => onPreview?.(c === null ? null : { background: c })
+  const previewFill = (c: string | null) => onPreview?.(c === null ? null : single ? { item: { id: single.id, fill: c } } : null)
+  const previewStrokeColor = (c: string | null) => onPreview?.(c === null ? null : single ? { item: { id: single.id, stroke: c } } : null)
+  const previewStrokeWidth = (n: number | null) => onPreview?.(n === null ? null : single ? { item: { id: single.id, strokeWidth: n } } : null)
+
   const contextChip = !attached ? '—' : details.length === 0 ? 'Document' : multi ? `Objects (${details.length})` : 'Object'
 
   return (
@@ -107,7 +118,7 @@ export function PropertiesPanel({ status, notify, width }: Props) {
             <NumberField testId="doc-width" label="Width" value={status ? fmt(status.doc_width) : ''} min={2} onCommit={(n) => commitDoc({ width: n })} />
             <NumberField testId="doc-height" label="Height" value={status ? fmt(status.doc_height) : ''} min={2} onCommit={(n) => commitDoc({ height: n })} />
             <NumberField testId="doc-fps" label="Frame rate (fps)" value={status ? String(status.fps) : ''} min={1} max={120} step={1} onCommit={(n) => commitDoc({ fps: Math.round(n) })} />
-            <ColorField testId="doc-bg" label="Background" value={status?.background ?? '#ffffff'} onCommit={(c) => commitDoc({ background: c })} />
+            <ColorField testId="doc-bg" label="Background" value={status?.background ?? '#ffffff'} onPreview={previewBg} onCommit={(c) => commitDoc({ background: c })} />
           </div>
         )}
 
@@ -132,7 +143,7 @@ export function PropertiesPanel({ status, notify, width }: Props) {
                 <NumberField testId="prop-scale-y" label="Scale Y (%)" value={fmt(single.scale_y * 100)} onCommit={(n) => commitScale('scale_y', n)} />
 
                 <SectionTitle>Fill</SectionTitle>
-                <ColorField testId="prop-fill" label="Fill color" value={single.fill} onCommit={commitFill} />
+                <ColorField testId="prop-fill" label="Fill color" value={single.fill} onPreview={previewFill} onCommit={commitFill} />
 
                 <SectionTitle>Stroke</SectionTitle>
                 <Field label="Enabled">
@@ -145,8 +156,8 @@ export function PropertiesPanel({ status, notify, width }: Props) {
                 </Field>
                 {single.stroke !== null && (
                   <>
-                    <ColorField testId="prop-stroke" label="Stroke color" value={single.stroke} onCommit={(c) => commitStrokeEnabled(true, c)} />
-                    <NumberField testId="prop-stroke-width" label="Stroke width" value={fmt(single.stroke_width)} min={0} onCommit={(n) => commitStrokeWidth(n)} />
+                    <ColorField testId="prop-stroke" label="Stroke color" value={single.stroke} onPreview={previewStrokeColor} onCommit={(c) => commitStrokeEnabled(true, c)} />
+                    <NumberField testId="prop-stroke-width" label="Stroke width" value={fmt(single.stroke_width)} min={0} onPreview={previewStrokeWidth} onCommit={(n) => commitStrokeWidth(n)} />
                   </>
                 )}
               </>
@@ -171,34 +182,82 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-/** Hex color editor (Part 23): local draft + onChange keeps the field editable;
- *  blur/Enter commit ONE command, Esc cancels back to the engine value. */
-function ColorField({ label, value, onCommit, testId }: {
+/** Hex color editor (Part 23): local draft + onChange keeps the field editable.
+ *  LIVE preview (Part 26.12 / C-09): every `input` event (picker drag) pushes a
+ *  renderer-only preview — no engine write, so no undo fragmentation. ONE
+ *  command is committed on release (picker close / blur / Enter); Esc cancels.
+ *  Commit is idempotent (lastCommitted dedupe) so close-then-blur = one command. */
+function ColorField({ label, value, onCommit, onPreview, testId }: {
   label: string
   value: string
   onCommit: (color: string) => void
+  onPreview?: (color: string | null) => void
   testId: string
 }) {
   const [draft, setDraft] = useState(value)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const lastCommittedRef = useRef(value)
+
   useEffect(() => {
     setDraft(value)
+    lastCommittedRef.current = value
   }, [value])
 
+  // clear any live preview when the field unmounts (context switched away)
+  useEffect(() => {
+    return () => onPreview?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // native `change` = picker dialog closed (Chromium): commit the final value.
+  // (React's onChange fires on `input` for color inputs, so we listen natively.)
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const onNativeChange = () => {
+      const v = el.value
+      setDraft(v)
+      if (v !== lastCommittedRef.current) {
+        onCommit(v)
+        lastCommittedRef.current = v
+      }
+      onPreview?.(null)
+    }
+    el.addEventListener('change', onNativeChange)
+    return () => el.removeEventListener('change', onNativeChange)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const commit = () => {
-    if (draft !== value) onCommit(draft)
+    if (draft !== lastCommittedRef.current) {
+      onCommit(draft)
+      lastCommittedRef.current = draft
+    }
+    onPreview?.(null)
+  }
+
+  const live = (v: string) => {
+    setDraft(v)
+    onPreview?.(v) // LIVE: renderer-only, no engine write
   }
 
   return (
     <Field label={label}>
       <input
+        ref={inputRef}
         type="color"
         data-testid={testId}
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => live(e.currentTarget.value)}
+        onInput={(e) => live(e.currentTarget.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') setDraft(value)
+          if (e.key === 'Escape') {
+            setDraft(value)
+            lastCommittedRef.current = value
+            onPreview?.(null)
+          }
         }}
         style={{ width: 40, height: 22, border: '1px solid #555', background: '#111', cursor: 'pointer' }}
       />
@@ -207,11 +266,14 @@ function ColorField({ label, value, onCommit, testId }: {
 }
 
 /** One-line numeric editor: Enter/blur commit (one command), Esc cancels,
- *  invalid input shows an inline error and reverts (never silent). */
-function NumberField({ label, value, onCommit, min, max, step, testId }: {
+ *  invalid input shows an inline error and reverts (never silent).
+ *  Optional live preview (C-09): a valid draft pushes a renderer-only preview
+ *  while typing; an invalid/empty draft clears it. No engine write until commit. */
+function NumberField({ label, value, onCommit, onPreview, min, max, step, testId }: {
   label: string
   value: string
   onCommit: (n: number) => void
+  onPreview?: (n: number | null) => void
   min?: number
   max?: number
   step?: number
@@ -224,23 +286,40 @@ function NumberField({ label, value, onCommit, min, max, step, testId }: {
     setError('')
   }, [value])
 
+  // clear any live preview when the field unmounts (context switched away)
+  useEffect(() => {
+    return () => onPreview?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const current = value === '' ? null : Number(value)
+
+  const validNumber = (t: string): number | null => {
+    const n = Number(t)
+    if (t.trim() === '' || !Number.isFinite(n)) return null
+    if (min !== undefined && n < min) return null
+    if (max !== undefined && n > max) return null
+    return n
+  }
 
   const commit = () => {
     const t = draft.trim()
     if (t === '') {
       setDraft(value)
       setError('')
+      onPreview?.(null)
       return
     }
     const n = Number(t)
     if (!Number.isFinite(n) || (min !== undefined && n < min) || (max !== undefined && n > max)) {
       setError(`invalid (${min !== undefined ? `≥${min} ` : ''}${max !== undefined ? `≤${max}` : ''})`.trim())
       setDraft(value)
+      onPreview?.(null)
       return
     }
     if (current === null || n !== current) onCommit(n)
     setError('')
+    onPreview?.(null)
   }
 
   return (
@@ -252,13 +331,17 @@ function NumberField({ label, value, onCommit, min, max, step, testId }: {
           value={draft}
           placeholder={value === '' ? '—' : undefined}
           step={step}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            onPreview?.(validNumber(e.target.value)) // LIVE preview (no engine write)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') commit()
             if (e.key === 'Escape') {
               setDraft(value)
               setError('')
+              onPreview?.(null)
             }
           }}
           style={{ width: 84, background: '#111', color: '#eee', border: error ? '1px solid #e66' : '1px solid #444', borderRadius: 3, padding: '2px 6px', fontSize: 12 }}

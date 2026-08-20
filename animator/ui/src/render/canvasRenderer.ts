@@ -3,104 +3,159 @@
 // is the thin imperative layer the Stage owns.
 //
 // Overlay separation (Phase-3 §06): the CONTENT pass (background + rects) is
-// the only thing drawn here from evaluate(). The SELECTION overlay and the
-// DRAG PREVIEW are editor-only passes drawn only by the editor canvas — export
-// goes through the Rust `exportSvg`, which never contains overlays.
+// the only thing drawn here from evaluate(). Selection box, handles, marquee,
+// drag preview, and draw preview are editor-only and drawn only by the editor
+// canvas — export goes through the Rust `exportSvg`, which never contains them.
 
-import type { RectItemJson, SelRectJson } from '../engine/wasmTypes'
+import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
-import { docRectToScreen } from './viewport'
+import { docToScreen } from './viewport'
+
+export interface Pt {
+  x: number
+  y: number
+}
 
 export interface RenderState {
   background: string
   items: RectItemJson[]
-  selection: SelRectJson[]
-  /** Editor-only drag preview: selected objects are drawn translated by this
-   *  DOCUMENT-space delta. `null` = no drag in progress. Never exported. */
+  /** Selected node ids (move-preview translates only these). */
+  selectedIds?: number[]
+  /** Doc-space overlay geometry (computed by the Stage from selection_details). */
+  overlay?: {
+    box: Pt[] // selection box corners (rotated for single, AABB for multi)
+    handles: Array<[string, Pt]> // scale handles (tl/t/tr/r/br/b/bl/l) + rotate
+    rotateHandle: Pt
+    center: Pt
+  } | null
+  /** Editor-only marquee (doc-space rect, contact selection). */
+  marquee?: { x: number; y: number; w: number; h: number } | null
+  /** Editor-only drag preview: selected objects drawn translated by this DOC delta. */
   previewDelta?: { x: number; y: number } | null
-  /** Editor-only draw preview: DOCUMENT-space rect being drawn (Rect tool).
-   *  `null` = no draw in progress. Never exported. */
+  /** Editor-only draw preview: DOC-space rect being drawn (Rect tool). */
   previewRect?: { x: number; y: number; w: number; h: number } | null
 }
 
 export const SELECTION_STROKE = '#0a7cff'
-export const HANDLE_SIZE = 6
+export const HANDLE_SIZE = 7
+export const HANDLE_HIT_RADIUS = 8 // screen px (pickHandle caller)
 
-/** Content pass + selection overlay + drag preview, using CSS-pixel coords
- *  (dpr pre-scaled by caller). */
 export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderState, viewW: number, viewH: number): void {
   ctx.clearRect(0, 0, viewW, viewH)
 
-  // background (document)
+  // background
   ctx.fillStyle = s.background
   ctx.fillRect(0, 0, viewW, viewH)
 
   const preview = s.previewDelta ?? null
-  const selectedIds = new Set(s.selection.map((r) => r.id))
+  const selected = new Set(s.selectedIds ?? [])
 
-  // draw order = evaluate() order (bottom→top layer, back→front node)
   for (const it of s.items) {
-    const off = preview && selectedIds.has(it.id) ? preview : { x: 0, y: 0 }
+    const off = preview && selected.has(it.id) ? preview : { x: 0, y: 0 }
     drawRectItem(ctx, vp, it, off)
   }
 
-  // selection overlay (editor-only, never exported)
-  for (const sel of s.selection) {
-    drawSelection(ctx, vp, sel, preview)
+  // marquee (editor-only)
+  if (s.marquee) {
+    drawMarquee(ctx, vp, s.marquee)
   }
 
-  // rect draw preview (editor-only, never exported)
+  // rect draw preview (editor-only)
   if (s.previewRect) {
     drawRectPreview(ctx, vp, s.previewRect)
   }
+
+  // selection overlay (editor-only, never exported)
+  if (s.overlay) {
+    drawOverlay(ctx, vp, s.overlay)
+  }
 }
 
-function drawRectPreview(ctx: CanvasRenderingContext2D, vp: Viewport, r: { x: number; y: number; w: number; h: number }): void {
-  const sr = docRectToScreen(vp, r)
-  ctx.fillStyle = 'rgba(63, 155, 245, 0.2)'
-  ctx.fillRect(sr.x, sr.y, sr.w, sr.h)
-  ctx.strokeStyle = '#3f9bf5'
-  ctx.lineWidth = 1
-  ctx.setLineDash([4, 3])
-  ctx.strokeRect(sr.x, sr.y, sr.w, sr.h)
-  ctx.setLineDash([])
-}
-
-function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: { x: number; y: number }): void {
-  const r = docRectToScreen(vp, { x: it.x + off.x, y: it.y + off.y, w: it.w, h: it.h })
+function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt): void {
+  const cx = it.x + it.w / 2 + off.x
+  const cy = it.y + it.h / 2 + off.y
+  const p = docToScreen(vp, cx, cy)
+  const w = it.w * vp.zoom
+  const h = it.h * vp.zoom
+  ctx.save()
+  ctx.translate(p.x, p.y)
+  if (it.rotation !== 0) ctx.rotate((it.rotation * Math.PI) / 180)
   ctx.fillStyle = it.fill
-  ctx.fillRect(r.x, r.y, r.w, r.h)
+  ctx.fillRect(-w / 2, -h / 2, w, h)
   if (it.stroke) {
     ctx.strokeStyle = it.stroke
     ctx.lineWidth = it.stroke_width * vp.zoom
-    ctx.strokeRect(r.x, r.y, r.w, r.h)
+    ctx.strokeRect(-w / 2, -h / 2, w, h)
   }
+  ctx.restore()
 }
 
-function drawSelection(ctx: CanvasRenderingContext2D, vp: Viewport, sel: SelRectJson, preview: { x: number; y: number } | null): void {
-  const off = preview ?? { x: 0, y: 0 }
-  const r = docRectToScreen(vp, { x: sel.x + off.x, y: sel.y + off.y, w: sel.w, h: sel.h })
+function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {
+  const p = docToScreen(vp, m.x, m.y)
   ctx.strokeStyle = SELECTION_STROKE
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = 1
   ctx.setLineDash([4, 3])
-  ctx.strokeRect(r.x, r.y, r.w, r.h)
+  ctx.strokeRect(p.x, p.y, m.w * vp.zoom, m.h * vp.zoom)
   ctx.setLineDash([])
+  ctx.fillStyle = 'rgba(10, 124, 255, 0.06)'
+  ctx.fillRect(p.x, p.y, m.w * vp.zoom, m.h * vp.zoom)
+}
 
-  // corner handles
-  for (const [hx, hy] of corners(r)) {
+function drawRectPreview(ctx: CanvasRenderingContext2D, vp: Viewport, r: { x: number; y: number; w: number; h: number }): void {
+  const p = docToScreen(vp, r.x, r.y)
+  ctx.fillStyle = 'rgba(63, 155, 245, 0.2)'
+  ctx.fillRect(p.x, p.y, r.w * vp.zoom, r.h * vp.zoom)
+  ctx.strokeStyle = '#3f9bf5'
+  ctx.lineWidth = 1
+  ctx.setLineDash([4, 3])
+  ctx.strokeRect(p.x, p.y, r.w * vp.zoom, r.h * vp.zoom)
+  ctx.setLineDash([])
+}
+
+function drawOverlay(ctx: CanvasRenderingContext2D, vp: Viewport, o: NonNullable<RenderState['overlay']>): void {
+  // selection box polygon
+  if (o.box.length > 1) {
+    ctx.strokeStyle = SELECTION_STROKE
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([4, 3])
+    ctx.beginPath()
+    const first = docToScreen(vp, o.box[0].x, o.box[0].y)
+    ctx.moveTo(first.x, first.y)
+    for (let i = 1; i < o.box.length; i++) {
+      const p = docToScreen(vp, o.box[i].x, o.box[i].y)
+      ctx.lineTo(p.x, p.y)
+    }
+    ctx.closePath()
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  // rotate connector line
+  const center = docToScreen(vp, o.center.x, o.center.y)
+  const rot = docToScreen(vp, o.rotateHandle.x, o.rotateHandle.y)
+  ctx.strokeStyle = SELECTION_STROKE
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(center.x, center.y)
+  ctx.lineTo(rot.x, rot.y)
+  ctx.stroke()
+
+  // scale handles (squares)
+  for (const [, hp] of o.handles) {
+    const p = docToScreen(vp, hp.x, hp.y)
     ctx.strokeStyle = SELECTION_STROKE
     ctx.lineWidth = 1
-    ctx.strokeRect(hx - HANDLE_SIZE / 2, hy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+    ctx.strokeRect(p.x - HANDLE_SIZE / 2, p.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
     ctx.fillStyle = '#ffffff'
-    ctx.fillRect(hx - HANDLE_SIZE / 2, hy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+    ctx.fillRect(p.x - HANDLE_SIZE / 2, p.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
   }
-}
 
-function corners(r: { x: number; y: number; w: number; h: number }): Array<[number, number]> {
-  return [
-    [r.x, r.y],
-    [r.x + r.w, r.y],
-    [r.x, r.y + r.h],
-    [r.x + r.w, r.y + r.h],
-  ]
+  // rotate handle (circle)
+  ctx.beginPath()
+  ctx.arc(rot.x, rot.y, HANDLE_SIZE / 1.6, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.strokeStyle = SELECTION_STROKE
+  ctx.lineWidth = 1
+  ctx.stroke()
 }

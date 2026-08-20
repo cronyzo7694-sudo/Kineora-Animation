@@ -16,6 +16,17 @@ interface CtxStub {
   fillRect: () => void
   strokeRect: () => void
   setLineDash: () => void
+  beginPath: () => void
+  moveTo: () => void
+  lineTo: () => void
+  closePath: () => void
+  stroke: () => void
+  fill: () => void
+  arc: () => void
+  save: () => void
+  restore: () => void
+  translate: () => void
+  rotate: () => void
   fillStyle: string
   strokeStyle: string
   lineWidth: number
@@ -29,6 +40,17 @@ interface CtxStub {
     fillRect: () => {},
     strokeRect: () => {},
     setLineDash: () => {},
+    beginPath: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    closePath: () => {},
+    stroke: () => {},
+    fill: () => {},
+    arc: () => {},
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,

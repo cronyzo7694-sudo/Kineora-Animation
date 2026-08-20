@@ -10,7 +10,8 @@
 | **WASM bridge (core ↔ UI)** | MOD-INPUT/BRIDGE | **READY (user-PC verified)** | core/src/wasm.rs + ui/src/engine/client.ts; Blob-URL loader + explicit wasm init |
 | **Canvas renderer** | MOD-RENDER | **READY (viewport wiring done)** | viewport.ts + canvasRenderer.ts + Stage (zoom/pan/fit immediate redraw via vpVersion+rAF, autoscroll suppression, drag-end cleanup) |
 | **Select + Move gestures** | MOD-INPUT/MOD-SELECTION/MOD-XFR | **READY** | ui/src/editor/gesture.ts + Stage select-tool pointer lifecycle + Rust MoveSelection interpolated-before fix + transform.rs tests |
-| **Rect tool (real object creation)** | MOD-INPUT/MOD-DRAWING/MOD-DOC | **IMPLEMENTING (this commit)** | gesture.normalizeRect + Stage rect gesture + renderer previewRect + Rust draw.rs tests (animation semantics verified) |
+| **Rect tool (real object creation)** | MOD-INPUT/MOD-DRAWING/MOD-DOC | **READY** | gesture.normalizeRect + Stage rect gesture + renderer previewRect + Rust draw.rs tests (animation semantics verified) |
+| **Transform + selection expansion** | MOD-INPUT/MOD-XFR/MOD-SELECTION | **IMPLEMENTING (this commit)** | transformMath.ts (scale/rotate/handles/geometry) + TransformSelection command + eval rotation + marquee/toggle + renderer rotation+overlay |
 | CI (GitHub Actions) | MOD-TEST | **READY (file) / BLOCKED (push: token needs `workflow` scope)** | .github/workflows/ci.yml |
 | Canvas/WebGL renderer consuming RectItem | MOD-RENDER | NOT STARTED | next unit |
 | Pointer→tool gestures → commands | MOD-INPUT | NOT STARTED | |

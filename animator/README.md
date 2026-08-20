@@ -59,6 +59,28 @@ Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo bu
 
 Manual test (after `npm run dev`): create doc → draw rect (engine) → rect visible on Stage → select it → blue dashed selection box + handles → **wheel-zoom (immediate) / middle-drag pan (immediate + smooth, no browser autoscroll) / double-click fit (immediate)** → Play → stage updates → Export SVG → no selection box in the SVG.
 
+## Transform + selection (current unit)
+- `ui/src/editor/transformMath.ts` — pure: rotated-rect geometry, selection bounds (rotated for single / AABB for multi), 8 scale handles + rotate handle, scale/rotate math around an anchor, handle picking. Fully unit-tested.
+- Transform overlay: editor-only (never in SVG export). Single object = rotated box; multi = AABB union box. 8 scale handles (tl/t/tr/r/br/b/bl/l) + rotate handle above top-center.
+- Gestures (Select tool): click = select · Shift+click = toggle · drag on empty = marquee (contact selection) · drag handle = scale (Shift = proportional, Alt = center-anchor) · drag rotate handle = rotate (Shift = 15° snap) · drag object = move. One completed gesture = ONE undoable command (`TransformSelection` — absolute before/after per-keyframe overrides, exact undo). Cancel/zero-delta = no command.
+- Rotation renders in both the canvas and SVG export (around center, pivot=center [ENGINEERING DECISION]; draggable pivot = later unit).
+
+Manual test (after `npm run wasm && npm run dev`):
+| # | Action | Expect |
+|---|---|---|
+| A | Rect → draw 2 rects | both appear |
+| B | Select → click one | rotated/AABB box + 8 handles + rotate handle |
+| C | drag a corner handle | scales around the opposite corner (live preview) |
+| D | Shift+drag corner | proportional scale |
+| E | Alt+drag corner | scales around center |
+| F | drag rotate handle | rotates around center; Shift snaps 15° |
+| G | Undo / Redo | one undo per gesture, exact restore |
+| H | Shift+click two rects | multi-select (union AABB) |
+| I | drag empty stage | marquee selects touching objects |
+| J | group-drag a handle | both objects scale together (one command) |
+| K | zoom/pan then transform | correct doc-space result |
+| L | Export SVG | rotation in SVG, NO box/handles |
+
 ## Rect tool (current unit)
 - `ui/src/editor/gesture.ts` — `normalizeRect` (4 draw directions → top-left origin + positive w/h) + `MIN_RECT_DIM` (1 doc px; zero/sub-min drag = click → no object, [ENGINEERING DECISION]).
 - Rect tool (left button): drag → translucent preview (editor-only) → mouseup → ONE `drawRect` command (real Rust node). Reverse-drag normalizes; sub-threshold click and pointer-cancel create nothing.

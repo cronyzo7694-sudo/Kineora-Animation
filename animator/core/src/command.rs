@@ -188,6 +188,71 @@ impl Command for MoveSelection {
     }
 }
 
+/// CMD-TRANSFORM — apply absolute transforms to a selection at the current
+/// frame via per-keyframe overrides. One command per completed gesture
+/// (scale / rotate / translate all fold through here). Undo is bit-exact via
+/// the frame-record snapshot.
+pub struct TransformSelection {
+    pub after: Vec<(NodeId, Transform)>,
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    prev_frame: Option<Frame>,
+}
+
+impl TransformSelection {
+    pub fn new(after: Vec<(NodeId, Transform)>, scene: usize, layer: usize, frame: u32) -> Self {
+        Self {
+            after,
+            scene,
+            layer,
+            frame,
+            prev_frame: None,
+        }
+    }
+}
+
+impl Command for TransformSelection {
+    fn label(&self) -> String {
+        "Transform selection".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if self.after.is_empty() {
+            return;
+        }
+        self.prev_frame = doc
+            .layer(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get(&self.frame).cloned());
+        if doc
+            .ensure_keyframe(self.scene, self.layer, self.frame)
+            .is_none()
+        {
+            return;
+        }
+        if let Some(Frame::Keyframe { transforms, .. }) = doc
+            .layer_mut(self.scene, self.layer)
+            .and_then(|l| l.keyframes.get_mut(&self.frame))
+        {
+            for (id, t) in &self.after {
+                transforms.insert(*id, t.clone());
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        match &self.prev_frame {
+            Some(prev) => {
+                l.keyframes.insert(self.frame, prev.clone());
+            }
+            None => {
+                l.keyframes.remove(&self.frame);
+            }
+        }
+    }
+}
+
 /// CMD-INSERT-KEY — copy previous content into a new keyframe (F6).
 pub struct InsertKeyframe {
     pub scene: usize,

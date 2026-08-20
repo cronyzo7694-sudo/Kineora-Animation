@@ -1,28 +1,59 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EngineStatus } from '../controlRegistry'
-import { evaluate, moveSelection, selectAt, statusJson } from '../engine/client'
-import { render, type RenderState } from '../render/canvasRenderer'
-import { createViewport, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
-import { pastDragThreshold, screenDeltaToDoc, normalizeRect, isValidRect } from '../editor/gesture'
-import { drawRect } from '../engine/client'
+import {
+  drawRect,
+  evaluate,
+  moveSelection,
+  selectAt,
+  selectInRect,
+  selectToggleAt,
+  statusJson,
+  transformSelection,
+} from '../engine/client'
+import { render, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
+import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
+import { pastDragThreshold, screenDeltaToDoc, normalizeRect, isValidRect, type DocRect } from '../editor/gesture'
+import {
+  handlePositions,
+  oppositeHandle,
+  pickHandle,
+  rotationDelta,
+  scaleFactors,
+  scaleSelection,
+  rotateSelection,
+  selectionGeometry,
+  type AbsTransformOut,
+  type HandleKind,
+  type Pt,
+  type SelDetail,
+} from '../editor/transformMath'
+import type { RectItemJson } from '../engine/wasmTypes'
 
 interface Props {
   engine: EngineStatus
   tool: string
   playhead: number
-  tick: number // bump from App to trigger a redraw (status poll)
+  tick: number
 }
 
 interface SelectGesture {
-  startX: number // screen CSS px at pointerdown
+  startX: number
   startY: number
-  dragging: boolean // passed the drag threshold
+  dragging: boolean
 }
 
 interface RectGesture {
-  startX: number // screen CSS px at pointerdown
+  startX: number
   startY: number
-  dragging: boolean // passed the drag threshold
+  dragging: boolean
+}
+
+interface TransformGesture {
+  handle: HandleKind
+  startDoc: Pt // doc-space pointer at mousedown
+  anchor: Pt // doc-space scale anchor (opposite handle or center)
+  center: Pt // doc-space rotate center (selection center)
+  details: SelDetail[]
 }
 
 export function Stage({ engine, tool, playhead, tick }: Props) {
@@ -32,7 +63,6 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
   const toolRef = useRef(tool)
   toolRef.current = tool
 
-  // Bump to re-run the render effect → immediate redraw on viewport/preview change.
   const [redrawVersion, setRedrawVersion] = useState(0)
   const [zoomReadout, setZoomReadout] = useState('100%')
   const [panReadout, setPanReadout] = useState('0,0')
@@ -41,10 +71,13 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
   const selectGestureRef = useRef<SelectGesture | null>(null)
   const previewRef = useRef<{ x: number; y: number } | null>(null)
   const rectGestureRef = useRef<RectGesture | null>(null)
-  const rectPreviewRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const rectPreviewRef = useRef<DocRect | null>(null)
+  const transformRef = useRef<TransformGesture | null>(null)
+  const pendingRef = useRef<Map<number, AbsTransformOut> | null>(null)
+  const marqueeRef = useRef<DocRect | null>(null)
+  const marqueeStartRef = useRef<Pt | null>(null)
   const rafRef = useRef<number | null>(null)
 
-  // Coalesced redraw: at most one canvas redraw per animation frame (Phase-3 rAF).
   const scheduleRedraw = () => {
     if (rafRef.current == null) {
       rafRef.current = requestAnimationFrame(() => {
@@ -61,63 +94,122 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     scheduleRedraw()
   }
 
-  // cancel any pending rAF on unmount
   useEffect(() => {
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
     }
   }, [])
 
-  // Window-level drag handling: pointer/mouse keeps working when the cursor
-  // leaves the canvas (Phase D), and browser autoscroll is bypassed.
+  // Overlay geometry from current status (selection box + handles).
+  const overlayFromStatus = () => {
+    const status = statusJson()
+    const details = status?.selection_details ?? []
+    if (details.length === 0) return null
+    const geom = selectionGeometry(details)
+    const handles = handlePositions(geom)
+    const hs = Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>
+    return {
+      box: geom.box,
+      handles: hs,
+      rotateHandle: handles.rotate,
+      center: geom.center,
+    }
+  }
+
+  // ——— window-level drag handling ———
   useEffect(() => {
     const move = (e: MouseEvent) => {
       const wrap = wrapRef.current
       if (!wrap) return
       const rect = wrap.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      const doc = screenToDoc(vpRef.current, sx, sy)
 
-      // middle-button pan
       if (panDragRef.current) {
         applyViewport(panBy(vpRef.current, e.clientX - panDragRef.current.x, e.clientY - panDragRef.current.y))
         panDragRef.current = { x: e.clientX, y: e.clientY }
         return
       }
 
-      // select-tool drag (left button)
-      const g = selectGestureRef.current
-      if (g && toolRef.current === 'select') {
-        const sx = e.clientX - rect.left
-        const sy = e.clientY - rect.top
-        if (!g.dragging) {
-          if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return // click, not yet a drag
-          g.dragging = true
+      if (toolRef.current === 'select') {
+        // transform gesture (scale/rotate handles)
+        if (transformRef.current) {
+          const g = transformRef.current
+          if (g.handle === 'rotate') {
+            const deg = rotationDelta(g.center, g.startDoc, doc, e.shiftKey)
+            pendingRef.current = new Map(rotateSelection(g.details, g.center, deg).map((t) => [t.id, t]))
+          } else {
+            const hs = handlePositions(selectionGeometry(g.details))
+            const startHandle = hs[g.handle]
+            const f = scaleFactors(g.handle, startHandle, g.anchor, doc, e.shiftKey)
+            pendingRef.current = new Map(scaleSelection(g.details, g.anchor, f.sx, f.sy).map((t) => [t.id, t]))
+          }
+          scheduleRedraw()
+          return
         }
-        previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
-        scheduleRedraw()
-        return
+
+        // marquee
+        if (marqueeStartRef.current) {
+          const m = normalizeRect(marqueeStartRef.current.x, marqueeStartRef.current.y, doc.x, doc.y)
+          if (m.w >= 1 || m.h >= 1) marqueeRef.current = m
+          scheduleRedraw()
+          return
+        }
+
+        // select drag (move)
+        const g = selectGestureRef.current
+        if (g) {
+          if (!g.dragging) {
+            if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return
+            g.dragging = true
+          }
+          previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
+          scheduleRedraw()
+          return
+        }
       }
 
-      // rect-tool draw (left button): preview a normalized doc-space rect
+      // rect-tool draw
       const rg = rectGestureRef.current
       if (rg && toolRef.current === 'rect') {
-        const sx = e.clientX - rect.left
-        const sy = e.clientY - rect.top
         if (!rg.dragging) {
-          if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return // click, not yet a draw
+          if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return
           rg.dragging = true
         }
         const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
-        const b = screenToDoc(vpRef.current, sx, sy)
-        rectPreviewRef.current = normalizeRect(a.x, a.y, b.x, b.y)
+        rectPreviewRef.current = normalizeRect(a.x, a.y, doc.x, doc.y)
         scheduleRedraw()
-        return
       }
     }
 
     const up = () => {
-      // end pan
       panDragRef.current = null
-      // end select drag → COMMIT exactly one move command
+
+      // commit transform (one command)
+      const tg = transformRef.current
+      transformRef.current = null
+      const pending = pendingRef.current
+      pendingRef.current = null
+      if (tg && pending && pending.size > 0) {
+        transformSelection([...pending.values()].map((t) => ({ ...t })))
+      }
+
+      // commit marquee selection (or clear on a plain empty click)
+      const ms = marqueeStartRef.current
+      marqueeStartRef.current = null
+      const mq = marqueeRef.current
+      marqueeRef.current = null
+      if (ms) {
+        if (mq) {
+          selectInRect(mq.x, mq.y, mq.x + mq.w, mq.y + mq.h)
+        } else {
+          // click (no drag) on empty stage → clear selection (Phase-1 03.3.1)
+          selectInRect(ms.x, ms.y, ms.x, ms.y)
+        }
+      }
+
+      // commit select drag (move)
       const g = selectGestureRef.current
       selectGestureRef.current = null
       const p = previewRef.current
@@ -125,7 +217,8 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
         moveSelection(p.x, p.y)
       }
-      // end rect draw → COMMIT exactly one DrawRect command (if valid)
+
+      // commit rect draw
       const rg = rectGestureRef.current
       rectGestureRef.current = null
       const rp = rectPreviewRef.current
@@ -137,12 +230,15 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     }
 
     const cancel = () => {
-      // pointer cancel / window blur: discard preview, NO command (Phase D/G)
       panDragRef.current = null
       selectGestureRef.current = null
       previewRef.current = null
       rectGestureRef.current = null
       rectPreviewRef.current = null
+      transformRef.current = null
+      pendingRef.current = null
+      marqueeStartRef.current = null
+      marqueeRef.current = null
       scheduleRedraw()
     }
 
@@ -159,7 +255,7 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // render loop: redraw when props, viewport version, or the poll tick change
+  // ——— render loop ———
   useEffect(() => {
     const canvas = canvasRef.current
     const wrap = wrapRef.current
@@ -177,17 +273,35 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0) // draw in CSS px
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     const items = engine.kind === 'ok' ? evaluate(playhead) : []
+    // apply pending transform preview to items
+    const pending = pendingRef.current
+    const displayItems: RectItemJson[] = pending
+      ? items.map((it) => {
+          const t = pending.get(it.id)
+          if (!t) return it
+          const base = status.selection_details?.find((d) => d.id === it.id)
+          const w = (base?.base_w ?? it.w) * t.scale_x
+          const h = (base?.base_h ?? it.h) * t.scale_y
+          return { ...it, x: t.x, y: t.y, w, h, rotation: t.rotation }
+        })
+      : items
+
+    const overlay = pending ? null : overlayFromStatus()
+
     const state: RenderState = {
       background: status.background ?? '#ffffff',
-      items,
-      selection: status.selection_rects ?? [],
+      items: displayItems,
+      selectedIds: status.selection ?? [],
+      overlay,
+      marquee: marqueeRef.current,
       previewDelta: previewRef.current,
       previewRect: rectPreviewRef.current,
     }
     render(ctx, vpRef.current, state, viewW, viewH)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.kind, playhead, tick, redrawVersion])
 
   // initial fit + refit on resize
@@ -220,27 +334,54 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
     const sy = e.clientY - rect.top
 
     if (e.button === 1) {
-      // middle button: autoscroll lives on mousedown in Chrome/Firefox — kill
-      // it here, then start the pan (continued by the window listeners).
       e.preventDefault()
       panDragRef.current = { x: e.clientX, y: e.clientY }
       return
     }
 
     if (e.button === 0 && toolRef.current === 'select') {
-      // left button + Select tool: hit-test → select (or clear), then arm a
-      // potential drag (committed only if the threshold is crossed).
-      const d = screenToDoc(vpRef.current, sx, sy)
-      const hit = selectAt(d.x, d.y)
-      selectGestureRef.current = hit ? { startX: sx, startY: sy, dragging: false } : null
-      previewRef.current = null
-      scheduleRedraw() // selection overlay updates immediately
+      const doc = screenToDoc(vpRef.current, sx, sy)
+
+      // 1) handle hit-test → arm transform gesture
+      const status = statusJson()
+      const details = status?.selection_details ?? []
+      if (details.length > 0) {
+        const geom = selectionGeometry(details)
+        const handles = handlePositions(geom)
+        const screenHandles = {} as Record<HandleKind, Pt>
+        for (const [k, p] of Object.entries(handles) as [HandleKind, Pt][]) {
+          screenHandles[k] = docToScreen(vpRef.current, p.x, p.y)
+        }
+        const hit = pickHandle(screenHandles, sx, sy, HANDLE_HIT_RADIUS)
+        if (hit) {
+          const anchor = hit === 'rotate' ? geom.center : e.altKey ? geom.center : oppositeHandle(geom, hit)
+          transformRef.current = { handle: hit, startDoc: doc, anchor, center: geom.center, details }
+          pendingRef.current = null
+          return
+        }
+      }
+
+      // 2) shift → toggle
+      if (e.shiftKey) {
+        selectToggleAt(doc.x, doc.y)
+        scheduleRedraw()
+        return
+      }
+
+      // 3) plain click: select (or arm marquee on empty)
+      const hit = selectAt(doc.x, doc.y)
+      if (hit) {
+        selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+        previewRef.current = null
+      } else {
+        marqueeStartRef.current = doc
+        marqueeRef.current = null
+      }
+      scheduleRedraw()
       return
     }
 
     if (e.button === 0 && toolRef.current === 'rect') {
-      // left button + Rect tool: arm a draw gesture (preview only; the real
-      // object is created on mouseup, and only if it passes MIN_RECT_DIM).
       rectGestureRef.current = { startX: sx, startY: sy, dragging: false }
       rectPreviewRef.current = null
       scheduleRedraw()

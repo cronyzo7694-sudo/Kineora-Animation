@@ -35,6 +35,37 @@ struct SelRect {
     y: f64,
     w: f64,
     h: f64,
+    rotation: f64,
+}
+
+/// Full per-selected-node detail: base (unscaled) dims + current scale/rotation
+/// so the UI can compute exact scale/rotate transforms (Part 04 semantics).
+#[derive(Serialize)]
+struct SelDetail {
+    id: u64,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    base_w: f64,
+    base_h: f64,
+    scale_x: f64,
+    scale_y: f64,
+    rotation: f64,
+}
+
+#[derive(serde::Deserialize)]
+struct TransIn {
+    id: u64,
+    x: f64,
+    y: f64,
+    scale_x: f64,
+    scale_y: f64,
+    rotation: f64,
+    skew_x: f64,
+    skew_y: f64,
+    pivot_x: f64,
+    pivot_y: f64,
 }
 
 #[derive(Serialize)]
@@ -42,6 +73,7 @@ struct StatusOut {
     playhead: u32,
     selection: Vec<u64>,
     selection_rects: Vec<SelRect>,
+    selection_details: Vec<SelDetail>,
     undo_len: usize,
     redo_len: usize,
     scene: String,
@@ -76,6 +108,46 @@ pub fn kineora_draw_rect(x: f64, y: f64, w: f64, h: f64, fill: String) -> u64 {
 #[wasm_bindgen]
 pub fn kineora_select_at(x: f64, y: f64) -> bool {
     with_session(|s| s.select_at(x, y)).unwrap_or(false)
+}
+
+/// Shift+click toggle selection (add/remove). Returns true if something hit.
+#[wasm_bindgen]
+pub fn kineora_select_toggle_at(x: f64, y: f64) -> bool {
+    with_session(|s| s.select_toggle_at(x, y)).unwrap_or(false)
+}
+
+/// Marquee selection: replace selection with nodes touching the doc-space rect.
+#[wasm_bindgen]
+pub fn kineora_select_in_rect(x0: f64, y0: f64, x1: f64, y1: f64) {
+    let _ = with_session(|s| s.select_in_rect(x0, y0, x1, y1));
+}
+
+/// Apply absolute transforms to the selection (one undoable command).
+/// `transforms_json` = JSON array of the full Transform shape.
+#[wasm_bindgen]
+pub fn kineora_transform_selection(transforms_json: String) {
+    let parsed: Result<Vec<TransIn>, _> = serde_json::from_str(&transforms_json);
+    let Ok(list) = parsed else { return };
+    let after: Vec<(crate::id::NodeId, crate::model::Transform)> = list
+        .into_iter()
+        .map(|t| {
+            (
+                crate::id::NodeId(t.id),
+                crate::model::Transform {
+                    x: t.x,
+                    y: t.y,
+                    scale_x: t.scale_x,
+                    scale_y: t.scale_y,
+                    rotation: t.rotation,
+                    skew_x: t.skew_x,
+                    skew_y: t.skew_y,
+                    pivot_x: t.pivot_x,
+                    pivot_y: t.pivot_y,
+                },
+            )
+        })
+        .collect();
+    let _ = with_session(|s| s.transform_selection(after));
 }
 
 #[wasm_bindgen]
@@ -201,6 +273,31 @@ pub fn kineora_status() -> String {
                 y: it.y,
                 w: it.w,
                 h: it.h,
+                rotation: it.rotation,
+            })
+            .collect();
+        // Per-node detail (base dims + current scale/rotation) for exact math.
+        let selection_details = s
+            .selection
+            .iter()
+            .filter_map(|id| {
+                let t = s.selected_transform(*id)?;
+                let base = s.doc.nodes.get(id)?;
+                let (base_w, base_h) = match base {
+                    crate::model::Node::Rect { width, height, .. } => (*width, *height),
+                };
+                Some(SelDetail {
+                    id: id.0,
+                    x: t.x,
+                    y: t.y,
+                    w: base_w * t.scale_x,
+                    h: base_h * t.scale_y,
+                    base_w,
+                    base_h,
+                    scale_x: t.scale_x,
+                    scale_y: t.scale_y,
+                    rotation: t.rotation,
+                })
             })
             .collect();
 
@@ -208,6 +305,7 @@ pub fn kineora_status() -> String {
             playhead: s.playhead,
             selection: sel,
             selection_rects,
+            selection_details,
             undo_len: s.history.undo_len(),
             redo_len: s.history.redo_len(),
             scene,

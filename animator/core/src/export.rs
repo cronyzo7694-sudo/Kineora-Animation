@@ -15,17 +15,34 @@ pub fn export_svg(doc: &Document, scene: usize, frame: u32) -> String {
         doc.settings.background
     ));
     for it in items {
-        s.push_str(&format!(
-            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}""#,
-            it.x, it.y, it.w, it.h, it.fill
-        ));
-        if let Some(c) = it.stroke {
+        // Rotation is around the rect CENTER (pivot=center, matches renderer).
+        if it.rotation == 0.0 {
             s.push_str(&format!(
-                r#" stroke="{c}" stroke-width="{}""#,
-                it.stroke_width
+                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}""#,
+                it.x, it.y, it.w, it.h, it.fill
             ));
+            if let Some(c) = it.stroke {
+                s.push_str(&format!(
+                    r#" stroke="{c}" stroke-width="{}""#,
+                    it.stroke_width
+                ));
+            }
+            s.push_str("/>");
+        } else {
+            let cx = it.x + it.w / 2.0;
+            let cy = it.y + it.h / 2.0;
+            s.push_str(&format!(
+                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" transform="rotate({} {} {})""#,
+                it.x, it.y, it.w, it.h, it.fill, it.rotation, cx, cy
+            ));
+            if let Some(c) = it.stroke {
+                s.push_str(&format!(
+                    r#" stroke="{c}" stroke-width="{}""#,
+                    it.stroke_width
+                ));
+            }
+            s.push_str("/>");
         }
-        s.push_str("/>");
     }
     s.push_str("</svg>");
     s

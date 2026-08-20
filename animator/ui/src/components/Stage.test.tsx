@@ -9,7 +9,10 @@ vi.mock('../engine/client', () => ({
   statusJson: () => ({
     playhead: 1,
     selection: [1],
-    selection_rects: [{ id: 1, x: 0, y: 0, w: 100, h: 100 }],
+    selection_rects: [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0 }],
+    selection_details: [
+      { id: 1, x: 0, y: 0, w: 100, h: 100, base_w: 100, base_h: 100, scale_x: 1, scale_y: 1, rotation: 0 },
+    ],
     undo_len: 0,
     redo_len: 0,
     scene: 'Scene 1',
@@ -20,16 +23,22 @@ vi.mock('../engine/client', () => ({
     background: '#ffffff',
     event_log: [],
   }),
-  evaluate: () => [{ id: 1, x: 0, y: 0, w: 100, h: 100, fill: '#ff0000', stroke: null, stroke_width: 0 }],
+  evaluate: () => [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
   selectAt: vi.fn((_x: number, _y: number) => true),
+  selectToggleAt: vi.fn((_x: number, _y: number) => true),
+  selectInRect: vi.fn(),
+  transformSelection: vi.fn(),
   moveSelection: vi.fn(),
   drawRect: vi.fn((_x: number, _y: number, _w: number, _h: number, _fill: string) => 2),
 }))
 
-import { drawRect, moveSelection, selectAt } from '../engine/client'
+import { drawRect, moveSelection, selectAt, selectInRect, selectToggleAt, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
 
 const selectAtMock = vi.mocked(selectAt)
+const selectToggleAtMock = vi.mocked(selectToggleAt)
+const selectInRectMock = vi.mocked(selectInRect)
+const transformSelectionMock = vi.mocked(transformSelection)
 const moveSelectionMock = vi.mocked(moveSelection)
 const drawRectMock = vi.mocked(drawRect)
 
@@ -126,7 +135,8 @@ describe('Stage select + move gestures', () => {
   it('drag past threshold commits exactly ONE move command with the DOC delta', async () => {
     renderStage()
     const canvas = screen.getByTestId('stage-canvas')
-    drag(canvas, [0, 0], [31, 0])
+    // start inside the rect (50,50) — away from the transform handles
+    drag(canvas, [50, 50], [81, 50])
     await waitFor(() => expect(moveSelectionMock).toHaveBeenCalledTimes(1))
     expect(moveSelectionMock).toHaveBeenCalledWith(31, 0)
   })
@@ -134,10 +144,10 @@ describe('Stage select + move gestures', () => {
   it('multiple pointermoves during one drag produce exactly ONE command', async () => {
     renderStage()
     const canvas = screen.getByTestId('stage-canvas')
-    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
-    fireEvent.mouseMove(window, { clientX: 10, clientY: 0 })
-    fireEvent.mouseMove(window, { clientX: 25, clientY: 0 })
-    fireEvent.mouseMove(window, { clientX: 41, clientY: 0 })
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 50, clientY: 50 })
+    fireEvent.mouseMove(window, { clientX: 60, clientY: 50 })
+    fireEvent.mouseMove(window, { clientX: 75, clientY: 50 })
+    fireEvent.mouseMove(window, { clientX: 91, clientY: 50 })
     fireEvent.mouseUp(window)
     expect(moveSelectionMock).toHaveBeenCalledTimes(1)
     expect(moveSelectionMock).toHaveBeenCalledWith(41, 0)
@@ -149,9 +159,9 @@ describe('Stage select + move gestures', () => {
     // zoom to 110%
     fireEvent.wheel(canvas, { deltaY: -100 })
     await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('110%'))
-    // 11 screen px at 1.1 zoom = 10 doc px
-    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
-    fireEvent.mouseMove(window, { clientX: 11, clientY: 0 })
+    // 11 screen px at 1.1 zoom = 10 doc px; start inside the rect away from handles
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 55, clientY: 50 })
+    fireEvent.mouseMove(window, { clientX: 66, clientY: 50 })
     fireEvent.mouseUp(window)
     expect(moveSelectionMock).toHaveBeenCalledTimes(1)
     expect(moveSelectionMock.mock.calls[0][0]).toBeCloseTo(10, 5)
@@ -214,6 +224,60 @@ describe('Stage select + move gestures', () => {
     fireEvent.mouseUp(window)
     expect(selectAtMock).not.toHaveBeenCalled()
     expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Stage transform + multi-selection gestures', () => {
+  beforeEach(() => {
+    selectAtMock.mockClear()
+    selectToggleAtMock.mockClear()
+    selectInRectMock.mockClear()
+    transformSelectionMock.mockClear()
+    moveSelectionMock.mockClear()
+    selectAtMock.mockReturnValue(true)
+  })
+
+  it('drag on a corner handle commits exactly ONE transformSelection command', async () => {
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    // tl handle is at (0,0); drag it to (20,20) → scale
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 20, clientY: 20 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(transformSelectionMock).toHaveBeenCalledTimes(1))
+    expect(moveSelectionMock).not.toHaveBeenCalled() // transform, not move
+    const arg = transformSelectionMock.mock.calls[0][0] as Array<Record<string, number>>
+    expect(arg).toHaveLength(1)
+    expect(arg[0].scale_x).toBeLessThan(1) // dragging tl inward shrinks
+  })
+
+  it('drag on empty stage draws a marquee and commits selectInRect', async () => {
+    selectAtMock.mockReturnValue(false)
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    // start far from the mock rect (0..100) so no handle and no hit
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 500, clientY: 500 })
+    fireEvent.mouseMove(window, { clientX: 560, clientY: 540 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(selectInRectMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('plain click on empty stage clears selection via a zero-area marquee', async () => {
+    selectAtMock.mockReturnValue(false)
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 500, clientY: 500 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(selectInRectMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('shift+click toggles selection (selectToggleAt)', async () => {
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 60, shiftKey: true })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(selectToggleAtMock).toHaveBeenCalledTimes(1))
+    expect(selectAtMock).not.toHaveBeenCalled() // shift path, not plain select
   })
 })
 

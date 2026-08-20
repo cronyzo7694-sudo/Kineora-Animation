@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { SELECTION_STROKE } from './canvasRenderer'
+import { SELECTION_STROKE, HANDLE_SIZE } from './canvasRenderer'
 
 /**
- * Renderer determinism/geometry is covered by the pure viewport tests above and
- * the Rust `evaluate` tests; here we assert the canvas contract's stable parts:
- * the selection overlay color (editor-only) and that a mocked 2D context
- * receives the expected call order (content before selection).
+ * Canvas contract tests: the editor-only overlay color, call order (content
+ * before overlays), move preview translating only the selection, and the rect
+ * draw preview. Geometry math lives in the pure viewport/transformMath tests;
+ * the Rust `evaluate` tests cover document-side determinism.
  */
 describe('canvas renderer contract', () => {
   it('selection overlay uses the editor-only stroke color (never in export)', () => {
     expect(SELECTION_STROKE).toBe('#0a7cff')
+    expect(HANDLE_SIZE).toBeGreaterThan(0)
   })
 
-  it('draws background → rects → selection in that order', async () => {
-    // Import the render function and drive a fake ctx recording call order.
+  it('draws background → content → marquee/preview → overlay (content before overlays)', async () => {
     const { render } = await import('./canvasRenderer')
     const calls: string[] = []
     const ctx = {
@@ -21,6 +21,17 @@ describe('canvas renderer contract', () => {
       fillRect: () => calls.push('fillRect'),
       strokeRect: () => calls.push('strokeRect'),
       setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => calls.push('path-stroke'),
+      fill: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
       set fillStyle(_v: string) {},
       set strokeStyle(_v: string) {},
       set lineWidth(_v: number) {},
@@ -40,28 +51,48 @@ describe('canvas renderer contract', () => {
       { zoom: 1, panX: 0, panY: 0 },
       {
         background: '#ffffff',
-        items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, fill: '#ff0000', stroke: null, stroke_width: 0 }],
-        selection: [{ id: 1, x: 0, y: 0, w: 10, h: 10 }],
+        items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
+        overlay: {
+          box: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 10 },
+            { x: 0, y: 10 },
+          ],
+          handles: [['tl', { x: 0, y: 0 }]],
+          rotateHandle: { x: 5, y: -24 },
+          center: { x: 5, y: 5 },
+        },
       },
       100,
       100,
     )
 
     const firstFill = calls.indexOf('fillRect')
-    const firstStroke = calls.indexOf('strokeRect')
+    const firstOverlayStroke = calls.indexOf('path-stroke')
     expect(firstFill).toBeGreaterThan(-1)
-    expect(firstStroke).toBeGreaterThan(firstFill) // selection stroke AFTER content fill
+    expect(firstOverlayStroke).toBeGreaterThan(firstFill) // overlay AFTER content
     expect(calls[0]).toBe('clear')
   })
 
-  it('drag preview translates the SELECTED rect in document space (renderer-only)', async () => {
+  it('move preview translates ONLY the selected rect (center-based)', async () => {
     const { render } = await import('./canvasRenderer')
-    const fills: Array<Array<number>> = []
+    const translates: Array<Array<number>> = []
     const ctx = {
       clearRect: () => {},
-      fillRect: (...a: number[]) => fills.push(a),
+      fillRect: () => {},
       strokeRect: () => {},
       setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: (...a: number[]) => translates.push(a),
+      rotate: () => {},
       set fillStyle(_v: string) {},
       set strokeStyle(_v: string) {},
       set lineWidth(_v: number) {},
@@ -82,19 +113,19 @@ describe('canvas renderer contract', () => {
       {
         background: '#ffffff',
         items: [
-          { id: 1, x: 0, y: 0, w: 10, h: 10, fill: '#ff0000', stroke: null, stroke_width: 0 }, // selected
-          { id: 2, x: 100, y: 0, w: 10, h: 10, fill: '#00ff00', stroke: null, stroke_width: 0 }, // not selected
+          { id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }, // selected
+          { id: 2, x: 100, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0 }, // not selected
         ],
-        selection: [{ id: 1, x: 0, y: 0, w: 10, h: 10 }],
+        selectedIds: [1],
         previewDelta: { x: 5, y: 3 },
       },
       200,
       200,
     )
 
-    // fills[0] = background; fills[1] = selected rect (translated); fills[2] = unselected rect (unchanged)
-    expect(fills[1]).toEqual([5, 3, 10, 10])
-    expect(fills[2]).toEqual([100, 0, 10, 10])
+    // translate calls: [selected center+off], [unselected center]
+    expect(translates[0]).toEqual([10, 8]) // center (5,5) + (5,3)
+    expect(translates[1]).toEqual([105, 5]) // center (105,5), no offset
   })
 
   it('rect draw preview is drawn AFTER content (editor-only, translucent fill)', async () => {
@@ -106,6 +137,16 @@ describe('canvas renderer contract', () => {
       fillRect: (...a: number[]) => fills.push(a),
       strokeRect: () => {},
       setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
       set fillStyle(v: string) {
         fillStyles.push(v)
       },
@@ -128,7 +169,6 @@ describe('canvas renderer contract', () => {
       {
         background: '#ffffff',
         items: [],
-        selection: [],
         previewRect: { x: 10, y: 20, w: 30, h: 40 }, // doc-space
       },
       200,

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::command::{DrawRect, History, InsertKeyframe, MoveSelection};
-use crate::eval::{evaluate, hit_test, RectItem};
+use crate::command::{DrawRect, History, InsertKeyframe, MoveSelection, TransformSelection};
+use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_at, RectItem};
 use crate::export::export_svg;
 use crate::id::NodeId;
 use crate::model::{Document, Node, Settings, Transform};
@@ -95,6 +95,55 @@ impl Session {
     pub fn clear_selection(&mut self) {
         self.selection.clear();
         self.log("select:clear");
+    }
+
+    /// Shift+click semantics (REQ-SEL): add if absent, remove if present.
+    /// Returns true if something was hit (even if it was toggled off).
+    pub fn select_toggle_at(&mut self, x: f64, y: f64) -> bool {
+        let hit = hit_test(&self.doc, self.active_scene, self.playhead, x, y);
+        match hit {
+            Some(id) => {
+                if let Some(pos) = self.selection.iter().position(|s| *s == id) {
+                    self.selection.remove(pos);
+                    self.log("select:toggle-off");
+                } else {
+                    self.selection.push(id);
+                    self.log("select:toggle-on");
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Marquee selection (REQ-SEL-004): replace selection with all nodes whose
+    /// bounds touch the doc-space rectangle (contact-sensitive ON).
+    pub fn select_in_rect(&mut self, x0: f64, y0: f64, x1: f64, y1: f64) {
+        self.selection = hits_in_rect(&self.doc, self.active_scene, self.playhead, x0, y0, x1, y1);
+        self.log(&format!("select:marquee({} hits)", self.selection.len()));
+    }
+
+    /// Apply absolute transforms to the selection (scale/rotate/translate fold
+    /// into one command). Every id must still be present at the current frame.
+    pub fn transform_selection(&mut self, after: Vec<(NodeId, Transform)>) {
+        if self.selection.is_empty() || after.is_empty() {
+            return;
+        }
+        let cmd =
+            TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log("transform:selection");
+    }
+
+    /// Current transform of a selected node at the playhead (interpolated).
+    pub fn selected_transform(&self, id: NodeId) -> Option<Transform> {
+        node_transform_at(
+            &self.doc,
+            self.active_scene,
+            self.active_layer,
+            self.playhead,
+            id,
+        )
     }
 
     pub fn move_selection(&mut self, dx: f64, dy: f64) {

@@ -164,6 +164,18 @@ export function selectAt(x: number, y: number): boolean {
   return mod?.kineora_select_at(x, y) ?? false
 }
 
+export function selectToggleAt(x: number, y: number): boolean {
+  return mod?.kineora_select_toggle_at(x, y) ?? false
+}
+
+export function selectInRect(x0: number, y0: number, x1: number, y1: number): void {
+  mod?.kineora_select_in_rect(x0, y0, x1, y1)
+}
+
+export function transformSelection(transforms: Array<Record<string, number>>): void {
+  mod?.kineora_transform_selection(JSON.stringify(transforms))
+}
+
 export function moveSelection(dx: number, dy: number): void {
   mod?.kineora_move_selection(dx, dy)
 }

@@ -675,6 +675,168 @@ impl Command for DuplicateKeyframe {
     }
 }
 
+/// CMD-REMOVE-FRAMES — remove the keyframes within [start,end] and LEAVE A GAP
+/// (later keyframes stay put — Part 07 §7.4.6, distinct from Delete which
+/// shifts left). One command; bit-exact revert via full-map snapshot.
+pub struct RemoveFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl RemoveFrames {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            prev: None,
+        }
+    }
+}
+
+impl Command for RemoveFrames {
+    fn label(&self) -> String {
+        "Remove frames".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let victims: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k >= self.start && *k <= self.end)
+            .collect();
+        if victims.is_empty() {
+            return;
+        }
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        for k in victims {
+            l.keyframes.remove(&k);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-PASTE-FRAMES — insert clipboard records at `at`, preserving their
+/// relative offsets (F-07-12 "pastes at the playhead"). Collisions OVERWRITE
+/// ([OUR DESIGN DECISION]: the overwrite-vs-insert dialog is a later unit).
+/// One command; bit-exact revert.
+pub struct PasteFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub at: u32,
+    pub records: Vec<(u32, Frame)>,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl PasteFrames {
+    pub fn new(scene: usize, layer: usize, at: u32, records: Vec<(u32, Frame)>) -> Self {
+        Self {
+            scene,
+            layer,
+            at,
+            records,
+            prev: None,
+        }
+    }
+}
+
+impl Command for PasteFrames {
+    fn label(&self) -> String {
+        "Paste frames".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if self.records.is_empty() {
+            return;
+        }
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let min = self.records.iter().map(|(f, _)| *f).min().unwrap_or(1);
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        for (f, rec) in &self.records {
+            let target = self.at + (*f - min);
+            l.keyframes.insert(target, rec.clone());
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-REVERSE-FRAMES — reverse the ORDER of the keyframe records within
+/// [start,end] (content plays backwards, Part 07 §7.4.10 / F-07-13 E1). The
+/// frame positions stay; the records swap. One command; bit-exact revert.
+pub struct ReverseFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl ReverseFrames {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            prev: None,
+        }
+    }
+}
+
+impl Command for ReverseFrames {
+    fn label(&self) -> String {
+        "Reverse frames".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let mut positions: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k >= self.start && *k <= self.end)
+            .collect();
+        positions.sort_unstable();
+        if positions.len() < 2 {
+            return; // single keyframe reverse = no-op (F-07-13 M.1)
+        }
+        let records: Vec<Frame> = positions
+            .iter()
+            .filter_map(|p| l.keyframes.get(p).cloned())
+            .collect();
+        let reversed: Vec<Frame> = records.into_iter().rev().collect();
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        for (i, p) in positions.into_iter().enumerate() {
+            l.keyframes.insert(p, reversed[i].clone());
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
 /// CMD-LAYER-ADD — insert a new layer above the active one (Part 20.1).
 pub struct CreateLayer {
     pub scene: usize,

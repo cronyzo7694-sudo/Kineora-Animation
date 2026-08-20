@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 111 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 122 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -20,7 +20,8 @@
 | **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
 | **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | UNIT C accepted (52383e3) | unbounded viewport, lock-state honesty |
 | **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (1a02769) | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands |
-| **Timeline navigation + zoom + transport** | MOD-TIMELINE | **COMPLETE (this commit, UNIT D) — pending manual acceptance** | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
+| **Timeline navigation + zoom + transport** | MOD-TIMELINE | ACCEPTED (24269fe) | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
+| **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT E) — pending manual acceptance** | drag-range selection, copy/cut/paste/reverse/remove frames (undoable commands), frames_seq.rs (11 tests) |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -34,6 +35,33 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT E: frame range selection + clipboard/sequence ops (Part 07 §7.4.6–10 + F-07-12/13)
+- **Frame range selection** (engineering 07 "drag=range", F-03-08): click a cell = select that frame; **drag across cells = select a contiguous range** (single-layer, like Animate's per-row frame selection); Shift/Ctrl/Cmd+click = toggle. Selection is view state (no undo, no playhead move).
+- **Copy / Cut / Paste frames** (F-07-12): the engine keeps a **frame clipboard** (Session state — NOT persisted, NOT undoable, like the OS clipboard). Copy = snapshot the keyframes in the range (read-only → allowed on locked layers); Cut = copy + remove (one command); Paste = insert at the playhead on the active layer, preserving relative offsets, collisions OVERWRITE (one command). The overwrite-vs-insert dialog is a later unit.
+- **Remove frames** (Part 07 §7.4.6): delete the keyframes in the range **leaving a gap** (later keyframes stay put — distinct from Shift+F5's shift-left). One command.
+- **Reverse frames** (Part 07 §7.4.10 / F-07-13 E1): reverse the keyframe record order in the range (content plays backwards); <2 keyframes = no-op. One command.
+- **Guards**: every mutating op is blocked on a locked layer (engine-level, not just UI); copy stays allowed (read-only). Empty clipboard / empty range / single-keyframe reverse = no-op (no command). Undo/redo bit-exact via full-keyframe-map snapshots.
+- **Deferred**: overwrite-vs-insert paste dialog, duplicate-frames, sequence/span drag-move, span-edge extend/shorten, convert-to-keyframes, distribute-to-layers, frame labels/actions.
+
+### Manual acceptance matrix — UNIT E (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | click a frame cell | selects that single frame (no playhead move) |
+| 2 | drag across several cells | selects the contiguous range (blue highlight) |
+| 3 | Shift+click another cell | toggles it in/out of the selection |
+| 4 | select 3 frames → **Copy** | no visible change (clipboard filled); toast "copy frames: done" |
+| 5 | move playhead elsewhere → **Paste** | keyframes appear at the playhead, relative spacing kept |
+| 6 | paste over existing keyframes | overwrites them; one Undo restores exactly |
+| 7 | select a range → **Cut** | keyframes removed (gap remains); **Paste** puts them elsewhere |
+| 8 | select a middle keyframe → **Remove** | that keyframe removed; later keyframes stay put (gap) |
+| 9 | select a range with ≥2 keyframes → **Reverse** | content plays backwards (first↔last swap) |
+| 10 | Reverse a single keyframe | no-op toast; no undo entry |
+| 11 | Ctrl+Z / Ctrl+Shift+Z after each op | exact undo/redo, one step per op |
+| 12 | lock the layer → Cut/Paste/Remove/Reverse | disabled + blocked; **Copy still works** |
+| 13 | Copy on an empty area (no keyframes) | "copy frames: nothing to do"; Paste disabled (empty clipboard) |
+| 14 | selection never moves the playhead / enters undo | — |
+| 15 | Export after paste/reverse | correct per-frame content; no selection/timeline UI leaks |
 
 ## This commit — UNIT D: timeline navigation + zoom + transport (F-07-03/04, Part 07 §7.1.5, C-08)
 - **Timeline zoom (ruler zoom)** — blueprint-required (F-07-03 "spacing adapts to ruler zoom", "ruler zoomed out → numbers sparse", engineering 07 "ruler-zoom not persisted" = view state). Implemented as discrete cell-width levels **50% / 100% / 200% / 400%** with adaptive ruler numbering (every 10 → 5 → 2 → 1 as you zoom in). Zoom is VIEW state: playhead/cells/dots/handle/indicator all remap exactly; the playhead frame never changes; selection and keyframe-drag target frames correctly at every zoom. Step size **[OUR DESIGN DECISION]** (blueprint gives no step; geometric ×2 matches Adobe's discrete frame-size presets **[ADOBE REFERENCE]**).

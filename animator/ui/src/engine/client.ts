@@ -195,6 +195,26 @@ export function duplicateKeyframe(layer: number, from: number, to: number): bool
   return mod?.kineora_duplicate_keyframe(layer, from, to) ?? false
 }
 
+export function copyFrames(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_copy_frames(layer, start, end) ?? false
+}
+
+export function cutFrames(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_cut_frames(layer, start, end) ?? false
+}
+
+export function pasteFrames(layer: number, at: number): boolean {
+  return mod?.kineora_paste_frames(layer, at) ?? false
+}
+
+export function removeFrames(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_remove_frames(layer, start, end) ?? false
+}
+
+export function reverseFrames(layer: number, start: number, end: number): boolean {
+  return mod?.kineora_reverse_frames(layer, start, end) ?? false
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

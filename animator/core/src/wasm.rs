@@ -161,6 +161,8 @@ struct StatusOut {
     background: String,
     /// derived timeline duration (max keyframe frame, min 1) — Part 07 §7.0
     duration: u32,
+    /// number of records in the frame clipboard (session state, F-07-12)
+    clipboard_len: usize,
     event_log: Vec<String>,
 }
 
@@ -307,6 +309,37 @@ pub fn kineora_duplicate_keyframe(layer: u32, from: u32, to: u32) -> bool {
     with_session(|s| s.duplicate_keyframe(layer as usize, from, to)).unwrap_or(false)
 }
 
+/// COPY FRAMES — snapshot keyframes in [start,end] into the frame clipboard
+/// (session state, no command). Returns false when the range holds nothing.
+#[wasm_bindgen]
+pub fn kineora_copy_frames(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.copy_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// CUT FRAMES — copy + remove keyframes in [start,end] (one undoable command).
+#[wasm_bindgen]
+pub fn kineora_cut_frames(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.cut_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// PASTE FRAMES — insert clipboard records at `at` on `layer` (one command).
+#[wasm_bindgen]
+pub fn kineora_paste_frames(layer: u32, at: u32) -> bool {
+    with_session(|s| s.paste_frames(layer as usize, at)).unwrap_or(false)
+}
+
+/// REMOVE FRAMES — delete keyframes in [start,end] leaving a gap (one command).
+#[wasm_bindgen]
+pub fn kineora_remove_frames(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.remove_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// REVERSE FRAMES — reverse keyframe order in [start,end] (one command).
+#[wasm_bindgen]
+pub fn kineora_reverse_frames(layer: u32, start: u32, end: u32) -> bool {
+    with_session(|s| s.reverse_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
 #[wasm_bindgen]
 pub fn kineora_undo() -> bool {
     with_session(|s| s.undo()).unwrap_or(false)
@@ -376,6 +409,7 @@ pub fn kineora_load_json(json: String) -> bool {
                     active_scene: 0,
                     active_layer: 0,
                     event_log: vec!["session:loaded(json)".into()],
+                    frame_clipboard: Vec::new(),
                 })
             });
             true
@@ -607,6 +641,7 @@ pub fn kineora_status() -> String {
             doc_height: s.doc.settings.height,
             background: s.doc.settings.background.clone(),
             duration: s.timeline_duration(),
+            clipboard_len: s.frame_clipboard.len(),
             event_log: s.event_log.clone(),
         };
         serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())

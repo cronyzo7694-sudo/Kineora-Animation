@@ -72,6 +72,7 @@ export interface StatusJson {
   doc_height: number
   background: string
   duration: number
+  clipboard_len: number
   event_log: string[]
 }
 
@@ -123,6 +124,11 @@ export interface KineoraWasm {
   kineora_delete_frame(frame: number): boolean
   kineora_move_keyframe(layer: number, from: number, to: number): boolean
   kineora_duplicate_keyframe(layer: number, from: number, to: number): boolean
+  kineora_copy_frames(layer: number, start: number, end: number): boolean
+  kineora_cut_frames(layer: number, start: number, end: number): boolean
+  kineora_paste_frames(layer: number, at: number): boolean
+  kineora_remove_frames(layer: number, start: number, end: number): boolean
+  kineora_reverse_frames(layer: number, start: number, end: number): boolean
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

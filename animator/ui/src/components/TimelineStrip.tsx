@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { performAction, isLoopEnabled, setLoopEnabled } from '../engine/actions'
-import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
+import {
+  copyFrames,
+  cutFrames,
+  duplicateKeyframe,
+  moveKeyframe,
+  pasteFrames,
+  removeFrames,
+  reverseFrames,
+  setActiveLayer,
+  setPlayhead,
+} from '../engine/client'
 import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
 
 /** Base cell width in px at 1× timeline zoom (exported for tests). */
@@ -70,7 +80,11 @@ function rulerInterval(cellW: number): number {
 export function TimelineStrip({ status, notify }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const scrubRef = useRef(false)
-  const [selectedFrames, setSelectedFrames] = useState<Set<string>>(new Set())
+  // frame selection is single-layer (per row, like Animate's frame selection):
+  // selLayer = the layer the selection lives on; selFrames = the frames on it.
+  const [selLayer, setSelLayer] = useState<number | null>(null)
+  const [selFrames, setSelFrames] = useState<Set<number>>(new Set())
+  const rangeRef = useRef<{ layer: number; start: number; startX: number; moved: boolean } | null>(null)
   const [cells, setCells] = useState(MIN_CELLS)
   const cellsRef = useRef(cells)
   cellsRef.current = cells
@@ -143,26 +157,67 @@ export function TimelineStrip({ status, notify }: Props) {
     startScrub(e.clientX)
   }
 
+  // single-frame selection (plain click, or toggle on the same layer)
   const selectCell = (layerIdx: number, frame: number, toggle: boolean) => {
-    const key = `${layerIdx}:${frame}`
-    setSelectedFrames((prev) => {
+    setSelLayer(layerIdx)
+    setSelFrames((prev) => {
+      if (!toggle || prev.size === 0) return new Set([frame])
       const next = new Set(prev)
-      if (toggle) {
-        if (next.has(key)) next.delete(key)
-        else next.add(key)
-      } else {
-        next.clear()
-        next.add(key)
-      }
+      if (next.has(frame)) next.delete(frame)
+      else next.add(frame)
       return next
     })
   }
 
+  // contiguous range selection on a layer [a..b]
+  const selectRange = (layerIdx: number, a: number, b: number) => {
+    setSelLayer(layerIdx)
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    const next = new Set<number>()
+    for (let f = lo; f <= hi; f++) next.add(f)
+    setSelFrames(next)
+  }
+
+  // frame cell: plain mousedown arms a range drag; without movement (click) it
+  // selects a single frame; with movement it selects a contiguous range
+  // (engineering 07 "drag=range"). Shift/Ctrl/Cmd+click toggles immediately.
   const onCellDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    selectCell(layerIdx, frame, e.shiftKey || e.ctrlKey || e.metaKey)
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      selectCell(layerIdx, frame, true)
+      return
+    }
+    rangeRef.current = { layer: layerIdx, start: frame, startX: e.clientX, moved: false }
+    const move = (ev: MouseEvent) => {
+      const g = rangeRef.current
+      if (!g) return
+      if (!g.moved && Math.abs(ev.clientX - g.startX) < 3) return
+      g.moved = true
+      const f = frameFromClientX(ev.clientX)
+      selectRange(g.layer, g.start, f)
+    }
+    const up = () => {
+      const g = rangeRef.current
+      rangeRef.current = null
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('keydown', onKey)
+      if (g && !g.moved) selectCell(g.layer, g.start, false)
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        rangeRef.current = null
+        window.removeEventListener('mousemove', move)
+        window.removeEventListener('mouseup', up)
+        window.removeEventListener('keydown', onKey)
+      }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    window.addEventListener('keydown', onKey)
   }
 
   const onDotDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
@@ -300,10 +355,46 @@ export function TimelineStrip({ status, notify }: Props) {
     </button>
   )
 
+  // run a range op (copy/cut/reverse/remove) against the SELECTED layer+range
+  const doRange = (op: (layer: number, start: number, end: number) => boolean, verb: string) => {
+    if (!attached || selLayer === null || selFrames.size === 0) return
+    const locked = layers[selLayer]?.locked ?? false
+    if (locked) {
+      notify(`${verb}: locked layer — unlock to edit frames`)
+      return
+    }
+    const sorted = [...selFrames].sort((a, b) => a - b)
+    const ok = op(selLayer, sorted[0], sorted[sorted.length - 1])
+    notify(ok ? `${verb}: done` : `${verb}: nothing to do`)
+  }
+
+  const seqBtn = (id: string, label: string, title: string, onClick: () => void) => {
+    const hasSel = selLayer !== null && selFrames.size > 0
+    const selLocked = selLayer !== null && (layers[selLayer]?.locked ?? false)
+    const isPaste = id === 'timeline-paste'
+    const isCopy = id === 'timeline-copy'
+    const hasClip = (status?.clipboard_len ?? 0) > 0
+    // copy is read-only → allowed even on locked layers; mutating ops are gated
+    const disabled = !attached || (isPaste ? !hasClip || activeLayerLocked : isCopy ? !hasSel : !hasSel || selLocked)
+    return (
+      <button
+        data-testid={id}
+        data-disabled={disabled ? 'true' : 'false'}
+        aria-label={title}
+        title={title}
+        disabled={disabled}
+        onClick={onClick}
+        style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12, opacity: disabled ? 0.5 : 1 }}
+      >
+        {label}
+      </button>
+    )
+  }
+
   const interval = rulerInterval(cellW)
 
   return (
-    <div data-testid="timeline" style={{ height: 24 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+    <div data-testid="timeline" style={{ height: 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
         <span style={{ color: '#aaa', fontSize: 11, minWidth: 120 }}>
           frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(cells, playhead)}
@@ -333,6 +424,20 @@ export function TimelineStrip({ status, notify }: Props) {
         </button>
         {activeLayerLocked && <span data-testid="timeline-locked-hint" style={{ color: '#e66', fontSize: 11 }}>🔒 layer locked</span>}
         {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
+      </div>
+
+      <div data-testid="timeline-sequence-row" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
+        <span style={{ color: '#888', fontSize: 11, minWidth: 120 }}>
+          frames: {selLayer !== null ? selFrames.size : 0} selected{selLayer !== null ? ` (${layers[selLayer]?.name ?? 'layer'})` : ''}
+        </span>
+        {seqBtn('timeline-copy', 'Copy', 'Copy selected frames (to clipboard)', () => doRange(copyFrames, 'copy frames'))}
+        {seqBtn('timeline-cut', 'Cut', 'Cut selected frames', () => doRange(cutFrames, 'cut frames'))}
+        {seqBtn('timeline-paste', 'Paste', 'Paste frames at playhead', () => {
+          if (!attached) return
+          notify(pasteFrames(status?.active_layer ?? 0, status?.playhead ?? 1) ? 'frames pasted at playhead' : 'paste: clipboard empty or layer locked')
+        })}
+        {seqBtn('timeline-reverse', 'Reverse', 'Reverse selected keyframes', () => doRange(reverseFrames, 'reverse frames'))}
+        {seqBtn('timeline-remove', 'Remove', 'Remove selected frames (leave gap)', () => doRange(removeFrames, 'remove frames'))}
       </div>
 
       <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
@@ -365,7 +470,7 @@ export function TimelineStrip({ status, notify }: Props) {
                 <div style={{ position: 'absolute', left: NAME_W, top: 0, right: 0, bottom: 0 }}>
                   {kinds.map((kind, i) => {
                     const f = i + 1
-                    const selected = selectedFrames.has(`${engineIndex}:${f}`)
+                    const selected = selLayer === engineIndex && selFrames.has(f)
                     const bg = kind === 'held' ? '#333333' : 'transparent'
                     return (
                       <div

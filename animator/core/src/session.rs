@@ -2,9 +2,9 @@ use std::path::Path;
 
 use crate::command::{
     ClearKeyframe, CreateLayer, DeleteFrames, DeleteLayer, DrawRect, DuplicateKeyframe, History,
-    InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe, MoveSelection, RenameLayer,
-    ReorderLayer, SetDocumentSettings, SetLayerLocked, SetLayerVisible, SetNodeProps,
-    TransformSelection,
+    InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe, MoveSelection, PasteFrames,
+    RemoveFrames, RenameLayer, ReorderLayer, ReverseFrames, SetDocumentSettings, SetLayerLocked,
+    SetLayerVisible, SetNodeProps, TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
 use crate::export::{export_svg, export_svg_scaled};
@@ -55,6 +55,10 @@ pub struct Session {
     pub active_layer: usize,
     /// Dev-mode observability (Phase-4 manual-test requirement).
     pub event_log: Vec<String>,
+    /// Frame clipboard (F-07-12): session state only — NOT part of the
+    /// document, NOT persisted, NOT undoable (like the OS clipboard). Holds
+    /// (frame number, record) pairs captured by copy/cut.
+    pub frame_clipboard: Vec<(u32, Frame)>,
 }
 
 impl Session {
@@ -67,6 +71,7 @@ impl Session {
             active_scene: 0,
             active_layer: 0,
             event_log: vec!["session:new".into()],
+            frame_clipboard: Vec::new(),
         };
         s.log("document:created");
         s
@@ -388,6 +393,112 @@ impl Session {
         let cmd = DuplicateKeyframe::new(scene, layer, from, to);
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.log(&format!("duplicate-keyframe:{from}→{to}"));
+        true
+    }
+
+    // ——— Frame range selection + clipboard / sequence ops (Part 07 §7.4.6–10, F-07-12/13) ———
+
+    /// COPY FRAMES: snapshot the keyframes within [start,end] into the frame
+    /// clipboard (session state — no command, no document change). Read-only,
+    /// so it is allowed on locked layers.
+    pub fn copy_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let Some(l) = self.doc.layer(self.active_scene, layer) else {
+            return false;
+        };
+        let mut recs: Vec<(u32, Frame)> = l
+            .keyframes
+            .iter()
+            .filter(|(k, _)| **k >= start && **k <= end)
+            .map(|(k, f)| (*k, f.clone()))
+            .collect();
+        recs.sort_by_key(|(f, _)| *f);
+        if recs.is_empty() {
+            self.log("copy-frames:(none)");
+            return false;
+        }
+        self.frame_clipboard = recs;
+        self.log(&format!("copy-frames:{start}..{end}"));
+        true
+    }
+
+    /// CUT FRAMES: copy to the clipboard + REMOVE the keyframes in the range
+    /// (leaving a gap). One undoable command (the remove). Locked layer blocked.
+    pub fn cut_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        if !self.copy_frames(layer, start, end) {
+            return false;
+        }
+        if !self.remove_frames(layer, start, end) {
+            return false;
+        }
+        self.log(&format!("cut-frames:{start}..{end}"));
+        true
+    }
+
+    /// PASTE FRAMES: insert the clipboard records at `at` on `layer`,
+    /// preserving relative offsets; collisions OVERWRITE. One undoable command.
+    /// Locked layer blocked; empty clipboard = no-op.
+    pub fn paste_frames(&mut self, layer: usize, at: u32) -> bool {
+        let Some(l) = self.doc.layer(self.active_scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("paste-frames:blocked(locked)");
+            return false;
+        }
+        if self.frame_clipboard.is_empty() {
+            self.log("paste-frames:(empty clipboard)");
+            return false;
+        }
+        let cmd = PasteFrames::new(self.active_scene, layer, at, self.frame_clipboard.clone());
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("paste-frames@{at}"));
+        true
+    }
+
+    /// REMOVE FRAMES: delete the keyframes within [start,end] leaving a GAP
+    /// (later keyframes stay put). One undoable command. Locked layer blocked.
+    pub fn remove_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let Some(l) = self.doc.layer(self.active_scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("remove-frames:blocked(locked)");
+            return false;
+        }
+        let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
+        if !any {
+            self.log("remove-frames:(none)");
+            return false;
+        }
+        let cmd = RemoveFrames::new(self.active_scene, layer, start, end);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("remove-frames:{start}..{end}"));
+        true
+    }
+
+    /// REVERSE FRAMES: reverse the keyframe record order within [start,end]
+    /// (content plays backwards). One undoable command. Locked layer blocked;
+    /// <2 keyframes = no-op (F-07-13 M.1).
+    pub fn reverse_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        let Some(l) = self.doc.layer(self.active_scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("reverse-frames:blocked(locked)");
+            return false;
+        }
+        let count = l
+            .keyframes
+            .keys()
+            .filter(|k| **k >= start && **k <= end)
+            .count();
+        if count < 2 {
+            self.log("reverse-frames:(needs ≥2 keyframes)");
+            return false;
+        }
+        let cmd = ReverseFrames::new(self.active_scene, layer, start, end);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("reverse-frames:{start}..{end}"));
         true
     }
 
@@ -781,6 +892,7 @@ impl Session {
             active_scene: 0,
             active_layer: 0,
             event_log: vec!["session:loaded".into()],
+            frame_clipboard: Vec::new(),
         })
     }
 }

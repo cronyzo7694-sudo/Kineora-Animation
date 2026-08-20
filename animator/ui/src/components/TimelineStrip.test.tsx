@@ -6,6 +6,11 @@ vi.mock('../engine/client', () => ({
   setActiveLayer: vi.fn(() => true),
   moveKeyframe: vi.fn(() => true),
   duplicateKeyframe: vi.fn(() => true),
+  copyFrames: vi.fn(() => true),
+  cutFrames: vi.fn(() => true),
+  pasteFrames: vi.fn(() => true),
+  removeFrames: vi.fn(() => true),
+  reverseFrames: vi.fn(() => true),
 }))
 
 vi.mock('../engine/actions', () => ({
@@ -14,7 +19,17 @@ vi.mock('../engine/actions', () => ({
   setLoopEnabled: vi.fn(),
 }))
 
-import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
+import {
+  copyFrames,
+  cutFrames,
+  duplicateKeyframe,
+  moveKeyframe,
+  pasteFrames,
+  removeFrames,
+  reverseFrames,
+  setActiveLayer,
+  setPlayhead,
+} from '../engine/client'
 import { performAction, setLoopEnabled } from '../engine/actions'
 import { TimelineStrip, CELL_W, NAME_W } from './TimelineStrip'
 import type { StatusJson } from '../engine/wasmTypes'
@@ -23,6 +38,11 @@ const setPlayheadMock = vi.mocked(setPlayhead)
 const setActiveLayerMock = vi.mocked(setActiveLayer)
 const moveKeyframeMock = vi.mocked(moveKeyframe)
 const duplicateKeyframeMock = vi.mocked(duplicateKeyframe)
+const copyFramesMock = vi.mocked(copyFrames)
+const cutFramesMock = vi.mocked(cutFrames)
+const pasteFramesMock = vi.mocked(pasteFrames)
+const removeFramesMock = vi.mocked(removeFrames)
+const reverseFramesMock = vi.mocked(reverseFrames)
 const performActionMock = vi.mocked(performAction)
 const setLoopEnabledMock = vi.mocked(setLoopEnabled)
 const notify = vi.fn()
@@ -63,6 +83,7 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
     doc_height: 1080,
     background: '#ffffff',
     duration: 20,
+    clipboard_len: 0,
     event_log: [],
     ...overrides,
   }
@@ -148,7 +169,9 @@ describe('TimelineStrip — interaction: ruler/handle navigate, cells select (no
   it('clicking another cell moves the selection (single selection)', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
     fireEvent.mouseDown(screen.getByTestId('cell-0-7'), { button: 0 })
+    fireEvent.mouseUp(window)
     fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0 })
+    fireEvent.mouseUp(window)
     expect(screen.getByTestId('cell-0-7')).toHaveAttribute('data-selected', 'false')
     expect(screen.getByTestId('cell-0-3')).toHaveAttribute('data-selected', 'true')
   })
@@ -156,17 +179,21 @@ describe('TimelineStrip — interaction: ruler/handle navigate, cells select (no
   it('shift+click toggles a cell in/out of the selection', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
     fireEvent.mouseDown(screen.getByTestId('cell-0-5'), { button: 0 })
+    fireEvent.mouseUp(window)
     fireEvent.mouseDown(screen.getByTestId('cell-0-8'), { button: 0, shiftKey: true })
+    fireEvent.mouseUp(window)
     expect(screen.getByTestId('cell-0-5')).toHaveAttribute('data-selected', 'true')
     expect(screen.getByTestId('cell-0-8')).toHaveAttribute('data-selected', 'true')
     // toggle off
     fireEvent.mouseDown(screen.getByTestId('cell-0-8'), { button: 0, shiftKey: true })
+    fireEvent.mouseUp(window)
     expect(screen.getByTestId('cell-0-8')).toHaveAttribute('data-selected', 'false')
   })
 
   it('keyframe cells are selectable like any cell', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
     fireEvent.mouseDown(screen.getByTestId('cell-0-10'), { button: 0 }) // keyframe @10
+    fireEvent.mouseUp(window)
     expect(screen.getByTestId('cell-0-10')).toHaveAttribute('data-selected', 'true')
     expect(setPlayheadMock).not.toHaveBeenCalled()
   })
@@ -464,5 +491,81 @@ describe('TimelineStrip — transport + loop (Part 07 §7.1.5, F-07-04)', () => 
     expect(loop).toHaveAttribute('data-on', 'false')
     expect(setLoopEnabledMock).toHaveBeenCalledWith(false)
     expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('TimelineStrip — frame range selection + clipboard/sequence ops (UNIT E)', () => {
+  it('dragging across cells selects a contiguous range (engineering 07 drag=range)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const startX = NAME_W + (3 - 1) * CELL_W
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0, clientX: startX })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (6 - 1) * CELL_W })
+    fireEvent.mouseUp(window)
+    for (const f of [3, 4, 5, 6]) {
+      expect(screen.getByTestId(`cell-0-${f}`)).toHaveAttribute('data-selected', 'true')
+    }
+    expect(screen.getByTestId('cell-0-2')).toHaveAttribute('data-selected', 'false')
+    expect(screen.getByTestId('cell-0-7')).toHaveAttribute('data-selected', 'false')
+    // selection does NOT move the playhead
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('copy button dispatches copyFrames(layer, min, max) for the selected range', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // select range 3..6 on layer 0
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0, clientX: NAME_W + (3 - 1) * CELL_W })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (6 - 1) * CELL_W })
+    fireEvent.mouseUp(window)
+    fireEvent.click(screen.getByTestId('timeline-copy'))
+    expect(copyFramesMock).toHaveBeenCalledWith(0, 3, 6)
+  })
+
+  it('cut/reverse/remove dispatch their engine ops with the selected range', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-4'), { button: 0, clientX: NAME_W + (4 - 1) * CELL_W })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (8 - 1) * CELL_W })
+    fireEvent.mouseUp(window)
+
+    fireEvent.click(screen.getByTestId('timeline-cut'))
+    expect(cutFramesMock).toHaveBeenCalledWith(0, 4, 8)
+    fireEvent.click(screen.getByTestId('timeline-reverse'))
+    expect(reverseFramesMock).toHaveBeenCalledWith(0, 4, 8)
+    fireEvent.click(screen.getByTestId('timeline-remove'))
+    expect(removeFramesMock).toHaveBeenCalledWith(0, 4, 8)
+  })
+
+  it('paste button dispatches pasteFrames(activeLayer, playhead)', () => {
+    render(<TimelineStrip status={makeStatus({ clipboard_len: 2, playhead: 7 })} notify={notify} />)
+    expect(screen.getByTestId('timeline-paste')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('timeline-paste'))
+    expect(pasteFramesMock).toHaveBeenCalledWith(0, 7)
+  })
+
+  it('sequence-op buttons are disabled without a selection', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-copy')).toBeDisabled()
+    expect(screen.getByTestId('timeline-cut')).toBeDisabled()
+    expect(screen.getByTestId('timeline-reverse')).toBeDisabled()
+    expect(screen.getByTestId('timeline-remove')).toBeDisabled()
+  })
+
+  it('paste button is disabled with an empty clipboard', () => {
+    render(<TimelineStrip status={makeStatus({ clipboard_len: 0 })} notify={notify} />)
+    expect(screen.getByTestId('timeline-paste')).toBeDisabled()
+  })
+
+  it('mutating sequence-ops are disabled on locked layers; copy stays enabled (read-only)', () => {
+    const locked = makeStatus({
+      layers: [
+        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }] },
+      ],
+    })
+    render(<TimelineStrip status={locked} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('timeline-copy')).toBeEnabled()
+    expect(screen.getByTestId('timeline-cut')).toBeDisabled()
+    expect(screen.getByTestId('timeline-reverse')).toBeDisabled()
+    expect(screen.getByTestId('timeline-remove')).toBeDisabled()
   })
 })

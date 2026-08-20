@@ -219,5 +219,7 @@ Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` matrix A–Q 
 3. `cd ui && npm run wasm && npm ci && npm run dev` → Dev Panel shows `engine: attached`; toolbar Undo/Redo/Save/Export/Keyframe bound to real engine calls.
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
+- **Panel/layout system** (C-06/C-08/C-09): one reusable splitter (horizontal + vertical, 6px, live drag, Esc/pointercancel/blur cancel, min/max clamp) drives the whole workspace — Layers width (140–480), Properties width (240–520, min-height 320), Timeline height (96px..60% viewport, layers scroll when short), Library/Debug heights. Sizes persist to app prefs (never the document) and **⟲ Reset Workspace** restores defaults. Resizing is pure view state — it never touches the engine, undo, frame zoom, or export.
+
 ## Status
-See `STATUS.md`. Current unit: **Symbols + Library foundation** (this commit).
+See `STATUS.md`. Current unit: **Reusable panel/splitter system + vertical resize** (this commit).

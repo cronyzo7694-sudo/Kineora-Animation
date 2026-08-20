@@ -24,7 +24,8 @@
 | **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (e23c23f) | drag-range selection, copy/cut/paste/reverse/remove frames |
 | **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | ACCEPTED (cd6fc44) | explicit tween spans, hold-by-default, ease slider, span visuals |
 | **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (d0c055b) | sequence move, span-edge resize, duplicate, convert, labels, end-of-span marker |
-| **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **COMPLETE (this commit, UNIT H) — pending manual acceptance** | symbol model + convert (F8) + new (Ctrl+F8) + place/rename/delete/swap + nested evaluation + recursive hit-test + Library panel, symbols.rs (29 tests) |
+| **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **COMPLETE (566f0a3) — pending manual acceptance (held behind panel unit)** | symbol model + convert/new/place/nested evaluation + Library panel |
+| **Reusable panel/splitter system + vertical resize** | MOD-WORKSPACE/MOD-PANEL | **COMPLETE (this commit, PANEL UNIT) — pending manual acceptance** | one splitter (H+V), panel-spec table, timeline/library/debug vertical resize, workspace persistence + Reset Workspace, Properties min 240 |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -38,6 +39,38 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — PANEL UNIT: reusable splitter + vertical panel resize (C-06/C-08/C-09, engineering 11)
+- **One reusable splitter** (`ResizeHandle`): `orientation` horizontal/vertical, 6px hit area, live drag, min/max clamp by the caller, **Esc / pointercancel / lostpointercapture / blur** all cancel back to the drag origin (C-34), `preventDefault`+`stopPropagation` (no Stage/panel bleed). Every panel now shares it — no one-off resize code.
+- **One panel-spec table** (`panelLayout.ts`) driving the whole workspace layout:
+  - Layers width **140–480** [BLUEPRINT REQUIRED]
+  - Properties width **240–520** [BLUEPRINT REQUIRED — C-09 "min 240×320"] + min-height **320** (the Properties panel flexes above it)
+  - Timeline height **96px .. 60% viewport** [BLUEPRINT REQUIRED — C-08 §A]
+  - Library height **96–480** · Debug height **120–480** [OUR DESIGN DECISION — blueprint gives no exact number; C-36 "never zero" floor]
+- **Vertical splitters**: above the Timeline (drag up/down to grow/shrink, clamped to [96, 60% vh]); between Properties ⇄ Library and Library ⇄ Debug in the right column.
+- **Timeline**: accepts a `height` prop; layer rows now scroll vertically (`overflowY: auto`) when the panel is shorter than the layer stack — **no invisible clipping**. Frame zoom (`cellW × ZOOM_LEVELS`), playhead/cell mapping, and document state are untouched by resizing (view-only).
+- **Workspace persistence**: sizes persist to `localStorage` (`kineora.workspace.panelLayout`, app prefs — never the document); restored on remount; **Reset Workspace** (⟲ button in the header) restores blueprint defaults (C-06 §D).
+- **Properties min-width fix**: 180 → **240** (C-09).
+- **Deferred (classified)**: docking / floating / tabs / ghost preview, collapse chevrons (header-only), layer-name/frame divider + per-layer row height, mobile breakpoint system + C-36 suite, command palette.
+
+### Manual acceptance matrix — PANEL UNIT (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | drag the timeline's top edge UP / DOWN | timeline grows / shrinks |
+| 2 | drag it far down | stops at 96px (never 0) |
+| 3 | drag it far up | stops at ~60% of the window height |
+| 4 | many layers + short timeline | layer rows scroll vertically (none hidden) |
+| 5 | resize timeline, then scrub + zoom (50–400%) | frame mapping still exact; zoom readout unchanged |
+| 6 | resize timeline then press F6/F7/Shift+F6, drag keyframes | all timeline ops unaffected |
+| 7 | drag the Properties ⇄ Library splitter | Library height changes, never 0 |
+| 8 | drag the Library ⇄ Debug splitter | Debug height changes |
+| 9 | try to make Properties narrower than 240px | clamps at 240 |
+| 10 | Esc mid-drag on any splitter | returns to the pre-drag size |
+| 11 | resize never moves/selects stage objects | no accidental Stage interaction |
+| 12 | resize, then Ctrl+Z | no undo entries created (view state) |
+| 13 | resize, Save/Export | document + export unchanged by panel sizes |
+| 14 | reload the app | panel sizes restored |
+| 15 | click ⟲ Reset Workspace | all sizes return to defaults |
 
 ## This commit — UNIT H: Symbols + Library foundation (Part 11/12, engineering P4)
 - **Data model**: `SymbolId` newtype; `Symbol { id, name, symbol_type: graphic|movieClip|button, registration, timeline: Vec<Layer> }`; `Document.library` (`#[serde(default)]` backward-compat); `Node::SymbolInstance { symbol_id, transform, loop_mode, first_frame }`. Node accessors handle both variants.

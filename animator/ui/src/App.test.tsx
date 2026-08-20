@@ -63,7 +63,7 @@ describe('app shell', () => {
 describe('workspace panel resizing (C-06 pnl.resize)', () => {
   beforeEach(() => {
     try {
-      localStorage.removeItem('kineora.workspace.panelWidths')
+      localStorage.removeItem('kineora.workspace.panelLayout')
     } catch {
       /* ignore */
     }
@@ -78,18 +78,27 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
     expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 230px')
   })
 
-  it('dragging the Properties resize handle left widens it; right narrows it', () => {
+  it('dragging the Properties resize handle left widens it; right narrows it (default 240)', () => {
     render(<App />)
     const handle = screen.getByTestId('resize-props')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
-    fireEvent.mouseMove(window, { clientX: 470 }) // -30 → properties +30
+    fireEvent.mouseMove(window, { clientX: 400 }) // -100 → properties +100
     fireEvent.mouseUp(window)
-    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 250px')
+    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 340px')
 
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 560 }) // +60 → properties -60
     fireEvent.mouseUp(window)
-    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 190px')
+    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 280px')
+  })
+
+  it('Properties width is min-clamped to the blueprint 240px (C-09)', () => {
+    render(<App />)
+    const handle = screen.getByTestId('resize-props')
+    fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
+    fireEvent.mouseMove(window, { clientX: 5000 }) // +4500 → properties -4500
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 240px') // PROPS_W min
   })
 
   it('resize is min-clamped (never zero — C-06)', () => {

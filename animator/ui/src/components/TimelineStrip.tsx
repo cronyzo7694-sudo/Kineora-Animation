@@ -40,6 +40,9 @@ const ZOOM_LEVELS = [0.5, 1, 2, 4]
 interface Props {
   status: StatusJson | null
   notify: (msg: string) => void
+  /** Fixed panel height (px) from the workspace layout (C-08 §tl.resize). When
+   *  omitted, the timeline auto-sizes to fit its layers (backward compat). */
+  height?: number
 }
 
 type CellKind = 'key' | 'blank' | 'held' | 'empty'
@@ -84,7 +87,7 @@ function rulerInterval(cellW: number): number {
  * `.`/`,` step; Alt+`,`/Alt+`.` keyframe-hop; Home/End; first/last/center
  * buttons. Frame ops (F5/F6/F7/Shift+F5/F6) are undoable engine commands.
  */
-export function TimelineStrip({ status, notify }: Props) {
+export function TimelineStrip({ status, notify, height }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const scrubRef = useRef(false)
   // frame selection is single-layer (per row, like Animate's frame selection):
@@ -512,7 +515,7 @@ export function TimelineStrip({ status, notify }: Props) {
   const interval = rulerInterval(cellW)
 
   return (
-    <div data-testid="timeline" style={{ height: 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+    <div data-testid="timeline" style={{ height: height ?? 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
         <span style={{ color: '#aaa', fontSize: 11, minWidth: 120 }}>
           frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(cells, playhead)}
@@ -630,7 +633,7 @@ export function TimelineStrip({ status, notify }: Props) {
         )}
       </div>
 
-      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
+      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
         <div style={{ width: totalWidth, position: 'relative', minHeight: '100%' }}>
           <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a', cursor: 'pointer' }}>
             {Array.from({ length: Math.ceil(cells / interval) }, (_, i) => (i === 0 ? 1 : i * interval)).map((f) => (

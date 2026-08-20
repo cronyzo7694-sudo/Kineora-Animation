@@ -2,6 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
 import { getEngineStatus, loadEngine, statusJson } from './engine/client'
 import { performAction, stopPlayback } from './engine/actions'
+import {
+  DEBUG_H,
+  LIBRARY_H,
+  LAYERS_W,
+  PROPS_W,
+  PROPS_H_MIN,
+  TIMELINE_H_MIN,
+  clamp,
+  loadLayout,
+  resetLayout,
+  saveLayout,
+  timelineMaxH,
+  type PanelLayout,
+} from './panelLayout'
 import { Toolbar } from './components/Toolbar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -15,40 +29,6 @@ import { LibraryPanel } from './components/LibraryPanel'
 import { SymbolDialog, type SymbolDialogMode } from './components/SymbolDialog'
 import type { ColorPreview } from './render/canvasRenderer'
 
-/** Workspace panel widths (C-06 resize, Part 01 §1.1.2 app prefs). */
-interface PanelWidths {
-  layers: number
-  properties: number
-}
-const DEFAULT_WIDTHS: PanelWidths = { layers: 200, properties: 220 }
-const LAYERS_MIN = 140
-const LAYERS_MAX = 480
-const PROPS_MIN = 180
-const PROPS_MAX = 520
-const PANEL_PREFS_KEY = 'kineora.workspace.panelWidths'
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v))
-}
-
-function loadPanelWidths(): PanelWidths {
-  try {
-    const raw = localStorage.getItem(PANEL_PREFS_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<PanelWidths>
-      if (typeof p.layers === 'number' && typeof p.properties === 'number') {
-        return {
-          layers: clamp(p.layers, LAYERS_MIN, LAYERS_MAX),
-          properties: clamp(p.properties, PROPS_MIN, PROPS_MAX),
-        }
-      }
-    }
-  } catch {
-    /* corrupt prefs → defaults */
-  }
-  return DEFAULT_WIDTHS
-}
-
 export default function App() {
   const [tool, setTool] = useState('select')
   const [toast, setToast] = useState('')
@@ -56,26 +36,22 @@ export default function App() {
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
   const [tick, setTick] = useState(0)
   const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true, library: true })
-  const [panelW, setPanelW] = useState<PanelWidths>(loadPanelWidths)
+  const [layout, setLayout] = useState<PanelLayout>(loadLayout)
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
-  const panelWRef = useRef(panelW)
-  const originRef = useRef<PanelWidths>(panelW)
+  const layoutRef = useRef(layout)
+  const originRef = useRef<PanelLayout>(layout)
 
   useEffect(() => {
-    panelWRef.current = panelW
-  }, [panelW])
+    layoutRef.current = layout
+  }, [layout])
 
-  // persist workspace panel widths to app prefs (Part 01 §1.1.2; engineering 13)
+  // persist workspace layout to app prefs (Part 01 §1.1.2; engineering 13)
   useEffect(() => {
-    try {
-      localStorage.setItem(PANEL_PREFS_KEY, JSON.stringify(panelW))
-    } catch {
-      /* storage unavailable → session-only */
-    }
-  }, [panelW])
+    saveLayout(layout)
+  }, [layout])
 
   // attach the WASM core once
   useEffect(() => {
@@ -147,24 +123,33 @@ export default function App() {
   const status = statusJson()
 
   const beginResize = () => {
-    originRef.current = panelWRef.current
+    originRef.current = layoutRef.current
+  }
+
+  const resetWorkspace = () => {
+    const d = resetLayout()
+    setLayout(d)
+    notify('workspace reset to defaults')
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ padding: '6px 12px', background: '#101010', color: '#8ef', fontSize: 14, fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #2a2a2a' }}>
-        KINEORA ANIMATION <span style={{ color: '#666', fontWeight: 400, fontSize: 11 }}>— v0.1 (vertical slice)</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#101010', color: '#8ef', fontSize: 14, fontWeight: 700, letterSpacing: 0.5, borderBottom: '1px solid #2a2a2a' }}>
+        <span>KINEORA ANIMATION <span style={{ color: '#666', fontWeight: 400, fontSize: 11 }}>— v0.1 (vertical slice)</span></span>
+        <button data-testid="reset-workspace" aria-label="Reset workspace layout" title="Reset workspace layout to defaults" onClick={resetWorkspace} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}>
+          ⟲ Reset Workspace
+        </button>
       </div>
       <Toolbar controls={controls.filter((c) => c.visibility !== 'HIDDEN-WHEN-UNAVAILABLE')} ctx={ctx} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        {panels.layers && <LayersPanel width={panelW.layers} status={status} notify={notify} />}
+        {panels.layers && <LayersPanel width={layout.layersW} status={status} notify={notify} />}
         {panels.layers && (
           <ResizeHandle
             testId="resize-layers"
             direction={1}
             onBegin={beginResize}
-            onDelta={(dx) => setPanelW((p) => ({ ...p, layers: clamp(p.layers + dx, LAYERS_MIN, LAYERS_MAX) }))}
-            onCancel={() => setPanelW((p) => ({ ...p, layers: originRef.current.layers }))}
+            onDelta={(dx) => setLayout((p) => ({ ...p, layersW: clamp(p.layersW + dx, LAYERS_W[0], LAYERS_W[1]) }))}
+            onCancel={() => setLayout((p) => ({ ...p, layersW: originRef.current.layersW }))}
           />
         )}
         <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} />
@@ -173,17 +158,57 @@ export default function App() {
             testId="resize-props"
             direction={-1}
             onBegin={beginResize}
-            onDelta={(dx) => setPanelW((p) => ({ ...p, properties: clamp(p.properties + dx, PROPS_MIN, PROPS_MAX) }))}
-            onCancel={() => setPanelW((p) => ({ ...p, properties: originRef.current.properties }))}
+            onDelta={(dx) => setLayout((p) => ({ ...p, propsW: clamp(p.propsW + dx, PROPS_W[0], PROPS_W[1]) }))}
+            onCancel={() => setLayout((p) => ({ ...p, propsW: originRef.current.propsW }))}
           />
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties || panels.library ? panelW.properties : 300, flexShrink: 0 }}>
-          {panels.properties && <PropertiesPanel width={panelW.properties} status={status} notify={notify} onPreview={setColorPreview} />}
-          {panels.library && <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />}
-          <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: panels.properties || panels.library ? layout.propsW : 300, flexShrink: 0 }}>
+          {panels.properties && (
+            <PropertiesPanel
+              width={layout.propsW}
+              status={status}
+              notify={notify}
+              onPreview={setColorPreview}
+              minHeight={PROPS_H_MIN}
+            />
+          )}
+          {panels.properties && panels.library && (
+            <ResizeHandle
+              testId="resize-library"
+              orientation="vertical"
+              direction={1}
+              onBegin={beginResize}
+              onDelta={(dy) => setLayout((p) => ({ ...p, libraryH: clamp(p.libraryH + dy, LIBRARY_H[0], LIBRARY_H[1]) }))}
+              onCancel={() => setLayout((p) => ({ ...p, libraryH: originRef.current.libraryH }))}
+            />
+          )}
+          {panels.library && (
+            <div data-testid="library-wrap" style={{ height: layout.libraryH, flexShrink: 0, minHeight: 0, display: 'flex' }}>
+              <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />
+            </div>
+          )}
+          <ResizeHandle
+            testId="resize-debug"
+            orientation="vertical"
+            direction={-1}
+            onBegin={beginResize}
+            onDelta={(dy) => setLayout((p) => ({ ...p, debugH: clamp(p.debugH + dy, DEBUG_H[0], DEBUG_H[1]) }))}
+            onCancel={() => setLayout((p) => ({ ...p, debugH: originRef.current.debugH }))}
+          />
+          <div data-testid="debug-wrap" style={{ height: layout.debugH, flexShrink: 0, minHeight: 0, display: 'flex' }}>
+            <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+          </div>
         </div>
       </div>
-      <TimelineStrip status={status} notify={notify} />
+      <ResizeHandle
+        testId="resize-timeline"
+        orientation="vertical"
+        direction={-1}
+        onBegin={beginResize}
+        onDelta={(dy) => setLayout((p) => ({ ...p, timelineH: clamp(p.timelineH + dy, TIMELINE_H_MIN, timelineMaxH()) }))}
+        onCancel={() => setLayout((p) => ({ ...p, timelineH: originRef.current.timelineH }))}
+      />
+      <TimelineStrip status={status} notify={notify} height={layout.timelineH} />
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
       <SymbolDialog open={symbolDialog.open} mode={symbolDialog.mode} onClose={() => setSymbolDialog((s) => ({ ...s, open: false }))} notify={notify} />

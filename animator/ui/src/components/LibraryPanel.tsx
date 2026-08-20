@@ -43,7 +43,7 @@ export function LibraryPanel({ notify, onNewSymbol }: Props) {
   }
 
   return (
-    <aside data-testid="library-panel" aria-label="Library" style={{ width: '100%', boxSizing: 'border-box', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0, maxHeight: '40%' }}>
+    <aside data-testid="library-panel" aria-label="Library" style={{ width: '100%', boxSizing: 'border-box', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Library</span>
         <button data-testid="library-create" aria-label="New symbol" title="New symbol (Ctrl+F8)" onClick={onNewSymbol} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer', fontSize: 12 }}>

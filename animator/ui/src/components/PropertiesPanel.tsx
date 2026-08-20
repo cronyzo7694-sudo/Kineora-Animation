@@ -8,6 +8,8 @@ interface Props {
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize); the panel fills the dock column. */
   width?: number
+  /** Minimum height (C-09 "min 240×320") — the panel flexes above this. */
+  minHeight?: number
   /**
    * Live preview channel (Part 26.12 "color controls live" + C-09 "live
    * preview; commit on release"): called during field editing so the Stage
@@ -27,7 +29,7 @@ interface Props {
  * release (blur / picker-close / Enter); Esc cancels. Numeric fields commit on
  * Enter/blur with validation (Part 26.12).
  */
-export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
+export function PropertiesPanel({ status, notify, width, minHeight, onPreview }: Props) {
   const attached = status !== null
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
@@ -101,7 +103,7 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
   const contextChip = !attached ? '—' : details.length === 0 ? 'Document' : multi ? `Objects (${details.length})` : 'Object'
 
   return (
-    <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, flex: 1, minHeight: minHeight ?? 0, background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Properties</span>
         <span data-testid="props-context" style={{ color: '#8ef', fontSize: 11, background: '#2a2a2a', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>

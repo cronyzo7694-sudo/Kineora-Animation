@@ -8,6 +8,8 @@ interface Props {
   mode: SymbolDialogMode
   onClose: () => void
   notify: (msg: string) => void
+  /** Called with the new symbol id after a successful New Symbol (Ctrl+F8). */
+  onCreated?: (id: number) => void
 }
 
 const GRID: Array<[string, number]> = [
@@ -23,7 +25,7 @@ const GRID: Array<[string, number]> = [
  * registration grid (convert only). Submits to the engine; one undoable
  * command. Engine-not-attached = honest disabled state.
  */
-export function SymbolDialog({ open, mode, onClose, notify }: Props) {
+export function SymbolDialog({ open, mode, onClose, notify, onCreated }: Props) {
   const [name, setName] = useState('')
   const [type, setType] = useState('graphic')
   const [grid, setGrid] = useState(4) // center
@@ -42,8 +44,11 @@ export function SymbolDialog({ open, mode, onClose, notify }: Props) {
       else notify(`converted to symbol "${n}"`)
     } else {
       const id = newSymbol(n, type)
-      if (id === 0) notify('new symbol: failed')
-      else notify(`new symbol "${n}" created (drag it onto the stage to place)`)
+      if (id === 0) notify('new symbol: failed (engine unavailable)')
+      else {
+        notify(`symbol "${n}" created in Library — drag it onto the stage to place`)
+        onCreated?.(id)
+      }
     }
     setName('')
     onClose()

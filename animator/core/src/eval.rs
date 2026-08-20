@@ -424,13 +424,11 @@ pub fn hits_in_rect(
                     let Some(sym) = doc.symbol(*symbol_id) else {
                         continue;
                     };
-                    let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
-                    let mut items = Vec::new();
-                    collect_items(doc, &sym.timeline, child, 1, Some(&t), true, &mut items);
-                    if items
-                        .iter()
-                        .any(|it| aabb_overlaps(it, left, right, top, bottom))
-                    {
+                    // content overlap OR the empty-instance marker (so an empty
+                    // symbol can still be marquee-selected).
+                    let (minx, miny, maxx, maxy) =
+                        instance_select_bounds(doc, sym, *loop_mode, *first_frame, frame, &t);
+                    if minx <= right && maxx >= left && miny <= bottom && maxy >= top {
                         out.push(id);
                     }
                 }
@@ -502,6 +500,13 @@ fn hit_layers(
                     if hit_layers(doc, &sym.timeline, child, lx, ly, depth + 1).is_some() {
                         return Some(id);
                     }
+                    // EMPTY symbol: no content to hit — fall back to the
+                    // deterministic marker so the instance stays selectable.
+                    let (minx, miny, maxx, maxy) =
+                        instance_select_bounds(doc, sym, *loop_mode, *first_frame, frame, &t);
+                    if x >= minx && x <= maxx && y >= miny && y <= maxy {
+                        return Some(id);
+                    }
                 }
                 None => {}
             }
@@ -519,7 +524,9 @@ pub fn hit_test(doc: &Document, scene: usize, frame: u32, x: f64, y: f64) -> Opt
 
 /// Axis-aligned bounds of a node's rendered appearance at `frame` (scene-wide).
 /// Used to compute the selection bounds for Convert-to-Symbol's registration
-/// grid. Recurses into symbol instances (depth-capped).
+/// grid. Recurses into symbol instances (depth-capped). Empty symbol instances
+/// report a deterministic minimal marker so they remain selectable (honest
+/// placeholder — NOT rendered artwork; it never enters evaluate/export).
 pub(crate) fn node_bounds(
     doc: &Document,
     scene: usize,
@@ -543,27 +550,73 @@ pub(crate) fn node_bounds(
             ..
         } => {
             let sym = doc.symbol(*symbol_id)?;
-            let child = instance_child_frame(sym, *loop_mode, *first_frame, frame);
-            let mut items = Vec::new();
-            collect_items(doc, &sym.timeline, child, 1, Some(&t), true, &mut items);
-            let mut minx = f64::INFINITY;
-            let mut miny = f64::INFINITY;
-            let mut maxx = f64::NEG_INFINITY;
-            let mut maxy = f64::NEG_INFINITY;
-            for it in items {
-                let (aw, ah) = rotated_aabb(it.rotation, it.w, it.h);
-                let cx = it.x + it.w / 2.0;
-                let cy = it.y + it.h / 2.0;
-                minx = minx.min(cx - aw / 2.0);
-                miny = miny.min(cy - ah / 2.0);
-                maxx = maxx.max(cx + aw / 2.0);
-                maxy = maxy.max(cy + ah / 2.0);
-            }
-            if minx.is_finite() {
-                Some((minx, miny, maxx, maxy))
-            } else {
-                None
-            }
+            Some(instance_select_bounds(
+                doc,
+                sym,
+                *loop_mode,
+                *first_frame,
+                frame,
+                &t,
+            ))
+        }
+    }
+}
+
+/// Deterministic selectable size (doc units) for an EMPTY symbol instance.
+/// [OUR DESIGN DECISION] — the blueprint gives no marker size; 24px is a small,
+/// clearly-clickable placeholder that never leaks into render/export.
+pub const EMPTY_INSTANCE_MARKER: f64 = 24.0;
+
+/// Flattened render bounds of a symbol instance at `frame` (doc space), or
+/// `None` when the symbol has no drawable content at that frame.
+fn instance_content_bounds(
+    doc: &Document,
+    sym: &Symbol,
+    loop_mode: LoopMode,
+    first_frame: u32,
+    frame: u32,
+    t: &Transform,
+) -> Option<(f64, f64, f64, f64)> {
+    let child = instance_child_frame(sym, loop_mode, first_frame, frame);
+    let mut items = Vec::new();
+    collect_items(doc, &sym.timeline, child, 1, Some(t), true, &mut items);
+    let mut minx = f64::INFINITY;
+    let mut miny = f64::INFINITY;
+    let mut maxx = f64::NEG_INFINITY;
+    let mut maxy = f64::NEG_INFINITY;
+    for it in items {
+        let (aw, ah) = rotated_aabb(it.rotation, it.w, it.h);
+        let cx = it.x + it.w / 2.0;
+        let cy = it.y + it.h / 2.0;
+        minx = minx.min(cx - aw / 2.0);
+        miny = miny.min(cy - ah / 2.0);
+        maxx = maxx.max(cx + aw / 2.0);
+        maxy = maxy.max(cy + ah / 2.0);
+    }
+    if minx.is_finite() {
+        Some((minx, miny, maxx, maxy))
+    } else {
+        None
+    }
+}
+
+/// Selection bounds for a symbol instance: real content bounds when present,
+/// otherwise a deterministic minimal marker around the instance origin so empty
+/// symbols stay selectable (Part 11 §11.0 — an instance is a placed reference;
+/// it must be selectable even before it has art).
+fn instance_select_bounds(
+    doc: &Document,
+    sym: &Symbol,
+    loop_mode: LoopMode,
+    first_frame: u32,
+    frame: u32,
+    t: &Transform,
+) -> (f64, f64, f64, f64) {
+    match instance_content_bounds(doc, sym, loop_mode, first_frame, frame, t) {
+        Some(b) => b,
+        None => {
+            let m = EMPTY_INSTANCE_MARKER / 2.0;
+            (t.x - m, t.y - m, t.x + m, t.y + m)
         }
     }
 }

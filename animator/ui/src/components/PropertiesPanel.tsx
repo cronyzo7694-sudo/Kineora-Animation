@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { patchTransforms, setDocumentSettings, setNodeProps } from '../engine/client'
+import { library, patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 
@@ -140,9 +140,57 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
             )}
 
             {single && single.kind === 'instance' && (
-              <div data-testid="prop-symbol" style={{ marginTop: 6, padding: '4px 6px', background: '#232f3d', borderRadius: 4, color: '#8ec8ff', fontSize: 11 }}>
-                Symbol: <strong>{single.symbol_name ?? '(unknown)'}</strong>
-                <span style={{ color: '#666', marginLeft: 6 }}>{single.symbol_type}</span>
+              <div style={{ marginTop: 6 }}>
+                <div data-testid="prop-symbol" style={{ padding: '4px 6px', background: '#232f3d', borderRadius: 4, color: '#8ec8ff', fontSize: 11 }}>
+                  Symbol: <strong>{single.symbol_name ?? '(unknown)'}</strong>
+                  <span style={{ color: '#666', marginLeft: 6 }}>{single.symbol_type}</span>
+                  {single.empty && <span data-testid="prop-symbol-empty" style={{ color: '#eeb', marginLeft: 6 }}>(empty)</span>}
+                </div>
+
+                <SectionTitle>Swap Symbol</SectionTitle>
+                <Field label="Swap to">
+                  <select
+                    data-testid="prop-swap"
+                    value={single.symbol_id ?? ''}
+                    onChange={(e) => {
+                      const target = Number(e.target.value)
+                      if (!target || target === single.symbol_id) return
+                      if (swapInstance(single.id, target)) notify(`symbol swapped`)
+                    }}
+                    style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+                  >
+                    {library().map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <SectionTitle>Playback</SectionTitle>
+                <Field label="Mode">
+                  <select
+                    data-testid="prop-loop-mode"
+                    value={single.loop_mode ?? 'loop'}
+                    onChange={(e) => {
+                      const mode = e.target.value
+                      if (setInstanceLoop(single.id, mode, single.first_frame ?? 1)) notify(`loop mode → ${mode}`)
+                    }}
+                    style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+                  >
+                    <option value="loop">Loop</option>
+                    <option value="playOnce">Play Once</option>
+                    <option value="singleFrame">Single Frame</option>
+                  </select>
+                </Field>
+                <NumberField
+                  testId="prop-first-frame"
+                  label="First frame"
+                  value={fmt(single.first_frame ?? 1)}
+                  min={1}
+                  step={1}
+                  onCommit={(n) => {
+                    if (setInstanceLoop(single.id, single.loop_mode ?? 'loop', Math.round(n))) notify(`first frame → ${Math.round(n)}`)
+                  }}
+                />
               </div>
             )}
 

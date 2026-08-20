@@ -287,6 +287,12 @@ export function library(): LibraryItemJson[] {
   }
 }
 
+/** True when the attached engine exposes the Symbols/Library facade — lets the
+ *  UI distinguish "empty library" from "engine build out of date" honestly. */
+export function hasSymbolFacade(): boolean {
+  return !!mod && typeof mod.kineora_library === 'function'
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

@@ -44,6 +44,7 @@ export default function App() {
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
+  const [highlightSymbol, setHighlightSymbol] = useState<number | null>(null)
   const layoutRef = useRef(layout)
   const originRef = useRef<PanelLayout>(layout)
   // measured height of the right dock region (bounded; drives sum-aware sizing)
@@ -250,7 +251,7 @@ export default function App() {
             {panels.properties && panels.library && rightSplitter('library', 'resize-library')}
             {panels.library && (
               <div data-testid="library-wrap" style={{ height: rightH('library'), flexShrink: 0, minHeight: 0, display: 'flex' }}>
-                <LibraryPanel notify={notify} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />
+                <LibraryPanel engine={engine} notify={notify} highlightId={highlightSymbol} onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })} />
               </div>
             )}
             {panels.library && panels.debug && rightSplitter('debug', 'resize-debug')}
@@ -275,7 +276,13 @@ export default function App() {
       {panels.timeline && <TimelineStrip status={status} notify={notify} height={layout.timelineH} />}
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
-      <SymbolDialog open={symbolDialog.open} mode={symbolDialog.mode} onClose={() => setSymbolDialog((s) => ({ ...s, open: false }))} notify={notify} />
+      <SymbolDialog
+        open={symbolDialog.open}
+        mode={symbolDialog.mode}
+        onClose={() => setSymbolDialog((s) => ({ ...s, open: false }))}
+        notify={notify}
+        onCreated={(id) => setHighlightSymbol(id)}
+      />
     </div>
   )
 }

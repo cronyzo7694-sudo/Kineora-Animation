@@ -38,8 +38,12 @@ export interface SelDetailJson {
   stroke: string | null
   stroke_width: number
   kind?: string
+  symbol_id?: number | null
   symbol_name?: string | null
   symbol_type?: string | null
+  loop_mode?: string | null
+  first_frame?: number | null
+  empty?: boolean
 }
 
 /** Library entry (Part 12 §12.1). */

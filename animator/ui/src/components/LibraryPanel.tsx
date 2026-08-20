@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { deleteSymbol, library, renameSymbol } from '../engine/client'
+import { deleteSymbol, hasSymbolFacade, library, renameSymbol } from '../engine/client'
+import type { EngineStatus } from '../controlRegistry'
 import type { LibraryItemJson } from '../engine/wasmTypes'
 
 interface Props {
+  engine: EngineStatus
   notify: (msg: string) => void
   onNewSymbol: () => void
+  /** Id of the most recently created symbol (highlighted until it changes). */
+  highlightId?: number | null
 }
 
 const TYPE_ICON: Record<string, string> = { graphic: '◆', movieClip: '▶', button: '⬚' }
@@ -13,13 +17,16 @@ const TYPE_ICON: Record<string, string> = { graphic: '◆', movieClip: '▶', bu
  * Library panel (Part 12) — the document's symbol database. Rows show
  * icon/name/type/use-count; double-click renames (ID-safe); Delete prompts on
  * in-use symbols (cancel / break-apart-leave-content); rows are draggable onto
- * the stage (place instance) or onto a selected instance (swap — handled by the
- * Stage drop target). Everything reads from real engine state.
+ * the stage (place instance) or onto a selected instance (swap). Honest states:
+ * engine unattached / engine build out-of-date / genuinely empty / list.
  */
-export function LibraryPanel({ notify, onNewSymbol }: Props) {
+export function LibraryPanel({ engine, notify, onNewSymbol, highlightId }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
-  const items: LibraryItemJson[] = library()
+
+  const attached = engine.kind === 'ok'
+  const supported = attached && hasSymbolFacade()
+  const items: LibraryItemJson[] = supported ? library() : []
 
   const commitRename = () => {
     if (editing === null) return
@@ -46,19 +53,39 @@ export function LibraryPanel({ notify, onNewSymbol }: Props) {
     <aside data-testid="library-panel" aria-label="Library" style={{ width: '100%', boxSizing: 'border-box', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
         <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Library</span>
-        <button data-testid="library-create" aria-label="New symbol" title="New symbol (Ctrl+F8)" onClick={onNewSymbol} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer', fontSize: 12 }}>
+        <button
+          data-testid="library-create"
+          aria-label="New symbol"
+          title="New symbol (Ctrl+F8)"
+          onClick={onNewSymbol}
+          disabled={!attached}
+          style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12, opacity: attached ? 1 : 0.5 }}
+        >
           + Symbol
         </button>
       </div>
 
       <ul data-testid="library-list" style={{ listStyle: 'none', margin: 0, padding: 4, overflowY: 'auto', flex: 1, fontSize: 12, color: '#bbb' }}>
-        {items.length === 0 && (
-          <li data-testid="library-empty" style={{ padding: 8, color: '#888' }}>No symbols yet — select objects and press F8, or create one.</li>
+        {!attached && (
+          <li data-testid="library-engine-error" style={{ padding: 8, color: '#e66' }}>
+            Animation engine unavailable — rebuild the WASM engine (<code>npm run wasm</code>) and reload.
+          </li>
         )}
-        {items.map((it) => (
+        {attached && !supported && (
+          <li data-testid="library-stale" style={{ padding: 8, color: '#eeb' }}>
+            Engine build out of date — run <code>npm run wasm</code> to enable Symbols &amp; Library.
+          </li>
+        )}
+        {supported && items.length === 0 && (
+          <li data-testid="library-empty" style={{ padding: 8, color: '#888' }}>
+            No symbols yet — select objects and press F8, or create one.
+          </li>
+        )}
+        {supported && items.map((it) => (
           <li
             key={it.id}
             data-testid={`library-item-${it.id}`}
+            data-highlighted={highlightId === it.id ? 'true' : 'false'}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData('kineora/symbol', String(it.id))
@@ -68,7 +95,7 @@ export function LibraryPanel({ notify, onNewSymbol }: Props) {
               setEditing(it.id)
               setDraft(it.name)
             }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 4, cursor: 'grab', background: 'transparent' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 4, cursor: 'grab', background: highlightId === it.id ? '#2f4a6b' : 'transparent' }}
             title={`${it.type} · ${it.duration} frame(s) · used ${it.use_count}× (drag onto the stage to place)`}
           >
             <span style={{ width: 14, textAlign: 'center', color: '#8ec8ff' }}>{TYPE_ICON[it.type] ?? '◆'}</span>

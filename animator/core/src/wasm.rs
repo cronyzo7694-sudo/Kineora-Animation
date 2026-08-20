@@ -60,9 +60,16 @@ struct SelDetail {
     stroke_width: f64,
     /// "rect" | "instance" (Part 11 — the Properties panel branches on this).
     kind: &'static str,
-    /// Present for instances: the referenced symbol's name + type.
+    /// Present for instances: the referenced symbol's id, name, type, loop mode
+    /// and first frame (Part 11 §11.4/§11.6 — drives the Properties controls).
+    symbol_id: Option<u64>,
     symbol_name: Option<String>,
     symbol_type: Option<String>,
+    loop_mode: Option<String>,
+    first_frame: Option<u32>,
+    /// Whether the instance's symbol currently has no drawable content at the
+    /// playhead (an "empty" symbol — shown honestly in Properties).
+    empty: bool,
 }
 
 /// Keyframe marker for the timeline (Part 07 §7.2): solid dot = keyframe,
@@ -720,47 +727,98 @@ pub fn kineora_status() -> String {
             .filter_map(|id| {
                 let t = s.selected_transform(*id)?;
                 let base = s.doc.nodes.get(id)?;
-                let (base_w, base_h, fill, stroke, stroke_width, kind, symbol_name, symbol_type) =
-                    match base {
-                        crate::model::Node::Rect {
-                            width,
-                            height,
-                            fill,
-                            stroke,
-                            stroke_width,
-                            ..
-                        } => (
-                            *width,
-                            *height,
-                            fill.clone(),
-                            stroke.clone(),
-                            *stroke_width,
-                            "rect",
+                let (
+                    base_w,
+                    base_h,
+                    fill,
+                    stroke,
+                    stroke_width,
+                    kind,
+                    sid,
+                    name,
+                    ty,
+                    loop_mode,
+                    first_frame,
+                    empty,
+                ) = match base {
+                    crate::model::Node::Rect {
+                        width,
+                        height,
+                        fill,
+                        stroke,
+                        stroke_width,
+                        ..
+                    } => (
+                        *width,
+                        *height,
+                        fill.clone(),
+                        stroke.clone(),
+                        *stroke_width,
+                        "rect",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        false,
+                    ),
+                    crate::model::Node::SymbolInstance {
+                        symbol_id,
+                        loop_mode,
+                        first_frame,
+                        ..
+                    } => {
+                        let sym = s.doc.symbol(*symbol_id);
+                        let name = sym.map(|x| x.name.clone());
+                        let ty = sym.map(|x| {
+                            match x.symbol_type {
+                                crate::model::SymbolType::Graphic => "graphic",
+                                crate::model::SymbolType::MovieClip => "movieClip",
+                                crate::model::SymbolType::Button => "button",
+                            }
+                            .to_string()
+                        });
+                        // real rendered bounds (incl. the empty-symbol marker)
+                        let (bw, bh, is_empty) =
+                            match crate::eval::node_bounds(&s.doc, s.active_scene, s.playhead, *id)
+                            {
+                                Some((a, b, c, d)) => (c - a, d - b, false),
+                                None => (0.0, 0.0, true),
+                            };
+                        let lm = match loop_mode {
+                            crate::model::LoopMode::Loop => "loop",
+                            crate::model::LoopMode::PlayOnce => "playOnce",
+                            crate::model::LoopMode::SingleFrame => "singleFrame",
+                        };
+                        (
+                            bw,
+                            bh,
+                            String::new(),
                             None,
-                            None,
-                        ),
-                        crate::model::Node::SymbolInstance { symbol_id, .. } => {
-                            let sym = s.doc.symbol(*symbol_id);
-                            let name = sym.map(|x| x.name.clone());
-                            let ty = sym.map(|x| {
-                                match x.symbol_type {
-                                    crate::model::SymbolType::Graphic => "graphic",
-                                    crate::model::SymbolType::MovieClip => "movieClip",
-                                    crate::model::SymbolType::Button => "button",
-                                }
-                                .to_string()
-                            });
-                            // W/H of an instance are its rendered bounds (not
-                            // exposed yet) — the panel shows the symbol name.
-                            (0.0, 0.0, String::new(), None, 0.0, "instance", name, ty)
-                        }
-                    };
+                            0.0,
+                            "instance",
+                            Some(symbol_id.0),
+                            name,
+                            ty,
+                            Some(lm.to_string()),
+                            Some(*first_frame),
+                            is_empty,
+                        )
+                    }
+                };
+                // instance bounds are already scene-space (transform applied by
+                // node_bounds); rect base dims are unscaled.
+                let (w, h) = if kind == "instance" {
+                    (base_w, base_h)
+                } else {
+                    (base_w * t.scale_x, base_h * t.scale_y)
+                };
                 Some(SelDetail {
                     id: id.0,
                     x: t.x,
                     y: t.y,
-                    w: base_w * t.scale_x,
-                    h: base_h * t.scale_y,
+                    w,
+                    h,
                     base_w,
                     base_h,
                     scale_x: t.scale_x,
@@ -770,8 +828,12 @@ pub fn kineora_status() -> String {
                     stroke,
                     stroke_width,
                     kind,
-                    symbol_name,
-                    symbol_type,
+                    symbol_id: sid,
+                    symbol_name: name,
+                    symbol_type: ty,
+                    loop_mode,
+                    first_frame,
+                    empty,
                 })
             })
             .collect();

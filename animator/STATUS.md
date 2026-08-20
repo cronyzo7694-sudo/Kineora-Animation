@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 203 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 214 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -24,7 +24,7 @@
 | **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (e23c23f) | drag-range selection, copy/cut/paste/reverse/remove frames |
 | **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | ACCEPTED (cd6fc44) | explicit tween spans, hold-by-default, ease slider, span visuals |
 | **Frame sequences, exposure & labels** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (d0c055b) | sequence move, span-edge resize, duplicate, convert, labels, end-of-span marker |
-| **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **COMPLETE (566f0a3) — pending manual acceptance (held behind panel unit)** | symbol model + convert/new/place/nested evaluation + Library panel |
+| **Symbols + Library foundation** | MOD-SYMBOL/MOD-INSTANCE/MOD-LIBRARY | **USABILITY-CORRECTED (this commit) — pending manual acceptance** | empty-instance selectability, locked-layer convert guard, loop/first-frame + swap UI, engine-state honesty |
 | **Reusable panel/splitter system + vertical resize** | MOD-WORKSPACE/MOD-PANEL | **CORRECTED (this commit) — pending manual acceptance** | bounded overflow-safe right dock, sum-aware splitters, Properties flex+min320, visibility registry (incl. Timeline Ctrl+Alt+T + Dev), generic distribute/clampPanePref |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
@@ -39,6 +39,15 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT H usability correction (Symbols + Library forensic fixes)
+- **Empty-symbol instances are now visible/selectable.** `node_bounds`/`hit_test`/`hits_in_rect` fall back to a deterministic **24×24 doc-unit marker** at the instance origin when the symbol has no drawable content (Part 11 §11.0 — an instance is a placed reference and must stay selectable). The marker is selection-only: it NEVER enters `evaluate`/export (proven by test). `SelDetail` now reports the instance's real rendered bounds (or the marker) + `empty` flag, `symbol_id`, `loop_mode`, `first_frame`.
+- **Locked-layer convert guard** [BLUEPRINT REQUIRED — Part 20.2 / F-03-15]: `convert_selection_to_symbol` now rejects the conversion when ANY selected node lives on a locked layer — no symbol, no partial mutation, no undo entry.
+- **Instance playback controls** [Part 11 §11.4]: Properties now shows **Loop / Play Once / Single Frame** + **First frame** for a selected instance (wired to `kineora_set_instance_loop`, undoable, persisted). Movie-clip free clock and button frame-1 behavior unchanged (engine).
+- **Swap affordance** [Part 11 §11.6]: Properties shows a **Swap to** dropdown listing Library symbols — swap keeps the instance transform, is undoable, and updates use-counts (drag-onto-instance swap still works).
+- **Engine-state honesty**: `LibraryPanel` now distinguishes **engine unattached** / **engine build out of date** (`hasSymbolFacade()`) / **genuinely empty** — a stale WASM build can no longer masquerade as "No symbols yet". New Symbol reports a clear toast + highlights the created row.
+- **WASM verified**: ran `npm run wasm`; the generated `kineora_core.js` exports all symbol facades (`kineora_library`, `kineora_convert_to_symbol`, `kineora_place_symbol`, `kineora_swap_instance`, `kineora_set_instance_loop`, …).
+- **Deferred (unchanged)**: symbol edit-in-place/breadcrumb, standalone Break Apart, Duplicate Symbol, color-effect/filters, Frame Picker, button-state interactivity, Library folders/search/sort, Motion Tween.
 
 ## This commit — PANEL CORRECTION: bounded right dock + visibility registry (per manual FAIL 7/8/9)
 - **Root cause (fixed)**: the right dock column had no bounded height and no overflow policy, and used `flex:1`+`minHeight:320` for Properties with absolute (not sum-aware) splitter clamps. When Properties+Library+Dev's minimum heights exceeded the region, the flex container overflowed → the Dev panel rendered below/outside the viewport ("disappeared behind Timeline").

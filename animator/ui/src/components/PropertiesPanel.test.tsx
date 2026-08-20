@@ -5,15 +5,23 @@ vi.mock('../engine/client', () => ({
   patchTransforms: vi.fn(),
   setNodeProps: vi.fn(),
   setDocumentSettings: vi.fn(() => true),
+  setInstanceLoop: vi.fn(() => true),
+  swapInstance: vi.fn(() => true),
+  library: vi.fn(() => [
+    { id: 7, name: 'arm', type: 'graphic', use_count: 1, duration: 3 },
+    { id: 9, name: 'head', type: 'graphic', use_count: 0, duration: 1 },
+  ]),
 }))
 
-import { patchTransforms, setDocumentSettings, setNodeProps } from '../engine/client'
+import { patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
 import { PropertiesPanel } from './PropertiesPanel'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 
 const patchTransformsMock = vi.mocked(patchTransforms)
 const setNodePropsMock = vi.mocked(setNodeProps)
 const setDocumentSettingsMock = vi.mocked(setDocumentSettings)
+const setInstanceLoopMock = vi.mocked(setInstanceLoop)
+const swapInstanceMock = vi.mocked(swapInstance)
 
 const notify = vi.fn()
 
@@ -310,5 +318,59 @@ describe('PropertiesPanel — symbol instances (Part 11 §11.5)', () => {
     expect(screen.queryByTestId('prop-fill')).not.toBeInTheDocument()
     expect(screen.queryByTestId('prop-w')).not.toBeInTheDocument()
     expect(screen.getByTestId('prop-x')).toBeInTheDocument()
+  })
+})
+
+describe('PropertiesPanel — SymbolInstance controls (Part 11 §11.4/§11.6)', () => {
+  const instance = () =>
+    makeStatus({
+      selection_details: [
+        {
+          ...detail({ fill: '', stroke: null }),
+          kind: 'instance',
+          symbol_id: 7,
+          symbol_name: 'arm',
+          symbol_type: 'graphic',
+          loop_mode: 'loop',
+          first_frame: 1,
+          empty: false,
+        },
+      ],
+    })
+
+  it('loop-mode select calls setInstanceLoop(id, mode, firstFrame)', () => {
+    render(<PropertiesPanel status={instance()} notify={notify} />)
+    fireEvent.change(screen.getByTestId('prop-loop-mode'), { target: { value: 'singleFrame' } })
+    expect(setInstanceLoopMock).toHaveBeenCalledWith(1, 'singleFrame', 1)
+  })
+
+  it('first-frame commit calls setInstanceLoop with the rounded value', () => {
+    render(<PropertiesPanel status={instance()} notify={notify} />)
+    const ff = screen.getByTestId('prop-first-frame')
+    fireEvent.change(ff, { target: { value: '2' } })
+    fireEvent.blur(ff)
+    expect(setInstanceLoopMock).toHaveBeenCalledWith(1, 'loop', 2)
+  })
+
+  it('swap select calls swapInstance(instanceId, targetSymbolId)', () => {
+    render(<PropertiesPanel status={instance()} notify={notify} />)
+    fireEvent.change(screen.getByTestId('prop-swap'), { target: { value: '9' } })
+    expect(swapInstanceMock).toHaveBeenCalledWith(1, 9)
+  })
+
+  it('swap select is a no-op when the same symbol is chosen', () => {
+    render(<PropertiesPanel status={instance()} notify={notify} />)
+    fireEvent.change(screen.getByTestId('prop-swap'), { target: { value: '7' } })
+    expect(swapInstanceMock).not.toHaveBeenCalled()
+  })
+
+  it('an empty symbol instance shows an (empty) marker', () => {
+    const empty = makeStatus({
+      selection_details: [
+        { ...detail({ fill: '', stroke: null }), kind: 'instance', symbol_id: 7, symbol_name: 'e', symbol_type: 'graphic', loop_mode: 'loop', first_frame: 1, empty: true },
+      ],
+    })
+    render(<PropertiesPanel status={empty} notify={notify} />)
+    expect(screen.getByTestId('prop-symbol-empty')).toBeInTheDocument()
   })
 })

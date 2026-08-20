@@ -78,3 +78,15 @@ describe('SymbolDialog (Part 11 §11.2 / Part 12 §12.2.2)', () => {
     expect(screen.queryByTestId('symbol-dialog')).not.toBeInTheDocument()
   })
 })
+
+describe('SymbolDialog — New Symbol feedback', () => {
+  it('new symbol calls onCreated with the new id and a clear toast', () => {
+    const onCreated = vi.fn()
+    newSymbolMock.mockReturnValue(5)
+    render(<SymbolDialog open mode="new" onClose={onClose} notify={notify} onCreated={onCreated} />)
+    fireEvent.change(screen.getByTestId('symbol-name'), { target: { value: 'walk' } })
+    fireEvent.click(screen.getByTestId('symbol-confirm'))
+    expect(onCreated).toHaveBeenCalledWith(5)
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('created in Library'))
+  })
+})

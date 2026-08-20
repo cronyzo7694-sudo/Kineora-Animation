@@ -10,7 +10,8 @@ use crate::command::{
     SetLayerVisible, SetNodeProps, SwapInstance, TransformSelection,
 };
 use crate::eval::{
-    evaluate, hit_test, hits_in_rect, node_bounds, node_transform_in_scene, RectItem,
+    evaluate, hit_test, hits_in_rect, node_bounds, node_layer_index, node_transform_in_scene,
+    RectItem,
 };
 use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId, SymbolId};
@@ -798,6 +799,19 @@ impl Session {
     ) -> NodeId {
         if self.selection.is_empty() {
             return NodeId(0);
+        }
+        // REQ-DRW-003 / Part 20.2 / F-03-15: locked layers are not editable.
+        // If ANY selected node lives on a locked layer, block the whole convert
+        // (no partial mutation, no undo entry).
+        for id in &self.selection {
+            if let Some(lidx) = node_layer_index(&self.doc, self.active_scene, self.playhead, *id) {
+                if let Some(l) = self.doc.layer(self.active_scene, lidx) {
+                    if l.locked {
+                        self.log("convert-to-symbol:blocked(locked)");
+                        return NodeId(0);
+                    }
+                }
+            }
         }
         // selection bounds (scene-wide)
         let mut minx = f64::INFINITY;

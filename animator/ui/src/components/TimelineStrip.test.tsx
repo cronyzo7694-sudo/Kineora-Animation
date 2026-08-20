@@ -66,7 +66,7 @@ beforeEach(() => {
   notify.mockClear()
 })
 
-describe('TimelineStrip (Part 07 — frame grid + playhead)', () => {
+describe('TimelineStrip — frame grid visual language (Part 07 §7.2)', () => {
   it('renders the frame ruler numbers (1, 5, 10, 15, 20)', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
     for (const f of [1, 5, 10, 15, 20]) {
@@ -76,7 +76,6 @@ describe('TimelineStrip (Part 07 — frame grid + playhead)', () => {
 
   it('renders solid keyframe dots (blank=false) and hollow blank dots (blank=true)', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
-    // Layer 0 (engine index 0) has key @1, key @10, blank @20
     expect(screen.getByTestId('kf-dot-0-1')).toHaveAttribute('data-blank', 'false')
     expect(screen.getByTestId('kf-dot-0-10')).toHaveAttribute('data-blank', 'false')
     expect(screen.getByTestId('kf-dot-0-20')).toHaveAttribute('data-blank', 'true')
@@ -87,7 +86,6 @@ describe('TimelineStrip (Part 07 — frame grid + playhead)', () => {
     expect(screen.getByTestId('cell-0-2')).toHaveAttribute('data-kind', 'held')
     expect(screen.getByTestId('cell-0-9')).toHaveAttribute('data-kind', 'held')
     expect(screen.getByTestId('cell-0-10')).toHaveAttribute('data-kind', 'key')
-    // after the blank keyframe @20 the hold is empty
     expect(screen.getByTestId('cell-0-21')).toHaveAttribute('data-kind', 'empty')
   })
 
@@ -97,18 +95,25 @@ describe('TimelineStrip (Part 07 — frame grid + playhead)', () => {
     expect(screen.getByTestId('playhead')).toHaveStyle(`left: ${left}px`)
   })
 
-  it('clicking a cell jumps the playhead (engine setPlayhead)', () => {
+  it('shows a current-frame indicator on the ruler', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 4 })} notify={notify} />)
+    const left = NAME_W + (4 - 1) * CELL_W
+    expect(screen.getByTestId('current-frame-indicator')).toHaveStyle(`left: ${left}px`)
+  })
+})
+
+describe('TimelineStrip — interaction: ruler/handle navigate, cells select (no playhead move)', () => {
+  it('clicking the RULER jumps the playhead (engine setPlayhead)', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
-    const clientX = NAME_W + (7 - 1) * CELL_W + 2 // inside frame 7
-    fireEvent.mouseDown(screen.getByTestId('cell-0-7'), { button: 0, clientX })
+    const clientX = NAME_W + (7 - 1) * CELL_W + 2
+    fireEvent.mouseDown(screen.getByTestId('timeline-ruler'), { button: 0, clientX })
     fireEvent.mouseUp(window)
     expect(setPlayheadMock).toHaveBeenCalledWith(7)
   })
 
-  it('dragging scrubs the playhead (multiple engine setPlayhead calls)', () => {
+  it('dragging on the RULER scrubs the playhead', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
-    const startX = NAME_W + (2 - 1) * CELL_W
-    fireEvent.mouseDown(screen.getByTestId('cell-0-2'), { button: 0, clientX: startX })
+    fireEvent.mouseDown(screen.getByTestId('timeline-ruler'), { button: 0, clientX: NAME_W + (2 - 1) * CELL_W })
     fireEvent.mouseMove(window, { clientX: NAME_W + (4 - 1) * CELL_W })
     fireEvent.mouseMove(window, { clientX: NAME_W + (9 - 1) * CELL_W })
     fireEvent.mouseUp(window)
@@ -117,12 +122,56 @@ describe('TimelineStrip (Part 07 — frame grid + playhead)', () => {
     expect(setPlayheadMock).toHaveBeenCalledWith(9)
   })
 
-  it('clicking a layer name activates that layer', () => {
-    render(<TimelineStrip status={makeStatus()} notify={notify} />)
-    fireEvent.click(screen.getByTestId('timeline-layer-name-1')) // Layer 2
-    expect(setActiveLayerMock).toHaveBeenCalledWith(1)
+  it('dragging the PLAYHEAD HANDLE scrubs the playhead', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 3 })} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('playhead-handle'), { button: 0, clientX: NAME_W + (3 - 1) * CELL_W })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (6 - 1) * CELL_W })
+    fireEvent.mouseUp(window)
+    expect(setPlayheadMock).toHaveBeenCalledWith(6)
   })
 
+  it('clicking a frame CELL selects it WITHOUT moving the playhead', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-7'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('cell-0-7')).toHaveAttribute('data-selected', 'true')
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('clicking another cell moves the selection (single selection)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-7'), { button: 0 })
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0 })
+    expect(screen.getByTestId('cell-0-7')).toHaveAttribute('data-selected', 'false')
+    expect(screen.getByTestId('cell-0-3')).toHaveAttribute('data-selected', 'true')
+  })
+
+  it('shift+click toggles a cell in/out of the selection', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-5'), { button: 0 })
+    fireEvent.mouseDown(screen.getByTestId('cell-0-8'), { button: 0, shiftKey: true })
+    expect(screen.getByTestId('cell-0-5')).toHaveAttribute('data-selected', 'true')
+    expect(screen.getByTestId('cell-0-8')).toHaveAttribute('data-selected', 'true')
+    // toggle off
+    fireEvent.mouseDown(screen.getByTestId('cell-0-8'), { button: 0, shiftKey: true })
+    expect(screen.getByTestId('cell-0-8')).toHaveAttribute('data-selected', 'false')
+  })
+
+  it('keyframe cells are selectable like any cell', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-10'), { button: 0 }) // keyframe @10
+    expect(screen.getByTestId('cell-0-10')).toHaveAttribute('data-selected', 'true')
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('clicking a layer name activates that layer', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline-layer-name-1'))
+    expect(setActiveLayerMock).toHaveBeenCalledWith(1)
+  })
+})
+
+describe('TimelineStrip — frame ops + keyboard', () => {
   it('frame-op buttons dispatch the right engine actions', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
     fireEvent.click(screen.getByTestId('timeline.key'))

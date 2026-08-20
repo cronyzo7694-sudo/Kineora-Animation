@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { performAction } from '../engine/actions'
 import { setActiveLayer, setPlayhead } from '../engine/client'
 import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
@@ -40,16 +40,19 @@ function cellKinds(markers: FrameMarkerJson[], n: number): CellKind[] {
 }
 
 /**
- * Timeline (Part 07) — the "clock + score" panel: frame ruler (click-to-jump,
- * drag-to-scrub), per-layer frame cells (keyframe dots / blank-keyframe hollow
- * dots / held spans / empty), a draggable playhead, and frame-op buttons
- * (Key F6 / Blank F7 / Clear Shift+F6). Everything reads from real engine
- * status; playhead moves are engine view-state (kineora_set_playhead); frame
- * ops are undoable engine commands. Top row = frontmost layer.
+ * Timeline (Part 07) — the "clock + score" panel.
+ * Hit-area separation (F-07-03/F-07-04 + blueprint §7.1.2–7.1.4):
+ *  - ruler click = jump playhead; ruler drag = scrub
+ *  - playhead handle drag = scrub
+ *  - frame cell click = SELECT the frame (view state; playhead does NOT move);
+ *    Shift/Ctrl/Cmd+click = toggle selection
+ * Frame ops (Key F6 / Blank F7 / Clear Shift+F6) are undoable engine commands;
+ * playhead moves are engine view-state. Top row = frontmost layer.
  */
 export function TimelineStrip({ status, notify }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const scrubRef = useRef(false)
+  const [selectedFrames, setSelectedFrames] = useState<Set<string>>(new Set())
   const statusRef = useRef<StatusJson | null>(status)
   statusRef.current = status
 
@@ -65,21 +68,15 @@ export function TimelineStrip({ status, notify }: Props) {
     const grid = gridRef.current
     if (!grid) return 1
     const left = grid.getBoundingClientRect().left + NAME_W
-    const f = 1 + Math.floor((clientX - left) / CELL_W)
-    return Math.min(nCells, Math.max(1, f))
+    return Math.min(nCells, Math.max(1, 1 + Math.floor((clientX - left) / CELL_W)))
   }
 
-  // scrub: mousedown jumps + arms drag; window move scrubs; up disarms
-  const onGridMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return
-    if (!attached) return
-    e.preventDefault()
-    setPlayhead(frameFromClientX(e.clientX))
+  // scrub: jump then follow the mouse until mouseup (used by ruler + handle)
+  const startScrub = (clientX: number) => {
+    setPlayhead(frameFromClientX(clientX))
     scrubRef.current = true
-
     const move = (ev: MouseEvent) => {
-      if (!scrubRef.current) return
-      setPlayhead(frameFromClientX(ev.clientX))
+      if (scrubRef.current) setPlayhead(frameFromClientX(ev.clientX))
     }
     const up = () => {
       scrubRef.current = false
@@ -88,6 +85,38 @@ export function TimelineStrip({ status, notify }: Props) {
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
+  }
+
+  const onRulerDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || !attached) return
+    e.preventDefault()
+    startScrub(e.clientX)
+  }
+
+  const onHandleDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || !attached) return
+    e.preventDefault()
+    e.stopPropagation()
+    startScrub(e.clientX)
+  }
+
+  // frame cell: click = select (no playhead move); shift/ctrl/cmd = toggle
+  const onCellDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const key = `${layerIdx}:${frame}`
+    setSelectedFrames((prev) => {
+      const next = new Set(prev)
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+      } else {
+        next.clear()
+        next.add(key)
+      }
+      return next
+    })
   }
 
   // keyboard frame ops + transport (Part 29.5/29.6)
@@ -139,14 +168,15 @@ export function TimelineStrip({ status, notify }: Props) {
         {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
       </div>
 
-      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }} onMouseDown={onGridMouseDown}>
-        {/* ruler */}
-        <div style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a' }}>
+      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
+        {/* ruler: click = jump, drag = scrub (F-07-03) */}
+        <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a', cursor: 'pointer' }}>
           {Array.from({ length: Math.ceil(nCells / 5) }, (_, i) => (i === 0 ? 1 : i * 5)).map((f) => (
-            <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * CELL_W, top: 3, color: '#666', fontSize: 10 }}>
+            <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * CELL_W, top: 3, color: f === playhead ? '#e33' : '#666', fontWeight: f === playhead ? 700 : 400, fontSize: 10 }}>
               {f}
             </span>
           ))}
+          <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', pointerEvents: 'none' }} />
         </div>
 
         {/* layer rows */}
@@ -169,13 +199,16 @@ export function TimelineStrip({ status, notify }: Props) {
               <div style={{ position: 'absolute', left: NAME_W, top: 0, right: 0, bottom: 0 }}>
                 {kinds.map((kind, i) => {
                   const f = i + 1
+                  const selected = selectedFrames.has(`${engineIndex}:${f}`)
                   const bg = kind === 'held' ? '#333333' : 'transparent'
                   return (
                     <div
                       key={f}
                       data-testid={`cell-${engineIndex}-${f}`}
                       data-kind={kind}
-                      style={{ position: 'absolute', left: (f - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', background: bg, borderRight: '1px solid #2a2a2a' }}
+                      data-selected={selected ? 'true' : 'false'}
+                      onMouseDown={(e) => onCellDown(e, engineIndex, f)}
+                      style={{ position: 'absolute', left: (f - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none' }}
                     >
                       {(kind === 'key' || kind === 'blank') && (
                         <span
@@ -192,10 +225,16 @@ export function TimelineStrip({ status, notify }: Props) {
           )
         })}
 
-        {/* playhead */}
+        {/* playhead line (non-interactive) */}
         <div
           data-testid="playhead"
           style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W - 1, top: 0, bottom: 0, width: 2, background: '#e33', pointerEvents: 'none' }}
+        />
+        {/* playhead handle (drag = scrub, F-07-04) */}
+        <div
+          data-testid="playhead-handle"
+          onMouseDown={onHandleDown}
+          style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W - 5, top: 0, width: 10, height: RULER_H, cursor: 'ew-resize' }}
         />
       </div>
     </div>

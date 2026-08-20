@@ -167,3 +167,74 @@ fn blank_then_clear_is_exactly_undoable() {
     s.undo(); // undo blank → nothing at 8 (was no keyframe)
     assert_eq!(s.evaluate(8).len(), 1);
 }
+
+#[test]
+fn f6_on_existing_content_keyframe_is_a_noop() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000"); // keyframe @1
+    let n = s.history.undo_len();
+    let before = s.doc.scene(0).unwrap().layers[0].keyframes.clone();
+
+    assert!(
+        !s.insert_keyframe(1),
+        "F6 at an existing keyframe is a no-op"
+    );
+    assert_eq!(s.history.undo_len(), n, "no command pushed (F-07-08 TS-06)");
+    assert_eq!(s.doc.scene(0).unwrap().layers[0].keyframes, before);
+}
+
+#[test]
+fn f6_on_blank_keyframe_copies_pre_blank_content() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000"); // content keyframe @1
+    s.set_playhead(5);
+    s.insert_blank_keyframe(5); // F7 → blank, hold broken
+    assert!(s.evaluate(5).is_empty());
+
+    assert!(
+        s.insert_keyframe(5),
+        "F6 on a blank converts it to a content key"
+    );
+    // F-07-08 M.2: content comes from the pre-blank key, not empty
+    assert_eq!(s.evaluate(5).len(), 1, "pre-blank content restored");
+    assert_eq!(s.evaluate(5)[0].fill, "#ff0000");
+    // the frame is now a CONTENT keyframe, not blank
+    assert!(matches!(
+        s.doc.scene(0).unwrap().layers[0].keyframes.get(&5),
+        Some(animator_core::Frame::Keyframe { .. })
+    ));
+
+    s.undo();
+    assert!(s.evaluate(5).is_empty(), "undo restores the blank keyframe");
+}
+
+#[test]
+fn f6_fresh_copies_previous_content_and_undo_removes_it() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000"); // @1
+    assert!(s.insert_keyframe(10)); // F6 @10 copies frame-1 content
+    assert_eq!(s.evaluate(10).len(), 1);
+    assert!(s.doc.scene(0).unwrap().layers[0]
+        .keyframes
+        .contains_key(&10));
+
+    s.undo();
+    assert!(
+        !s.doc.scene(0).unwrap().layers[0]
+            .keyframes
+            .contains_key(&10),
+        "undo removes the inserted keyframe"
+    );
+    s.redo();
+    assert_eq!(s.evaluate(10).len(), 1);
+}
+
+#[test]
+fn f6_is_blocked_on_locked_layer_consistently() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000");
+    s.set_layer_locked(0, true);
+    let n = s.history.undo_len();
+    assert!(!s.insert_keyframe(5), "F6 blocked on locked layer");
+    assert_eq!(s.history.undo_len(), n, "no command for blocked F6");
+}

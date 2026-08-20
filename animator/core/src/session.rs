@@ -215,11 +215,28 @@ impl Session {
         self.log(&format!("move:selection({dx},{dy}) @{}", self.playhead));
     }
 
-    pub fn insert_keyframe(&mut self, frame: u32) {
+    /// F6 — insert a keyframe copying the previous content. Returns true when a
+    /// keyframe was created; false when it was a no-op. No-op cases (no command,
+    /// no undo entry): the layer is locked (Part 20.2 "not editable") or the
+    /// frame is already a CONTENT keyframe (F-07-08 M.1 "F6 at a keyframe →
+    /// no-op"). F6 on a BLANK keyframe converts it to a content keyframe
+    /// copying the pre-blank content (F-07-08 M.2).
+    pub fn insert_keyframe(&mut self, frame: u32) -> bool {
+        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if l.locked {
+                self.log("keyframe:blocked(locked)");
+                return false;
+            }
+            if matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. })) {
+                self.log(&format!("keyframe:already@{frame}"));
+                return false;
+            }
+        }
         let cmd = InsertKeyframe::new(self.active_scene, self.active_layer, frame);
         self.history.execute(&mut self.doc, Box::new(cmd));
         self.set_playhead(frame);
         self.log(&format!("keyframe:insert@{frame}"));
+        true
     }
 
     /// F7 — insert a BLANK keyframe at `frame` (breaks the hold → empty

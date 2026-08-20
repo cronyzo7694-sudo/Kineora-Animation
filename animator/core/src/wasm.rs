@@ -258,9 +258,11 @@ pub fn kineora_set_playhead(frame: u32) {
     let _ = with_session(|s| s.set_playhead(frame));
 }
 
+/// F6 — insert a keyframe copying previous content. Returns false when it was
+/// a no-op (locked layer, or the frame is already a content keyframe).
 #[wasm_bindgen]
-pub fn kineora_insert_keyframe(frame: u32) {
-    let _ = with_session(|s| s.insert_keyframe(frame));
+pub fn kineora_insert_keyframe(frame: u32) -> bool {
+    with_session(|s| s.insert_keyframe(frame)).unwrap_or(false)
 }
 
 /// F7 — insert a BLANK keyframe at `frame` (breaks the hold). Returns false

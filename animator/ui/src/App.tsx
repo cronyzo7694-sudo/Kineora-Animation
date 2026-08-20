@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
 import { getEngineStatus, loadEngine, statusJson } from './engine/client'
-import { stopPlayback } from './engine/actions'
+import { performAction, stopPlayback } from './engine/actions'
 import { Toolbar } from './components/Toolbar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -93,6 +93,27 @@ export default function App() {
       window.clearInterval(id)
       stopPlayback()
     }
+  }, [])
+
+  // Global undo/redo shortcuts (Part 29.2: Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y).
+  // Skipped while a text input has focus (so typing undo stays browser-native).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 'z') {
+        e.preventDefault()
+        performAction(e.shiftKey ? 'edit.redo' : 'edit.undo', notify)
+      } else if (key === 'y') {
+        e.preventDefault()
+        performAction('edit.redo', notify)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const notify = (msg: string) => {

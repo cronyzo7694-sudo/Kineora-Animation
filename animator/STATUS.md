@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 83 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 87 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -18,7 +18,7 @@
 | **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
 | **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
 | **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
-| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit)** | interactive frame grid + ruler + playhead scrub, F6/F7/Shift+F6 commands, timeline.rs (10 tests) + TimelineStrip tests |
+| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | REWORKED (UNIT A, this commit) — pending user re-acceptance | interactive frame grid + ruler + playhead scrub, F6/F7/Shift+F6 commands, timeline.rs (14 tests) + TimelineStrip tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -32,6 +32,38 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Timeline interaction correctness (UNIT A rework, per manual FAIL report)
+Root causes (proven from code + knowledge base):
+1. **Ctrl+Z / Ctrl+Shift+Z had NO keyboard binding** (only toolbar tooltips) → undo/redo appeared broken. Fix: global shortcuts (Ctrl+Z undo · Ctrl+Shift+Z / Ctrl+Y redo), skipped while typing in inputs (Part 29.2).
+2. **Every grid mousedown scrubbed the playhead** → selecting a cell was impossible. Fix: hit-area separation — ruler click=jump / ruler drag=scrub / playhead-handle drag=scrub / **cell click = select only (playhead does NOT move)** (blueprint §7.1.4 "click selects the frame(s)"; the KB flags the click-jump-vs-select coupling as a quirk, F-07-03 L.2).
+3. **No frame/keyframe selection** → added: click = select single frame; Shift/Ctrl/Cmd+click = toggle (engineering 07 "frame-based default"; contiguous drag-range selection deferred to UNIT B).
+4. **F6 felt broken** → F6 on an existing CONTENT keyframe is now a no-op with an honest toast (F-07-08 M.1/TS-06); F6 on a BLANK keyframe now copies the pre-blank content (F-07-08 M.2, "F7 then F6 → pre-blank key"); F6 toast says "keyframe copied @ N" (F-07-08 L.2 wording).
+5. **Locked-layer frame ops were inconsistent** (F6 allowed, F7/Shift+F6 blocked) → now ALL THREE frame ops are blocked on locked layers with a clear toast (blueprint Part 20.2 "locked = not editable" + KB F-03-15 "Editable: no"). Lock protects content; frame ops are layer edits.
+6. **Playhead flew past the animation range** → Play now loops 1..derived duration (Part 07 §7.0, engineering REQ-TIM-004 "seek clamps to [1,duration]") instead of a hardcoded 240.
+
+Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyframe drag/move/resize (Part 07 §7.4.9/7.4.11 → UNIT B), frame span/range selection, loop-toggle button (Part 07 §7.1.5), onion skin (Part 15), tweening (Part 09 — NOT touched).
+
+### Manual acceptance matrix — UNIT A (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | draw a rect | solid dot at frame 1 |
+| 2 | click a frame CELL (not ruler) | that cell highlights blue; playhead does NOT move |
+| 3 | click a keyframe cell | keyframe selects (no playhead move) |
+| 4 | Shift+click another cell | both cells selected; Shift+click again removes |
+| 5 | click the RULER at frame 7 | playhead jumps to 7 (red indicator on the number) |
+| 6 | drag on the RULER | playhead scrubs continuously |
+| 7 | drag the playhead HANDLE | playhead scrubs |
+| 8 | click frame 10 (ruler) then F6 | solid dot appears at 10; toast "keyframe copied @ 10" |
+| 9 | press F6 again at frame 10 | NO new dot; toast "frame 10 is already a keyframe"; no extra undo entry |
+| 10 | F7 at frame 15 | hollow dot; stage empty from 15 |
+| 11 | F6 again at frame 15 (the blank) | dot becomes solid; content restored from BEFORE the blank |
+| 12 | Shift+F6 at frame 15 | hollow/solid dot gone; hold reverts |
+| 13 | Ctrl+Z / Ctrl+Shift+Z | each frame op undoes/redoes exactly, one step each |
+| 14 | lock the layer, press F6/F7/Shift+F6 | all three blocked with "locked layer — unlock to edit frames" toast; no undo entry |
+| 15 | Play | loops 1..last keyframe, never past the animation range |
+| 16 | Home / End | jump to frame 1 / last keyframe frame |
+| 17 | export at frame 5 vs 10 | correct per-frame content; no timeline UI/selection leaks |
 
 ## This commit — Timeline + keyframes + frame ops (Part 07 / Part 08 / engineering P3)
 - **Engine**: new undoable commands `InsertBlankKeyframe` (F7 — breaks the hold → empty) and `ClearKeyframe` (Shift+F6 — reverts to hold, keeps length; deleting the last keyframe empties the layer per Part 08 §8.4.2). Derived `timeline_duration` (max keyframe frame, min 1, Part 07 §7.0). Status now carries per-layer keyframe markers (frame + blank flag) + `duration`. Frame ops blocked on locked layers (Part 20.2); allowed on hidden layers.

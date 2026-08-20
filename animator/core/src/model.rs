@@ -193,6 +193,26 @@ impl Document {
         set
     }
 
+    /// F6 copy source: the content of the nearest CONTENT keyframe at or before
+    /// `frame` (blank keyframes hold nothing and are skipped — F-07-08 M.2
+    /// "F7 then F6 → content from the pre-blank key").
+    pub fn content_before_for_keyframe(
+        &self,
+        scene: usize,
+        layer: usize,
+        frame: u32,
+    ) -> Vec<NodeId> {
+        let Some(layer_) = self.layer(scene, layer) else {
+            return vec![];
+        };
+        for (_, fr) in layer_.keyframes.range(..=frame).rev() {
+            if let Frame::Keyframe { content, .. } = fr {
+                return content.clone();
+            }
+        }
+        vec![]
+    }
+
     /// Derived timeline duration (Part 07 §7.0): max keyframe frame across all
     /// layers of the scene, minimum 1. Computed, never stored.
     pub fn timeline_duration(&self, scene: usize) -> u32 {

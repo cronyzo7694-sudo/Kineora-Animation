@@ -309,7 +309,9 @@ impl Command for InsertKeyframe {
         };
         self.prev_entry = layer_.keyframes.get(&self.frame).cloned();
         self.existed = self.prev_entry.is_some();
-        let prev_content = doc.content_at(self.scene, self.layer, self.frame);
+        // F6 copies the PRE-BLANK content (F-07-08 M.2), not the blank's empty
+        // hold — a blank keyframe holds nothing, so skip it when copying.
+        let prev_content = doc.content_before_for_keyframe(self.scene, self.layer, self.frame);
         if let Some(l) = doc.layer_mut(self.scene, self.layer) {
             l.keyframes
                 .insert(self.frame, Frame::keyframe(prev_content));

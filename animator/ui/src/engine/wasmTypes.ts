@@ -116,7 +116,7 @@ export interface KineoraWasm {
   kineora_clear_selection(): void
   kineora_move_selection(dx: number, dy: number): void
   kineora_set_playhead(frame: number): void
-  kineora_insert_keyframe(frame: number): void
+  kineora_insert_keyframe(frame: number): boolean
   kineora_insert_blank_keyframe(frame: number): boolean
   kineora_clear_keyframe(frame: number): boolean
   kineora_undo(): boolean

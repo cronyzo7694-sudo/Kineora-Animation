@@ -134,6 +134,28 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
   })
 })
 
+describe('global undo/redo shortcuts (Part 29.2)', () => {
+  it('Ctrl+Z triggers undo; Ctrl+Shift+Z / Ctrl+Y trigger redo', async () => {
+    render(<App />)
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    expect(await screen.findByTestId('toast')).toHaveTextContent('undo: engine not attached')
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(await screen.findByTestId('toast')).toHaveTextContent('redo: engine not attached')
+    fireEvent.keyDown(window, { key: 'y', ctrlKey: true })
+    expect(await screen.findByTestId('toast')).toHaveTextContent('redo: engine not attached')
+  })
+
+  it('undo shortcuts are skipped while typing in an input', async () => {
+    render(<App />)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: 'z', ctrlKey: true })
+    expect(screen.queryByText('undo: engine not attached')).not.toBeInTheDocument()
+    document.body.removeChild(input)
+  })
+})
+
 describe('export dialog wiring', () => {
   it('the Export toolbar control opens the export dialog (C-31 exp.image)', () => {
     render(<App />)

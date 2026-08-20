@@ -173,13 +173,14 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | Save → Reload | stage size/background/fps restored |
 | L | Export SVG | uses document stage, clips off-stage art, no overlay, unchanged by zoom/pan |
 
-## Timeline + keyframes (current unit)
-- **Real interactive timeline (Part 07)**: frame ruler with numbers (click-to-jump, drag-to-scrub), per-layer frame cells with the blueprint's visual language — solid dot = keyframe, hollow dot = blank keyframe, gray cell = held frame of a content keyframe, white = empty — a draggable red playhead, and a frontmost-first layer column. Everything reads from real engine status; playhead moves are engine view-state; the frontmost layer row click activates that layer.
-- **Frame ops (Part 07 §7.4 / Part 29.5)**: **F6** Insert Keyframe (copy prev content), **F7** Insert Blank Keyframe (breaks the hold → empty), **Shift+F6** Clear Keyframe (revert to hold, keep length) — all undoable Rust commands (`InsertBlankKeyframe`, `ClearKeyframe`), plus Home/End transport. Frame ops are blocked on locked layers (Part 20.2 "protect finished art") and allowed on hidden layers.
-- **Derived duration** (`timeline_duration` = max keyframe frame, min 1) is exposed in status; the timeline renders `max(duration, 60)` cells.
-- **Deferred (later units)**: F5 insert-frame / Shift+F5 delete-frame (span shifting), frame copy/paste/move/reverse, keyframe selection, tweens (Part 09), onion skin (Part 15), audio waveform.
+## Timeline + keyframes (current unit — interaction correctness rework)
+- **Real interactive timeline (Part 07)**: frame ruler (click-to-jump, drag-to-scrub), per-layer frame cells (solid keyframe dots, hollow blank dots, gray held spans, white empty), a draggable red playhead + handle, current-frame indicator, and a frontmost-first layer column.
+- **Hit-area separation** (blueprint §7.1.2–7.1.4 + F-07-03/F-07-04): ruler click/drag and playhead-handle drag move the playhead; **frame-cell click SELECTS the frame without moving the playhead** (Shift/Ctrl+click toggles). Selection is view state (no undo, not persisted).
+- **Frame ops (Part 07 §7.4 / Part 29.5)**: **F6** Insert Keyframe (copies previous content; no-op + honest toast when the frame is already a content keyframe; on a blank keyframe it restores the pre-blank content), **F7** Insert Blank Keyframe, **Shift+F6** Clear Keyframe — all undoable Rust commands. **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y** undo/redo globally (Part 29.2). Home/End transport. Frame ops are blocked on locked layers (Part 20.2 "not editable") with a clear toast; allowed on hidden layers.
+- **Playback loops 1..derived duration** (`timeline_duration` = max keyframe frame, min 1) — the playhead never travels past the animation range (engineering REQ-TIM-004).
+- **Deferred (later units)**: F5 insert-frame / Shift+F5 delete-frame (span shifting), keyframe drag/move/resize (Part 07 §7.4.9/7.4.11), frame span/range selection, loop-toggle button, frame copy/paste/move/reverse, tweens (Part 09), onion skin (Part 15), audio waveform.
 
-Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` "Timeline" matrix.
+Manual test (after `npm run wasm && npm run dev`): see `STATUS.md` "UNIT A" matrix.
 
 ## Export (current unit)
 - **Image export per Part 28.1 / C-31 `exp.image`**: File ▸ Export now opens a dialog with **Format (SVG / PNG / JPEG / WebP)** and **Scale (1×/2×/4×)**, exporting the **current frame** from real engine state.

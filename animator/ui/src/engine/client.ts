@@ -167,8 +167,8 @@ export function redo(): boolean {
   return mod?.kineora_redo() ?? false
 }
 
-export function insertKeyframe(frame: number): void {
-  mod?.kineora_insert_keyframe(frame)
+export function insertKeyframe(frame: number): boolean {
+  return mod?.kineora_insert_keyframe(frame) ?? false
 }
 
 export function insertBlankKeyframe(frame: number): boolean {

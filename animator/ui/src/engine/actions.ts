@@ -62,8 +62,9 @@ export function performAction(id: string, notify: Notify): void {
       {
         const st = statusJson()
         const frame = st?.playhead ?? 1
-        insertKeyframe(frame)
-        notify(`keyframe inserted @ ${frame}`)
+        const active = st?.layers?.[st.active_layer]
+        if (active?.locked) return void notify('keyframe: locked layer — unlock to edit frames')
+        notify(insertKeyframe(frame) ? `keyframe copied @ ${frame}` : `frame ${frame} is already a keyframe`)
       }
       break
     case 'timeline.blank':
@@ -71,7 +72,9 @@ export function performAction(id: string, notify: Notify): void {
       {
         const st = statusJson()
         const frame = st?.playhead ?? 1
-        notify(insertBlankKeyframe(frame) ? `blank keyframe @ ${frame}` : 'blank keyframe: blocked (locked layer)')
+        const active = st?.layers?.[st.active_layer]
+        if (active?.locked) return void notify('blank keyframe: locked layer — unlock to edit frames')
+        notify(insertBlankKeyframe(frame) ? `blank keyframe @ ${frame}` : 'blank keyframe: failed')
       }
       break
     case 'timeline.clear':
@@ -79,6 +82,8 @@ export function performAction(id: string, notify: Notify): void {
       {
         const st = statusJson()
         const frame = st?.playhead ?? 1
+        const active = st?.layers?.[st.active_layer]
+        if (active?.locked) return void notify('clear keyframe: locked layer — unlock to edit frames')
         notify(clearKeyframe(frame) ? `keyframe cleared @ ${frame}` : 'clear keyframe: no keyframe here')
       }
       break
@@ -123,7 +128,11 @@ export function togglePlay(notify: Notify): void {
   playTimer = window.setInterval(() => {
     const st = statusJson()
     if (!st) return
-    const next = (st.playhead % (fps * 10)) + 1 // crude 10-second loop (slice 1)
+    // Loop over the DERIVED duration (Part 07 §7.0; engineering REQ-TIM-004
+    // "seek clamps to [1,duration]") — the playhead never flies past the
+    // animation range.
+    const dur = Math.max(1, st.duration ?? 1)
+    const next = st.playhead >= dur ? 1 : st.playhead + 1
     setPlayhead(next)
   }, Math.round(1000 / fps))
   notify('play: started')

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { EngineStatus } from '../controlRegistry'
 import { evaluate, statusJson } from '../engine/client'
 import { render, type RenderState } from '../render/canvasRenderer'
-import { createViewport, fitViewport, panBy, zoomAt } from '../render/viewport'
+import { createViewport, fitViewport, panBy, zoomAt, type Viewport } from '../render/viewport'
 
 interface Props {
   engine: EngineStatus
@@ -15,10 +15,58 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
+  // Bump this to re-run the render effect → immediate canvas redraw on any
+  // viewport mutation (zoom/pan/fit). This is the interaction-wiring fix:
+  // previously viewport refs changed without triggering a redraw.
+  const [vpVersion, setVpVersion] = useState(0)
   const [zoomReadout, setZoomReadout] = useState('100%')
+  const [panReadout, setPanReadout] = useState('0,0')
   const dragRef = useRef<{ x: number; y: number } | null>(null)
+  const rafRef = useRef<number | null>(null)
 
-  // render loop: redraw whenever props change or the viewport changes
+  // Coalesced redraw: at most one canvas redraw per animation frame, no matter
+  // how many zoom/pan events arrive (Phase-3 Step 7 / rAF strategy).
+  const applyViewport = (vp: Viewport) => {
+    vpRef.current = vp
+    setZoomReadout(`${Math.round(vp.zoom * 100)}%`)
+    setPanReadout(`${Math.round(vp.panX)},${Math.round(vp.panY)}`)
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        setVpVersion((v) => v + 1)
+      })
+    }
+  }
+
+  // cancel any pending rAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
+
+  // Middle-button pan uses WINDOW-level mouse listeners so the drag keeps
+  // working when the pointer leaves the canvas. (Middle button is mouse-only,
+  // and `mousedown` is where browsers trigger autoscroll — handled below.)
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!dragRef.current) return
+      applyViewport(panBy(vpRef.current, e.clientX - dragRef.current.x, e.clientY - dragRef.current.y))
+      dragRef.current = { x: e.clientX, y: e.clientY }
+    }
+    const up = () => {
+      dragRef.current = null
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // render loop: redraw when props, viewport version, or the poll tick change
   useEffect(() => {
     const canvas = canvasRef.current
     const wrap = wrapRef.current
@@ -45,8 +93,7 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       selection: status.selection_rects ?? [],
     }
     render(ctx, vpRef.current, state, viewW, viewH)
-    setZoomReadout(`${Math.round(vpRef.current.zoom * 100)}%`)
-  }, [engine.kind, playhead, tick])
+  }, [engine.kind, playhead, tick, vpVersion])
 
   // initial fit + refit on resize
   useEffect(() => {
@@ -54,50 +101,43 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       const wrap = wrapRef.current
       const status = statusJson()
       if (!wrap || !status) return
-      vpRef.current = fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight)
-      setZoomReadout(`${Math.round(vpRef.current.zoom * 100)}%`)
+      applyViewport(fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight))
     }
     fit()
     const ro = new ResizeObserver(fit)
     if (wrapRef.current) ro.observe(wrapRef.current)
     return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.kind])
 
   const onWheel = (e: React.WheelEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect()
     if (!rect) return
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
-    vpRef.current = zoomAt(vpRef.current, e.clientX - rect.left, e.clientY - rect.top, factor)
-    setZoomReadout(`${Math.round(vpRef.current.zoom * 100)}%`)
+    applyViewport(zoomAt(vpRef.current, e.clientX - rect.left, e.clientY - rect.top, factor))
   }
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    // middle-button drag pans (right-drag panning comes with the tool system)
-    if (e.button === 1) {
-      e.preventDefault()
-      dragRef.current = { x: e.clientX, y: e.clientY }
-      e.currentTarget.setPointerCapture(e.pointerId)
-    }
-  }
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return
-    vpRef.current = panBy(vpRef.current, e.clientX - dragRef.current.x, e.clientY - dragRef.current.y)
+  // Middle-button autoscroll is triggered by `mousedown` in Chrome/Firefox and
+  // is NOT stopped by pointer-event preventDefault — suppress it here, and start
+  // the pan drag (continued by the window-level listeners above).
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 1) return
+    e.preventDefault()
     dragRef.current = { x: e.clientX, y: e.clientY }
   }
-  const onPointerUp = () => {
+
+  // Phase-3 §22: pointer must never be "lost" mid-drag — every end/cancel path
+  // safely terminates the gesture (mouse path handled by window mouseup).
+  const endPan = () => {
     dragRef.current = null
   }
+
   const onDoubleClick = () => {
     const wrap = wrapRef.current
     const status = statusJson()
     if (!wrap || !status) return
-    vpRef.current = fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight)
-    setZoomReadout(`${Math.round(vpRef.current.zoom * 100)}%`)
+    applyViewport(fitViewport(status.doc_width ?? 800, status.doc_height ?? 600, wrap.clientWidth, wrap.clientHeight))
   }
-
-  // (pointer doc-coord readout arrives with the pointer→tool unit; nothing to
-  //  do on hover yet — kept as a no-op hook so future tools can attach here.)
-  const onHover = () => {}
 
   return (
     <div ref={wrapRef} data-testid="stage-wrap" style={{ flex: 1, position: 'relative', background: '#111', minWidth: 0, overflow: 'hidden' }}>
@@ -106,11 +146,10 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
         data-testid="stage-canvas"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
         onWheel={onWheel}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onMouseDown={onMouseDown}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
         onDoubleClick={onDoubleClick}
-        onMouseMove={onHover}
       />
       {engine.kind === 'error' && (
         <div data-testid="stage-notice" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -121,7 +160,7 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
         </div>
       )}
       <div style={{ position: 'absolute', bottom: 4, left: 8, color: '#888', fontSize: 12, pointerEvents: 'none' }}>
-        tool: {tool} · zoom: <span data-testid="zoom-readout">{zoomReadout}</span>
+        tool: {tool} · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span>
       </div>
     </div>
   )

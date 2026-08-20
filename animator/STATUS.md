@@ -8,7 +8,7 @@
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | 6 vitest tests |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
 | **WASM bridge (core ↔ UI)** | MOD-INPUT/BRIDGE | **READY (user-PC verified)** | core/src/wasm.rs + ui/src/engine/client.ts; Blob-URL loader + explicit wasm init |
-| **Canvas renderer** | MOD-RENDER | **IMPLEMENTING (this commit)** | ui/src/render/viewport.ts + canvasRenderer.ts + Stage canvas (zoom/pan/dpr/selection overlay) |
+| **Canvas renderer** | MOD-RENDER | **READY (viewport wiring done)** | viewport.ts + canvasRenderer.ts + Stage (zoom/pan/fit immediate redraw via vpVersion+rAF, autoscroll suppression, drag-end cleanup) |
 | CI (GitHub Actions) | MOD-TEST | **READY (file) / BLOCKED (push: token needs `workflow` scope)** | .github/workflows/ci.yml |
 | Canvas/WebGL renderer consuming RectItem | MOD-RENDER | NOT STARTED | next unit |
 | Pointer→tool gestures → commands | MOD-INPUT | NOT STARTED | |

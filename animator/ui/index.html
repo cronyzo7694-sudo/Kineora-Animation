@@ -4,6 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kineora Animation — 2D Animation Editor</title>
+    <style>
+      /* Kill the browser's default page margin (the white gap around the app). */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      body {
+        background: #101010;
+        color: #ddd;
+      }
+      /* Kineora custom scrollbars — thin, blue, dark track (WebKit + Firefox). */
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #3b82f0 #1c1c1c;
+      }
+      *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      *::-webkit-scrollbar-track {
+        background: #1c1c1c;
+      }
+      *::-webkit-scrollbar-thumb {
+        background: #3b82f0;
+        border-radius: 4px;
+        border: 2px solid #1c1c1c;
+      }
+      *::-webkit-scrollbar-thumb:hover {
+        background: #6aa5f5;
+      }
+      *::-webkit-scrollbar-corner {
+        background: #1c1c1c;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

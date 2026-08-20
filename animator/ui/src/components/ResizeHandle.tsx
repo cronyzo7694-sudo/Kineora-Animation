@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 interface Props {
   testId: string
@@ -16,15 +16,19 @@ interface Props {
 
 /**
  * Reusable panel splitter (C-06 §pnl.resize: 6px edges, live preview, min/max
- * clamp by the caller). Mouse-driven with window-level listeners (same pattern
- * as the Stage gestures) so the drag survives leaving the handle. Cancel-safe
- * (C-34): Escape / pointercancel / lostpointercapture / window blur all end the
- * drag — cancellation reverts via `onCancel`. preventDefault + stopPropagation
- * keep the drag from bleeding into the Stage or other panels. Resizing is pure
- * workspace VIEW state (Part 01 §1.1.2) — it never touches the engine or undo.
+ * clamp by the caller). The 6px strip stays as the invisible grab area; a thin
+ * 2px line is drawn in its centre so the divider reads clean and takes no
+ * visual space (dark at rest → blue on hover → bright blue while dragging).
+ * Mouse-driven with window-level listeners (same pattern as the Stage
+ * gestures) so the drag survives leaving the handle. Cancel-safe (C-34):
+ * Escape / pointercancel / lostpointercapture / window blur all end the drag —
+ * cancellation reverts via `onCancel`. Resizing is pure workspace VIEW state
+ * (Part 01 §1.1.2) — it never touches the engine or undo.
  */
 export function ResizeHandle({ testId, orientation = 'horizontal', direction, onBegin, onDelta, onCancel }: Props) {
   const dragRef = useRef<{ pos: number } | null>(null)
+  const [hover, setHover] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const vertical = orientation === 'vertical'
 
   const onMouseDown = (e: React.MouseEvent) => {
@@ -32,6 +36,7 @@ export function ResizeHandle({ testId, orientation = 'horizontal', direction, on
     e.preventDefault()
     e.stopPropagation()
     dragRef.current = { pos: vertical ? e.clientY : e.clientX }
+    setDragging(true)
     onBegin?.()
 
     const axis = vertical ? (ev: MouseEvent) => ev.clientY : (ev: MouseEvent) => ev.clientX
@@ -49,6 +54,7 @@ export function ResizeHandle({ testId, orientation = 'horizontal', direction, on
     }
     const cleanup = () => {
       dragRef.current = null
+      setDragging(false)
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', cleanup)
       window.removeEventListener('keydown', onKey)
@@ -67,6 +73,8 @@ export function ResizeHandle({ testId, orientation = 'horizontal', direction, on
     document.addEventListener('lostpointercapture', cancel)
   }
 
+  const lineColor = dragging ? '#0a7cff' : hover ? '#3d6a99' : '#2c2c2c'
+
   return (
     <div
       data-testid={testId}
@@ -74,12 +82,28 @@ export function ResizeHandle({ testId, orientation = 'horizontal', direction, on
       aria-label="Resize panel"
       aria-orientation={vertical ? 'horizontal' : 'vertical'}
       onMouseDown={onMouseDown}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         flexShrink: 0,
         touchAction: 'none',
         cursor: vertical ? 'row-resize' : 'col-resize',
+        position: 'relative',
+        background: 'transparent',
         ...(vertical ? { height: 6, width: '100%' } : { width: 6, height: '100%' }),
       }}
-    />
+    >
+      <div
+        style={{
+          position: 'absolute',
+          background: lineColor,
+          borderRadius: 1,
+          transition: 'background 0.12s ease',
+          ...(vertical
+            ? { left: 0, right: 0, top: '50%', height: 2, transform: 'translateY(-50%)' }
+            : { top: 0, bottom: 0, left: '50%', width: 2, transform: 'translateX(-50%)' }),
+        }}
+      />
+    </div>
   )
 }

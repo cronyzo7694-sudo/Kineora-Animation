@@ -3,7 +3,6 @@ import { getCommand, type CommandContext } from '../commands'
 import { menus, type MenuDef, type MenuEntry } from '../menus'
 
 // ——— style tokens (Kineora identity: dark slate + cyan accents) ———
-const barBg = '#1a1a1a'
 const itemBg = '#232323'
 const hoverBg = '#0a3f7f'
 const text = '#ddd'
@@ -63,7 +62,7 @@ export function MenuBar({ ctx }: MenuBarProps) {
   }
 
   return (
-    <div ref={barRef} data-testid="menu-bar" role="menubar" aria-label="Main menu" style={{ display: 'flex', background: barBg, borderBottom: `1px solid ${border}`, userSelect: 'none' }}>
+    <div ref={barRef} data-testid="menu-bar" role="menubar" aria-label="Main menu" style={{ display: 'flex', background: 'transparent', userSelect: 'none' }}>
       {menus.map((m) => (
         <TopMenu
           key={m.id}

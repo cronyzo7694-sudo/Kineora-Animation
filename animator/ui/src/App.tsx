@@ -216,13 +216,13 @@ export default function App() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Title bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', background: '#101010', borderBottom: '1px solid #2a2a2a' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ color: '#8ef', fontSize: 15, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
-          <span style={{ color: '#666', fontSize: 11 }}>v{VERSION}</span>
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#101010' }}>
+      {/* Single top bar: menus on the left, brand + version + reset on the right */}
+      <div style={{ display: 'flex', alignItems: 'center', background: '#101010', borderBottom: '1px solid #2a2a2a', paddingRight: 10 }}>
+        <MenuBar ctx={ctx} />
+        <div style={{ flex: 1 }} />
+        <span style={{ color: '#8ef', fontSize: 14, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
+        <span style={{ color: '#666', fontSize: 11, margin: '0 12px 0 8px' }}>v{VERSION}</span>
         <button
           data-testid="reset-workspace"
           aria-label="Reset workspace layout"
@@ -233,8 +233,6 @@ export default function App() {
           ⟲ Reset Workspace
         </button>
       </div>
-      {/* Menu bar */}
-      <MenuBar ctx={ctx} />
       {/* Tools toolbar (Window ▸ Tools) */}
       {panels.tools && <Toolbar controls={controls} ctx={ctx} />}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

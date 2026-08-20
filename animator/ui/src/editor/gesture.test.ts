@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DRAG_THRESHOLD_PX, pastDragThreshold, screenDeltaToDoc } from './gesture'
+import { DRAG_THRESHOLD_PX, MIN_RECT_DIM, isValidRect, normalizeRect, pastDragThreshold, screenDeltaToDoc } from './gesture'
 
 describe('pointer→tool gesture math (select + move)', () => {
   it('drag threshold is 3px and rejects sub-threshold movement', () => {
@@ -32,5 +32,31 @@ describe('pointer→tool gesture math (select + move)', () => {
     // pan is a screen translation; the delta between two screen points is
     // pan-independent, so the doc delta depends only on zoom.
     expect(screenDeltaToDoc(30, 40, 1)).toEqual({ x: 30, y: 40 })
+  })
+})
+
+describe('rect normalization (4 draw directions + minimums)', () => {
+  it('normalizes top-left → bottom-right (already positive)', () => {
+    expect(normalizeRect(0, 0, 100, 50)).toEqual({ x: 0, y: 0, w: 100, h: 50 })
+  })
+
+  it('normalizes bottom-right → top-left (negative drag)', () => {
+    expect(normalizeRect(100, 50, 0, 0)).toEqual({ x: 0, y: 0, w: 100, h: 50 })
+  })
+
+  it('normalizes top-right → bottom-left (negative x)', () => {
+    expect(normalizeRect(100, 0, 0, 50)).toEqual({ x: 0, y: 0, w: 100, h: 50 })
+  })
+
+  it('normalizes bottom-left → top-right (negative y)', () => {
+    expect(normalizeRect(0, 50, 100, 0)).toEqual({ x: 0, y: 0, w: 100, h: 50 })
+  })
+
+  it('valid rects pass; zero and sub-minimum rects are rejected', () => {
+    expect(isValidRect({ x: 0, y: 0, w: 100, h: 50 })).toBe(true)
+    expect(isValidRect({ x: 0, y: 0, w: 0, h: 0 })).toBe(false) // click → no rect
+    expect(isValidRect({ x: 0, y: 0, w: 100, h: 0 })).toBe(false) // zero height
+    expect(isValidRect({ x: 0, y: 0, w: MIN_RECT_DIM, h: MIN_RECT_DIM })).toBe(true)
+    expect(isValidRect({ x: 0, y: 0, w: MIN_RECT_DIM - 0.1, h: 5 })).toBe(false)
   })
 })

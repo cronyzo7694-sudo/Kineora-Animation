@@ -23,13 +23,15 @@ vi.mock('../engine/client', () => ({
   evaluate: () => [{ id: 1, x: 0, y: 0, w: 100, h: 100, fill: '#ff0000', stroke: null, stroke_width: 0 }],
   selectAt: vi.fn((_x: number, _y: number) => true),
   moveSelection: vi.fn(),
+  drawRect: vi.fn((_x: number, _y: number, _w: number, _h: number, _fill: string) => 2),
 }))
 
-import { moveSelection, selectAt } from '../engine/client'
+import { drawRect, moveSelection, selectAt } from '../engine/client'
 import { Stage } from './Stage'
 
 const selectAtMock = vi.mocked(selectAt)
 const moveSelectionMock = vi.mocked(moveSelection)
+const drawRectMock = vi.mocked(drawRect)
 
 function renderStage(tool = 'select') {
   return render(<Stage engine={{ kind: 'ok', detail: 'mock' }} tool={tool} playhead={1} tick={0} />)
@@ -212,5 +214,101 @@ describe('Stage select + move gestures', () => {
     fireEvent.mouseUp(window)
     expect(selectAtMock).not.toHaveBeenCalled()
     expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Stage rect-tool drawing', () => {
+  beforeEach(() => {
+    drawRectMock.mockClear()
+    moveSelectionMock.mockClear()
+  })
+
+  function renderRectStage() {
+    return render(<Stage engine={{ kind: 'ok', detail: 'mock' }} tool="rect" playhead={1} tick={0} />)
+  }
+
+  it('drag creates exactly ONE rect with normalized doc-space geometry', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 20 })
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 70 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    // zoom is 1 after fit → screen == doc
+    expect(drawRectMock).toHaveBeenCalledWith(10, 20, 100, 50, '#3f9bf5')
+  })
+
+  it('reverse-direction drag normalizes to positive width/height', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 110, clientY: 70 }) // bottom-right
+    fireEvent.mouseMove(window, { clientX: 10, clientY: 20 }) // → top-left
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    expect(drawRectMock).toHaveBeenCalledWith(10, 20, 100, 50, '#3f9bf5')
+  })
+
+  it('sub-threshold click creates NO rect (no accidental object)', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 2, clientY: 1 })
+    fireEvent.mouseUp(window)
+    expect(drawRectMock).not.toHaveBeenCalled()
+  })
+
+  it('pointer cancel discards the draw — NO rect, NO command', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
+    fireEvent.pointerCancel(canvas)
+    fireEvent.mouseUp(window)
+    expect(drawRectMock).not.toHaveBeenCalled()
+  })
+
+  it('two separate drags create two rect commands', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 50, clientY: 50 })
+    fireEvent.mouseUp(window)
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 60, clientY: 60 })
+    fireEvent.mouseMove(window, { clientX: 90, clientY: 90 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('draw uses document coordinates under zoom (screen px ÷ zoom)', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.wheel(canvas, { deltaY: -100 }) // zoom to 110%
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('110%'))
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 11, clientY: 22 })
+    fireEvent.mouseMove(window, { clientX: 22, clientY: 33 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    // 11px @1.1 zoom = 10 doc px; 22→22px=20doc
+    expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(10, 5)
+    expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(10, 5)
+  })
+
+  it('draw after pan keeps document coordinates correct', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    // pan (20,10)
+    fireEvent.mouseDown(canvas, { button: 1, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 20, clientY: 10 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('20,10'))
+    // draw: screen (100,100)→(200,150); pan(20,10) → doc (80,90)→(180,140) = w100 h50
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseMove(window, { clientX: 200, clientY: 150 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    expect(drawRectMock.mock.calls[0][0]).toBeCloseTo(80, 5)
+    expect(drawRectMock.mock.calls[0][1]).toBeCloseTo(90, 5)
+    expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(100, 5)
+    expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(50, 5)
   })
 })

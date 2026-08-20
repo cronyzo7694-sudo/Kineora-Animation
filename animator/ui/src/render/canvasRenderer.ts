@@ -18,6 +18,9 @@ export interface RenderState {
   /** Editor-only drag preview: selected objects are drawn translated by this
    *  DOCUMENT-space delta. `null` = no drag in progress. Never exported. */
   previewDelta?: { x: number; y: number } | null
+  /** Editor-only draw preview: DOCUMENT-space rect being drawn (Rect tool).
+   *  `null` = no draw in progress. Never exported. */
+  previewRect?: { x: number; y: number; w: number; h: number } | null
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -45,6 +48,22 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
   for (const sel of s.selection) {
     drawSelection(ctx, vp, sel, preview)
   }
+
+  // rect draw preview (editor-only, never exported)
+  if (s.previewRect) {
+    drawRectPreview(ctx, vp, s.previewRect)
+  }
+}
+
+function drawRectPreview(ctx: CanvasRenderingContext2D, vp: Viewport, r: { x: number; y: number; w: number; h: number }): void {
+  const sr = docRectToScreen(vp, r)
+  ctx.fillStyle = 'rgba(63, 155, 245, 0.2)'
+  ctx.fillRect(sr.x, sr.y, sr.w, sr.h)
+  ctx.strokeStyle = '#3f9bf5'
+  ctx.lineWidth = 1
+  ctx.setLineDash([4, 3])
+  ctx.strokeRect(sr.x, sr.y, sr.w, sr.h)
+  ctx.setLineDash([])
 }
 
 function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: { x: number; y: number }): void {

@@ -30,3 +30,38 @@ export function screenDeltaToDocDistance(dxScreen: number, dyScreen: number, zoo
   const d = screenDeltaToDoc(dxScreen, dyScreen, zoom)
   return Math.hypot(d.x, d.y)
 }
+
+// ——— Rect drawing (draw direction normalization + minimums) ———
+
+/**
+ * Minimum drawn-rect dimension in DOCUMENT units. Source-of-truth (Phase 1/2)
+ * defines no shape minimum (only a 2px import minimum for bitmaps), so this is
+ * [ENGINEERING DECISION]: a zero/sub-1px rectangle is a click — it creates no
+ * object and no undo command.
+ */
+export const MIN_RECT_DIM = 1.0
+
+export interface DocRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Normalize a corner-to-corner drag into a rect with a top-left origin and
+ * positive width/height. Supports all four drag directions.
+ */
+export function normalizeRect(ax: number, ay: number, bx: number, by: number): DocRect {
+  return {
+    x: Math.min(ax, bx),
+    y: Math.min(ay, by),
+    w: Math.abs(bx - ax),
+    h: Math.abs(by - ay),
+  }
+}
+
+/** True when a normalized rect is big enough to create an object. */
+export function isValidRect(r: DocRect): boolean {
+  return r.w >= MIN_RECT_DIM && r.h >= MIN_RECT_DIM
+}

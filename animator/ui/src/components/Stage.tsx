@@ -3,7 +3,8 @@ import type { EngineStatus } from '../controlRegistry'
 import { evaluate, moveSelection, selectAt, statusJson } from '../engine/client'
 import { render, type RenderState } from '../render/canvasRenderer'
 import { createViewport, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
-import { pastDragThreshold, screenDeltaToDoc } from '../editor/gesture'
+import { pastDragThreshold, screenDeltaToDoc, normalizeRect, isValidRect } from '../editor/gesture'
+import { drawRect } from '../engine/client'
 
 interface Props {
   engine: EngineStatus
@@ -13,6 +14,12 @@ interface Props {
 }
 
 interface SelectGesture {
+  startX: number // screen CSS px at pointerdown
+  startY: number
+  dragging: boolean // passed the drag threshold
+}
+
+interface RectGesture {
   startX: number // screen CSS px at pointerdown
   startY: number
   dragging: boolean // passed the drag threshold
@@ -33,6 +40,8 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
   const panDragRef = useRef<{ x: number; y: number } | null>(null)
   const selectGestureRef = useRef<SelectGesture | null>(null)
   const previewRef = useRef<{ x: number; y: number } | null>(null)
+  const rectGestureRef = useRef<RectGesture | null>(null)
+  const rectPreviewRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const rafRef = useRef<number | null>(null)
 
   // Coalesced redraw: at most one canvas redraw per animation frame (Phase-3 rAF).
@@ -76,15 +85,33 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
 
       // select-tool drag (left button)
       const g = selectGestureRef.current
-      if (!g || toolRef.current !== 'select') return
-      const sx = e.clientX - rect.left
-      const sy = e.clientY - rect.top
-      if (!g.dragging) {
-        if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return // click, not yet a drag
-        g.dragging = true
+      if (g && toolRef.current === 'select') {
+        const sx = e.clientX - rect.left
+        const sy = e.clientY - rect.top
+        if (!g.dragging) {
+          if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return // click, not yet a drag
+          g.dragging = true
+        }
+        previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
+        scheduleRedraw()
+        return
       }
-      previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
-      scheduleRedraw()
+
+      // rect-tool draw (left button): preview a normalized doc-space rect
+      const rg = rectGestureRef.current
+      if (rg && toolRef.current === 'rect') {
+        const sx = e.clientX - rect.left
+        const sy = e.clientY - rect.top
+        if (!rg.dragging) {
+          if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return // click, not yet a draw
+          rg.dragging = true
+        }
+        const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
+        const b = screenToDoc(vpRef.current, sx, sy)
+        rectPreviewRef.current = normalizeRect(a.x, a.y, b.x, b.y)
+        scheduleRedraw()
+        return
+      }
     }
 
     const up = () => {
@@ -98,6 +125,14 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
         moveSelection(p.x, p.y)
       }
+      // end rect draw → COMMIT exactly one DrawRect command (if valid)
+      const rg = rectGestureRef.current
+      rectGestureRef.current = null
+      const rp = rectPreviewRef.current
+      rectPreviewRef.current = null
+      if (rg?.dragging && rp && isValidRect(rp)) {
+        drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
+      }
       scheduleRedraw()
     }
 
@@ -106,6 +141,8 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       panDragRef.current = null
       selectGestureRef.current = null
       previewRef.current = null
+      rectGestureRef.current = null
+      rectPreviewRef.current = null
       scheduleRedraw()
     }
 
@@ -148,6 +185,7 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       items,
       selection: status.selection_rects ?? [],
       previewDelta: previewRef.current,
+      previewRect: rectPreviewRef.current,
     }
     render(ctx, vpRef.current, state, viewW, viewH)
   }, [engine.kind, playhead, tick, redrawVersion])
@@ -197,6 +235,15 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       selectGestureRef.current = hit ? { startX: sx, startY: sy, dragging: false } : null
       previewRef.current = null
       scheduleRedraw() // selection overlay updates immediately
+      return
+    }
+
+    if (e.button === 0 && toolRef.current === 'rect') {
+      // left button + Rect tool: arm a draw gesture (preview only; the real
+      // object is created on mouseup, and only if it passes MIN_RECT_DIM).
+      rectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+      rectPreviewRef.current = null
+      scheduleRedraw()
     }
   }
 

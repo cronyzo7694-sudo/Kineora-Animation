@@ -96,4 +96,47 @@ describe('canvas renderer contract', () => {
     expect(fills[1]).toEqual([5, 3, 10, 10])
     expect(fills[2]).toEqual([100, 0, 10, 10])
   })
+
+  it('rect draw preview is drawn AFTER content (editor-only, translucent fill)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const fills: Array<Array<number>> = []
+    const fillStyles: string[] = []
+    const ctx = {
+      clearRect: () => {},
+      fillRect: (...a: number[]) => fills.push(a),
+      strokeRect: () => {},
+      setLineDash: () => {},
+      set fillStyle(v: string) {
+        fillStyles.push(v)
+      },
+      set strokeStyle(_v: string) {},
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return fillStyles[fillStyles.length - 1] ?? ''
+      },
+      get strokeStyle() {
+        return ''
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+
+    render(
+      ctx,
+      { zoom: 2, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        items: [],
+        selection: [],
+        previewRect: { x: 10, y: 20, w: 30, h: 40 }, // doc-space
+      },
+      200,
+      200,
+    )
+
+    // fills[0] = background; fills[1] = preview rect at screen coords (×2 zoom)
+    expect(fills[1]).toEqual([20, 40, 60, 80])
+    expect(fillStyles).toContain('rgba(63, 155, 245, 0.2)')
+  })
 })

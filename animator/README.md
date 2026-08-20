@@ -59,6 +59,28 @@ Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo bu
 
 Manual test (after `npm run dev`): create doc → draw rect (engine) → rect visible on Stage → select it → blue dashed selection box + handles → **wheel-zoom (immediate) / middle-drag pan (immediate + smooth, no browser autoscroll) / double-click fit (immediate)** → Play → stage updates → Export SVG → no selection box in the SVG.
 
+## Rect tool (current unit)
+- `ui/src/editor/gesture.ts` — `normalizeRect` (4 draw directions → top-left origin + positive w/h) + `MIN_RECT_DIM` (1 doc px; zero/sub-min drag = click → no object, [ENGINEERING DECISION]).
+- Rect tool (left button): drag → translucent preview (editor-only) → mouseup → ONE `drawRect` command (real Rust node). Reverse-drag normalizes; sub-threshold click and pointer-cancel create nothing.
+- Rust `DrawRect` already does `ensure_keyframe` (F6 copy-prev) — drawing at a held frame auto-keys and PRESERVES existing content (Phase-1 Part 02b field 16 semantics); undo removes the keyframe exactly.
+
+Manual test (after `npm run wasm && npm run dev`):
+| # | Action | Expect |
+|---|---|---|
+| A | Select Rect tool | tool readout shows "rect" |
+| B | drag on stage | translucent preview follows cursor |
+| C | release | a real blue rectangle appears |
+| D | draw at 50% / 200% zoom | correct doc-size rect (no screen-px drift) |
+| E | pan, then draw | correct position (doc coords) |
+| F | drag bottom-right → top-left | rectangle normalizes (positive w/h) |
+| G | switch to Select, click the rect | selection overlay appears |
+| H | drag the rect | it moves (Select + Move path) |
+| I | Undo | move reverts |
+| J | Redo | move reapplies |
+| K | Rect tool, click (no drag) or Esc/cancel | no rectangle created |
+| L | draw a second rectangle | appears; two Undos remove both |
+| M | Export SVG | both rects present, no selection/preview overlays |
+
 ## Select + Move (current unit)
 - `ui/src/editor/gesture.ts` — pure drag math: 3px threshold, screen→doc delta (÷zoom), pan-independent. Unit-tested.
 - Select tool (left button): screen→doc via viewport, engine hit-test (`selectAt`), selection overlay updates immediately; drag preview is renderer-only (never a document write); pointerup commits exactly ONE `MoveSelection` command (undoable); pointercancel/blur discard with no command.

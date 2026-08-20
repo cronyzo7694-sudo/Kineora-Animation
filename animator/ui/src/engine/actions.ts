@@ -4,9 +4,11 @@
 
 import {
   clearKeyframe,
+  deleteFrame,
   getEngine,
   getEngineStatus,
   insertBlankKeyframe,
+  insertFrame,
   insertKeyframe,
   projectJson,
   redo,
@@ -85,6 +87,26 @@ export function performAction(id: string, notify: Notify): void {
         const active = st?.layers?.[st.active_layer]
         if (active?.locked) return void notify('clear keyframe: locked layer — unlock to edit frames')
         notify(clearKeyframe(frame) ? `keyframe cleared @ ${frame}` : 'clear keyframe: no keyframe here')
+      }
+      break
+    case 'timeline.insertframe':
+      if (!engineAttached()) return void notify(notAttached('insert frame'))
+      {
+        const st = statusJson()
+        const frame = st?.playhead ?? 1
+        const active = st?.layers?.[st.active_layer]
+        if (active?.locked) return void notify('insert frame: locked layer — unlock to edit frames')
+        notify(insertFrame(frame) ? `frame inserted @ ${frame}` : 'insert frame: nothing after the playhead to shift')
+      }
+      break
+    case 'timeline.deleteframe':
+      if (!engineAttached()) return void notify(notAttached('delete frame'))
+      {
+        const st = statusJson()
+        const frame = st?.playhead ?? 1
+        const active = st?.layers?.[st.active_layer]
+        if (active?.locked) return void notify('delete frame: locked layer — unlock to edit frames')
+        notify(deleteFrame(frame) ? `frame deleted @ ${frame}` : 'delete frame: nothing to remove here')
       }
       break
     case 'file.save':

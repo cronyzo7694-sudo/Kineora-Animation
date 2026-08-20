@@ -279,6 +279,34 @@ pub fn kineora_clear_keyframe(frame: u32) -> bool {
     with_session(|s| s.clear_keyframe(frame)).unwrap_or(false)
 }
 
+/// F5 — insert a frame (extend the hold at `frame`; later keyframes shift
+/// right). Returns false on no-op / locked layer.
+#[wasm_bindgen]
+pub fn kineora_insert_frame(frame: u32) -> bool {
+    with_session(|s| s.insert_frame(frame)).unwrap_or(false)
+}
+
+/// Shift+F5 — delete one frame at `frame` (later keyframes shift left).
+/// Returns false on no-op / locked layer.
+#[wasm_bindgen]
+pub fn kineora_delete_frame(frame: u32) -> bool {
+    with_session(|s| s.delete_frame(frame)).unwrap_or(false)
+}
+
+/// Drag a keyframe on `layer` from `from` to `to` (Part 07 §7.4.9). Returns
+/// false on no-op / collision / locked layer.
+#[wasm_bindgen]
+pub fn kineora_move_keyframe(layer: u32, from: u32, to: u32) -> bool {
+    with_session(|s| s.move_keyframe(layer as usize, from, to)).unwrap_or(false)
+}
+
+/// Alt/Option-drag a keyframe to duplicate it (F-07-12 E1). Returns false on
+/// no-op / collision / locked layer.
+#[wasm_bindgen]
+pub fn kineora_duplicate_keyframe(layer: u32, from: u32, to: u32) -> bool {
+    with_session(|s| s.duplicate_keyframe(layer as usize, from, to)).unwrap_or(false)
+}
+
 #[wasm_bindgen]
 pub fn kineora_undo() -> bool {
     with_session(|s| s.undo()).unwrap_or(false)

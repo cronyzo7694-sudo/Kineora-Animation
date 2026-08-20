@@ -119,6 +119,10 @@ export interface KineoraWasm {
   kineora_insert_keyframe(frame: number): boolean
   kineora_insert_blank_keyframe(frame: number): boolean
   kineora_clear_keyframe(frame: number): boolean
+  kineora_insert_frame(frame: number): boolean
+  kineora_delete_frame(frame: number): boolean
+  kineora_move_keyframe(layer: number, from: number, to: number): boolean
+  kineora_duplicate_keyframe(layer: number, from: number, to: number): boolean
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

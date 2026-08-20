@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use crate::command::{
-    ClearKeyframe, CreateLayer, DeleteLayer, DrawRect, History, InsertBlankKeyframe,
-    InsertKeyframe, MoveSelection, RenameLayer, ReorderLayer, SetDocumentSettings, SetLayerLocked,
-    SetLayerVisible, SetNodeProps, TransformSelection,
+    ClearKeyframe, CreateLayer, DeleteFrames, DeleteLayer, DrawRect, DuplicateKeyframe, History,
+    InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe, MoveSelection, RenameLayer,
+    ReorderLayer, SetDocumentSettings, SetLayerLocked, SetLayerVisible, SetNodeProps,
+    TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
 use crate::export::{export_svg, export_svg_scaled};
@@ -279,6 +280,115 @@ impl Session {
     /// Derived timeline duration (max keyframe frame, min 1) — Part 07 §7.0.
     pub fn timeline_duration(&self) -> u32 {
         self.doc.timeline_duration(self.active_scene)
+    }
+
+    /// F5 — insert a frame at `frame` on the ACTIVE layer: every keyframe
+    /// AFTER `frame` shifts right by one (the hold covering `frame` extends).
+    /// No-op (no command) when there is nothing to shift or the layer is locked.
+    pub fn insert_frame(&mut self, frame: u32) -> bool {
+        let scene = self.active_scene;
+        let layer = self.active_layer;
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("insert-frame:blocked(locked)");
+            return false;
+        }
+        let any_later = l.keyframes.keys().any(|k| *k > frame);
+        if !any_later {
+            self.log("insert-frame:(nothing to shift)");
+            return false;
+        }
+        let cmd = InsertFrames::new(scene, layer, frame);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("insert-frame@{frame}"));
+        true
+    }
+
+    /// Shift+F5 — delete one frame at `frame` on the ACTIVE layer: a keyframe
+    /// there is removed, and every keyframe AFTER `frame` shifts left by one
+    /// (timeline shortens). No-op (no command) when nothing is affected or the
+    /// layer is locked.
+    pub fn delete_frame(&mut self, frame: u32) -> bool {
+        let scene = self.active_scene;
+        let layer = self.active_layer;
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("delete-frame:blocked(locked)");
+            return false;
+        }
+        let has_at = l.keyframes.contains_key(&frame);
+        let has_later = l.keyframes.keys().any(|k| *k > frame);
+        if !has_at && !has_later {
+            self.log("delete-frame:(nothing)");
+            return false;
+        }
+        let cmd = DeleteFrames::new(scene, layer, frame);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("delete-frame@{frame}"));
+        true
+    }
+
+    /// Drag a keyframe in time (Part 07 §7.4.9): relocate the record on `layer`
+    /// (which may be any visible layer, not just the active one). No-op when
+    /// from==to, no keyframe at `from`, a keyframe already at `to` (collision —
+    /// overwrite prompt is a later unit), `to < 1`, or the layer is locked.
+    pub fn move_keyframe(&mut self, layer: usize, from: u32, to: u32) -> bool {
+        let scene = self.active_scene;
+        if from == to || to < 1 {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("move-keyframe:blocked(locked)");
+            return false;
+        }
+        if !l.keyframes.contains_key(&from) {
+            self.log("move-keyframe:(no source)");
+            return false;
+        }
+        if l.keyframes.contains_key(&to) {
+            self.log("move-keyframe:(target occupied)");
+            return false;
+        }
+        let cmd = MoveKeyframe::new(scene, layer, from, to);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("move-keyframe:{from}→{to}"));
+        true
+    }
+
+    /// Alt/Option-drag a keyframe to DUPLICATE it (F-07-12 E1): deep-copy the
+    /// record at `from` into `to` on `layer`. No-op on the same guards as move
+    /// (collision blocked; the source must exist; `to` must be free).
+    pub fn duplicate_keyframe(&mut self, layer: usize, from: u32, to: u32) -> bool {
+        let scene = self.active_scene;
+        if to < 1 {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("duplicate-keyframe:blocked(locked)");
+            return false;
+        }
+        if !l.keyframes.contains_key(&from) {
+            self.log("duplicate-keyframe:(no source)");
+            return false;
+        }
+        if l.keyframes.contains_key(&to) {
+            self.log("duplicate-keyframe:(target occupied)");
+            return false;
+        }
+        let cmd = DuplicateKeyframe::new(scene, layer, from, to);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("duplicate-keyframe:{from}→{to}"));
+        true
     }
 
     // ——— Layers (MOD-LAYER, Part 20) ———

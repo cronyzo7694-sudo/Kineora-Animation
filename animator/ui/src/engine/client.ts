@@ -179,6 +179,22 @@ export function clearKeyframe(frame: number): boolean {
   return mod?.kineora_clear_keyframe(frame) ?? false
 }
 
+export function insertFrame(frame: number): boolean {
+  return mod?.kineora_insert_frame(frame) ?? false
+}
+
+export function deleteFrame(frame: number): boolean {
+  return mod?.kineora_delete_frame(frame) ?? false
+}
+
+export function moveKeyframe(layer: number, from: number, to: number): boolean {
+  return mod?.kineora_move_keyframe(layer, from, to) ?? false
+}
+
+export function duplicateKeyframe(layer: number, from: number, to: number): boolean {
+  return mod?.kineora_duplicate_keyframe(layer, from, to) ?? false
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

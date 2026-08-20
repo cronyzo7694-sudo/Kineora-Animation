@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { performAction } from '../engine/actions'
-import { setActiveLayer, setPlayhead } from '../engine/client'
+import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
 import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
 
 /** Cell width in px (exported for tests). */
@@ -70,6 +70,7 @@ export function TimelineStrip({ status, notify }: Props) {
   cellsRef.current = cells
   const statusRef = useRef<StatusJson | null>(status)
   statusRef.current = status
+  const keyDragRef = useRef<{ layer: number; from: number; startX: number; moved: boolean } | null>(null)
 
   const attached = status !== null
   const playhead = status?.playhead ?? 1
@@ -132,14 +133,11 @@ export function TimelineStrip({ status, notify }: Props) {
   }
 
   // frame cell: click = select (no playhead move); shift/ctrl/cmd = toggle
-  const onCellDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    e.stopPropagation()
+  const selectCell = (layerIdx: number, frame: number, toggle: boolean) => {
     const key = `${layerIdx}:${frame}`
     setSelectedFrames((prev) => {
       const next = new Set(prev)
-      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      if (toggle) {
         if (next.has(key)) next.delete(key)
         else next.add(key)
       } else {
@@ -150,12 +148,70 @@ export function TimelineStrip({ status, notify }: Props) {
     })
   }
 
+  const onCellDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    selectCell(layerIdx, frame, e.shiftKey || e.ctrlKey || e.metaKey)
+  }
+
+  // keyframe dot: drag = move (Alt = duplicate) — one command on release;
+  // plain click (below 3px) = select the cell; Escape cancels; zero delta = no
+  // command (Part 07 §7.4.9 / F-07-12 E1/E2).
+  const onDotDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
+    if (e.button !== 0) return
+    const locked = layers[layerIdx]?.locked ?? false
+    if (locked) return // let the cell click-through select; engine blocks edits
+    e.preventDefault()
+    e.stopPropagation()
+    keyDragRef.current = { layer: layerIdx, from: frame, startX: e.clientX, moved: false }
+    const move = (ev: MouseEvent) => {
+      const g = keyDragRef.current
+      if (!g) return
+      if (!g.moved && Math.abs(ev.clientX - g.startX) < 3) return
+      g.moved = true
+    }
+    const up = (ev: MouseEvent) => {
+      const g = keyDragRef.current
+      keyDragRef.current = null
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('keydown', onKey)
+      if (!g) return
+      if (!g.moved) {
+        selectCell(g.layer, g.from, false) // plain click on the dot = select
+        return
+      }
+      const target = frameFromClientX(ev.clientX)
+      if (target === g.from) return // zero movement → no command
+      if (ev.altKey) {
+        notify(duplicateKeyframe(g.layer, g.from, target) ? `keyframe duplicated ${g.from} → ${target}` : 'duplicate keyframe: target occupied or locked')
+      } else {
+        notify(moveKeyframe(g.layer, g.from, target) ? `keyframe moved ${g.from} → ${target}` : 'move keyframe: target occupied or locked')
+      }
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        keyDragRef.current = null
+        window.removeEventListener('mousemove', move)
+        window.removeEventListener('mouseup', up)
+        window.removeEventListener('keydown', onKey)
+      }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    window.addEventListener('keydown', onKey)
+  }
+
   // keyboard frame ops + transport (Part 29.5/29.6)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (e.key === 'F6') {
+      if (e.key === 'F5') {
+        e.preventDefault()
+        performAction(e.shiftKey ? 'timeline.deleteframe' : 'timeline.insertframe', notify)
+      } else if (e.key === 'F6') {
         e.preventDefault()
         performAction(e.shiftKey ? 'timeline.clear' : 'timeline.keyframe', notify)
       } else if (e.key === 'F7') {
@@ -200,6 +256,8 @@ export function TimelineStrip({ status, notify }: Props) {
         {btn('timeline.key', '◈ Key', 'Insert keyframe (F6)', 'timeline.keyframe')}
         {btn('timeline.blank', '○ Blank', 'Insert blank keyframe (F7)', 'timeline.blank')}
         {btn('timeline.clear', '✕ Clear', 'Clear keyframe (Shift+F6)', 'timeline.clear')}
+        {btn('timeline.insertframe', '＋ Frame', 'Insert frame (F5)', 'timeline.insertframe')}
+        {btn('timeline.deleteframe', '− Frame', 'Delete frame (Shift+F5)', 'timeline.deleteframe')}
         {activeLayerLocked && <span data-testid="timeline-locked-hint" style={{ color: '#e66', fontSize: 11 }}>🔒 layer locked</span>}
         {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
       </div>
@@ -251,7 +309,8 @@ export function TimelineStrip({ status, notify }: Props) {
                           <span
                             data-testid={`kf-dot-${engineIndex}-${f}`}
                             data-blank={kind === 'blank' ? 'true' : 'false'}
-                            style={{ position: 'absolute', left: CELL_W / 2 - 3, top: ROW_H / 2 - 3, width: 6, height: 6, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888' }}
+                            onMouseDown={(e) => onDotDown(e, engineIndex, f)}
+                            style={{ position: 'absolute', left: CELL_W / 2 - 4, top: ROW_H / 2 - 4, width: 8, height: 8, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888', cursor: 'grab' }}
                           />
                         )}
                       </div>

@@ -475,6 +475,206 @@ impl Command for ClearKeyframe {
     }
 }
 
+/// CMD-INSERT-FRAME — F5: +1 held frame; every keyframe AFTER `frame` shifts
+/// right by one, so the hold covering `frame` lasts one frame longer (Part 07
+/// §7.4.1 / F-07-07). The last keyframe holds to infinity, so F5 at/after the
+/// last keyframe shifts nothing (no-op, handled by the Session guard).
+pub struct InsertFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl InsertFrames {
+    pub fn new(scene: usize, layer: usize, frame: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            prev: None,
+        }
+    }
+}
+
+impl Command for InsertFrames {
+    fn label(&self) -> String {
+        "Insert frame".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let moved: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k > self.frame)
+            .collect();
+        if moved.is_empty() {
+            return;
+        }
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        for k in moved.into_iter().rev() {
+            // descending order avoids collision when shifting right
+            if let Some(fr) = l.keyframes.remove(&k) {
+                l.keyframes.insert(k + 1, fr);
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-DELETE-FRAME — Shift+F5: removes one frame — a keyframe at `frame` is
+/// deleted (content collapses into the previous hold), and every keyframe
+/// AFTER `frame` shifts LEFT by one, shortening the timeline (Part 07 §7.4.4).
+pub struct DeleteFrames {
+    pub scene: usize,
+    pub layer: usize,
+    pub frame: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl DeleteFrames {
+    pub fn new(scene: usize, layer: usize, frame: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            frame,
+            prev: None,
+        }
+    }
+}
+
+impl Command for DeleteFrames {
+    fn label(&self) -> String {
+        "Delete frame".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let moved: Vec<u32> = l
+            .keyframes
+            .keys()
+            .copied()
+            .filter(|k| *k > self.frame)
+            .collect();
+        if moved.is_empty() && !l.keyframes.contains_key(&self.frame) {
+            return;
+        }
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        l.keyframes.remove(&self.frame);
+        for k in moved {
+            // ascending order avoids collision when shifting left
+            if let Some(fr) = l.keyframes.remove(&k) {
+                l.keyframes.insert(k - 1, fr);
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-MOVE-KEYFRAME — drag a keyframe in time (Part 07 §7.4.9): relocate the
+/// record verbatim (content + transforms preserved). Colliding with an existing
+/// keyframe is blocked by the Session guard (overwrite prompt is a later unit).
+pub struct MoveKeyframe {
+    pub scene: usize,
+    pub layer: usize,
+    pub from: u32,
+    pub to: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl MoveKeyframe {
+    pub fn new(scene: usize, layer: usize, from: u32, to: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            from,
+            to,
+            prev: None,
+        }
+    }
+}
+
+impl Command for MoveKeyframe {
+    fn label(&self) -> String {
+        "Move keyframe".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(fr) = l.keyframes.remove(&self.from) {
+            l.keyframes.insert(self.to, fr);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-DUPLICATE-KEYFRAME — Alt/Option-drag a keyframe to copy it (F-07-12 E1):
+/// deep-copy the record at `from` into `to`. Collision blocked by the guard.
+pub struct DuplicateKeyframe {
+    pub scene: usize,
+    pub layer: usize,
+    pub from: u32,
+    pub to: u32,
+    prev: Option<BTreeMap<u32, Frame>>,
+}
+
+impl DuplicateKeyframe {
+    pub fn new(scene: usize, layer: usize, from: u32, to: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            from,
+            to,
+            prev: None,
+        }
+    }
+}
+
+impl Command for DuplicateKeyframe {
+    fn label(&self) -> String {
+        "Duplicate keyframe".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = Some(l.keyframes.clone());
+        let Some(source) = l.keyframes.get(&self.from).cloned() else {
+            return;
+        };
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        l.keyframes.insert(self.to, source);
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+            l.keyframes = prev;
+        }
+    }
+}
+
 /// CMD-LAYER-ADD — insert a new layer above the active one (Part 20.1).
 pub struct CreateLayer {
     pub scene: usize,

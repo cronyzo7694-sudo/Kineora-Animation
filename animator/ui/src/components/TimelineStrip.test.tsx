@@ -4,19 +4,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../engine/client', () => ({
   setPlayhead: vi.fn(),
   setActiveLayer: vi.fn(() => true),
+  moveKeyframe: vi.fn(() => true),
+  duplicateKeyframe: vi.fn(() => true),
 }))
 
 vi.mock('../engine/actions', () => ({
   performAction: vi.fn(),
 }))
 
-import { setActiveLayer, setPlayhead } from '../engine/client'
+import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
 import { performAction } from '../engine/actions'
 import { TimelineStrip, CELL_W, NAME_W } from './TimelineStrip'
 import type { StatusJson } from '../engine/wasmTypes'
 
 const setPlayheadMock = vi.mocked(setPlayhead)
 const setActiveLayerMock = vi.mocked(setActiveLayer)
+const moveKeyframeMock = vi.mocked(moveKeyframe)
+const duplicateKeyframeMock = vi.mocked(duplicateKeyframe)
 const performActionMock = vi.mocked(performAction)
 const notify = vi.fn()
 
@@ -182,6 +186,22 @@ describe('TimelineStrip — frame ops + keyboard', () => {
     expect(performActionMock).toHaveBeenCalledWith('timeline.clear', notify)
   })
 
+  it('F5/Shift+F5 buttons dispatch insert/delete frame actions', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline.insertframe'))
+    expect(performActionMock).toHaveBeenCalledWith('timeline.insertframe', notify)
+    fireEvent.click(screen.getByTestId('timeline.deleteframe'))
+    expect(performActionMock).toHaveBeenCalledWith('timeline.deleteframe', notify)
+  })
+
+  it('keyboard: F5=insert frame, Shift+F5=delete frame', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.keyDown(window, { key: 'F5' })
+    expect(performActionMock).toHaveBeenCalledWith('timeline.insertframe', notify)
+    fireEvent.keyDown(window, { key: 'F5', shiftKey: true })
+    expect(performActionMock).toHaveBeenCalledWith('timeline.deleteframe', notify)
+  })
+
   it('keyboard: F6=keyframe, F7=blank, Shift+F6=clear, Home/End jump', () => {
     render(<TimelineStrip status={makeStatus({ playhead: 5, duration: 20 })} notify={notify} />)
     fireEvent.keyDown(window, { key: 'F6' })
@@ -264,5 +284,68 @@ describe('TimelineStrip — locked-layer edit-state honesty', () => {
     expect(screen.getByTestId('timeline.key')).toBeEnabled()
     expect(screen.getByTestId('timeline.blank')).toBeEnabled()
     expect(screen.getByTestId('timeline.clear')).toBeEnabled()
+    expect(screen.getByTestId('timeline.insertframe')).toBeEnabled()
+    expect(screen.getByTestId('timeline.deleteframe')).toBeEnabled()
+  })
+})
+
+describe('TimelineStrip — keyframe drag (move + Alt-duplicate)', () => {
+  it('dragging a keyframe dot commits ONE moveKeyframe(layer, from, to)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const dot = screen.getByTestId('kf-dot-0-10') // keyframe @10 on layer 0
+    const startX = NAME_W + (10 - 1) * CELL_W
+    fireEvent.mouseDown(dot, { button: 0, clientX: startX })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (14 - 1) * CELL_W })
+    fireEvent.mouseUp(window, { clientX: NAME_W + (14 - 1) * CELL_W })
+    expect(moveKeyframeMock).toHaveBeenCalledTimes(1)
+    expect(moveKeyframeMock).toHaveBeenCalledWith(0, 10, 14)
+    expect(duplicateKeyframeMock).not.toHaveBeenCalled()
+  })
+
+  it('Alt-dragging a keyframe dot commits ONE duplicateKeyframe', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const dot = screen.getByTestId('kf-dot-0-10')
+    const startX = NAME_W + (10 - 1) * CELL_W
+    fireEvent.mouseDown(dot, { button: 0, clientX: startX, altKey: true })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (16 - 1) * CELL_W })
+    fireEvent.mouseUp(window, { clientX: NAME_W + (16 - 1) * CELL_W, altKey: true })
+    expect(duplicateKeyframeMock).toHaveBeenCalledTimes(1)
+    expect(duplicateKeyframeMock).toHaveBeenCalledWith(0, 10, 16)
+    expect(moveKeyframeMock).not.toHaveBeenCalled()
+  })
+
+  it('a plain click on a dot (below threshold) selects the cell, no command', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const dot = screen.getByTestId('kf-dot-0-10')
+    const x = NAME_W + (10 - 1) * CELL_W
+    fireEvent.mouseDown(dot, { button: 0, clientX: x })
+    fireEvent.mouseMove(window, { clientX: x + 1 }) // 1px < 3px threshold
+    fireEvent.mouseUp(window, { clientX: x + 1 })
+    expect(moveKeyframeMock).not.toHaveBeenCalled()
+    expect(duplicateKeyframeMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('cell-0-10')).toHaveAttribute('data-selected', 'true')
+  })
+
+  it('zero-delta drag commits no command', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const dot = screen.getByTestId('kf-dot-0-10')
+    const x = NAME_W + (10 - 1) * CELL_W
+    fireEvent.mouseDown(dot, { button: 0, clientX: x })
+    fireEvent.mouseMove(window, { clientX: x + 20 }) // past threshold
+    fireEvent.mouseMove(window, { clientX: x }) // back to origin
+    fireEvent.mouseUp(window, { clientX: x })
+    expect(moveKeyframeMock).not.toHaveBeenCalled()
+  })
+
+  it('Escape cancels the drag — no command', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const dot = screen.getByTestId('kf-dot-0-10')
+    const x = NAME_W + (10 - 1) * CELL_W
+    fireEvent.mouseDown(dot, { button: 0, clientX: x })
+    fireEvent.mouseMove(window, { clientX: x + 40 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseUp(window, { clientX: x + 40 })
+    expect(moveKeyframeMock).not.toHaveBeenCalled()
+    expect(duplicateKeyframeMock).not.toHaveBeenCalled()
   })
 })

@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 89 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 111 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -18,7 +18,8 @@
 | **Document properties + fill/stroke + workspace panels** | MOD-DOC/MOD-XFR/MOD-WORKSPACE | COMPLETE | editable fill/stroke/bg colors, fps wiring, C-06 panel resize handles, properties.rs (14) + App/PropertiesPanel tests |
 | **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
 | **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
-| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | REWORKED — UNIT C duration/viewport + lock-state (this commit); pending user re-acceptance | unbounded auto-extending viewport (no 60 cap), scroll-aware nav, locked-layer button honesty, timeline.rs (16) + TimelineStrip tests |
+| **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | UNIT C accepted (52383e3) | unbounded viewport, lock-state honesty |
+| **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT B) — pending manual acceptance** | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands, frames.rs (22 tests) + TimelineStrip drag tests |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -32,6 +33,30 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT B: frame manipulation (Part 07 §7.4.1/4/9 + F-07-12 E1)
+- **Engine**: four new undoable commands — `InsertFrames` (F5: shift later keyframes right → hold extends), `DeleteFrames` (Shift+F5: remove keyframe-at-frame + shift later left → timeline shortens), `MoveKeyframe` (drag: relocate a record verbatim; collision blocked), `DuplicateKeyframe` (Alt-drag: deep-copy at drop). All bit-exact via full-keyframe-map snapshots. Session guards make every no-op (nothing-to-shift, missing source, occupied target, `to<1`, zero delta, locked layer) create NO command. `move/duplicate_keyframe` take an explicit layer index so any visible row's keyframe can be dragged.
+- **UI**: F5 / Shift+F5 keyboard + "＋ Frame" / "− Frame" buttons (honest toasts for no-op/locked). Keyframe dots are **draggable**: drag = move (one command on release), Alt-drag = duplicate, plain click (< 3px) = select the cell, Esc cancels, zero-delta = no command (Part 07 §7.4.9 / F-07-12 E1/E2). Locked rows don't arm the drag (engine also blocks).
+- **Semantics** (F-07-07 hold rule): F5 extends the hold covering the playhead (last keyframe holds to infinity → F5 at/after it is a no-op); Shift+F5 shortens/deletes; moving a keyframe does NOT shift neighbors (unlike F5/Shift+F5).
+- **Deferred**: Remove Frames (gap), copy/cut/paste/reverse frames, convert-to-keyframes, span-edge drag, sequence-move (dragging a keyframe + its hold), multi-layer F5, overwrite-prompt on collision (currently blocked with a toast).
+
+### Manual acceptance matrix — UNIT B (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | draw @1, F6 @10, playhead @5, press F5 | keyframe shifts 10→11; hold lasts one frame longer |
+| 2 | Undo / Redo | exact (keyframe back at 10, then at 11) |
+| 3 | playhead @5, Shift+F5 | keyframe shifts 11→10 (hold shortens) |
+| 4 | playhead @10, Shift+F5 | keyframe @10 deleted; later keys shift left |
+| 5 | Shift+F5 on the only keyframe | layer empties; Undo restores |
+| 6 | F5 past the last keyframe | no-op + "nothing after the playhead" toast (no undo entry) |
+| 7 | drag a keyframe dot to another empty cell | dot moves there; ONE undo entry |
+| 8 | Alt-drag a keyframe dot | duplicate appears at drop; source stays |
+| 9 | drag a dot onto an occupied frame | blocked + "target occupied" toast; no undo entry |
+| 10 | drag a dot then Esc | nothing moves |
+| 11 | drag a dot then release on its own frame | no command |
+| 12 | lock the layer, drag a dot / F5 / Shift+F5 | all blocked (button + toast); no undo entry |
+| 13 | drag a dot on a NON-active layer row | that layer's keyframe moves |
+| 14 | Export at frame before/after a move | correct per-frame content; no timeline UI leaks |
 
 ## This commit — Timeline duration/viewport + locked-layer honesty (per manual FAIL report #2)
 - **"Stops at 60" — root cause (proven)**: `MIN_CELLS = 60` was my hardcoded *minimum viewport* and was ALSO used as the navigation clamp in `frameFromClientX` — so it accidentally became an upper bound. It is NOT derived duration, NOT playback duration, NOT a blueprint maximum. **Fix**: the timeline is now a horizontally scrollable, auto-extending strip — navigation (ruler click/drag, playhead handle) can reach ANY frame ≥ 1 and extends the viewport on demand (scroll-aware via `scrollLeft`), so users can author frames beyond the current derived duration. The 60 is now only the *initial window* (a view convenience, not a limit). Playback still loops within `[1, duration]` (derived, Part 07 §7.0 / REQ-TIM-004).

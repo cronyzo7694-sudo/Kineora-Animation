@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { performAction } from '../engine/actions'
+import { performAction, isLoopEnabled, setLoopEnabled } from '../engine/actions'
 import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
 import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
 
-/** Cell width in px (exported for tests). */
+/** Base cell width in px at 1× timeline zoom (exported for tests). */
 export const CELL_W = 18
 /** Layer-name column width in px (exported for tests). */
 export const NAME_W = 92
@@ -14,6 +14,11 @@ const ROW_H = 22
 const MIN_CELLS = 60
 /** Cells of headroom added past the pointer/duration when auto-extending. */
 const EXTEND_MARGIN = 24
+/** Timeline zoom levels (cell-width multipliers) — [OUR DESIGN DECISION]: the
+ *  blueprint requires "ruler zoom" with adaptive number spacing (F-07-03) but
+ *  not the exact step size; geometric ×0.5/×1/×2/×4 matches Adobe's discrete
+ *  frame-size presets [ADOBE REFERENCE]. */
+const ZOOM_LEVELS = [0.5, 1, 2, 4]
 
 interface Props {
   status: StatusJson | null
@@ -37,29 +42,30 @@ function cellKinds(markers: FrameMarkerJson[], n: number): CellKind[] {
       if (kf <= f) last = byFrame.get(kf)!
       else break
     }
-    // held: gray span of a CONTENT keyframe; blank keyframes hold nothing (white)
     out.push(last !== null && !last.blank ? 'held' : 'empty')
   }
   return out
 }
 
+/** Adaptive ruler-number interval for a cell width (F-07-03 "sparser when
+ *  zoomed out; denser when zoomed in"). */
+function rulerInterval(cellW: number): number {
+  if (cellW >= 60) return 1
+  if (cellW >= 30) return 2
+  if (cellW >= 15) return 5
+  return 10
+}
+
 /**
  * Timeline (Part 07) — the "clock + score" panel.
- * Duration model (Part 07 §7.0): document duration is DERIVED (max keyframe
- * frame, min 1) — there is NO fixed length, so the visible viewport is a
- * horizontally scrollable, auto-extending strip. Navigation (ruler click/drag,
- * playhead-handle drag) can reach ANY frame ≥ 1 and extends the viewport on
- * demand, so users can author frames beyond the current derived duration
- * (F-07-08 "last frame → extends doc"). Playback still loops within
- * [1, duration] (engineering REQ-TIM-004).
- *
- * Hit-area separation (F-07-03/F-07-04 + blueprint §7.1.2–7.1.4):
- *  - ruler click = jump playhead; ruler drag = scrub
- *  - playhead handle drag = scrub
- *  - frame cell click = SELECT the frame (view state; playhead does NOT move);
- *    Shift/Ctrl/Cmd+click = toggle selection
- * Frame ops (Key F6 / Blank F7 / Clear Shift+F6) are undoable engine commands;
- * they are DISABLED when the active layer is locked (Part 20.2 "not editable").
+ * View state that lives here (never in the engine, never persisted):
+ *  - timeline zoom (ruler zoom, F-07-03) — cell-width ×0.5/×1/×2/×4 with
+ *    adaptive ruler numbers; playhead/cells/dots/handle all remap exactly.
+ *  - frame selection (click = select, Shift/Ctrl = toggle)
+ *  - loop toggle (Part 07 §7.1.5) — stored in actions.ts (view state)
+ * Navigation: ruler click = jump / drag = scrub; playhead handle = scrub;
+ * `.`/`,` step; Alt+`,`/Alt+`.` keyframe-hop; Home/End; first/last/center
+ * buttons. Frame ops (F5/F6/F7/Shift+F5/F6) are undoable engine commands.
  */
 export function TimelineStrip({ status, notify }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null)
@@ -71,30 +77,36 @@ export function TimelineStrip({ status, notify }: Props) {
   const statusRef = useRef<StatusJson | null>(status)
   statusRef.current = status
   const keyDragRef = useRef<{ layer: number; from: number; startX: number; moved: boolean } | null>(null)
+  const [zoomIdx, setZoomIdx] = useState(1) // ZOOM_LEVELS[1] = 1×
+  const [loopOn, setLoopOn] = useState(isLoopEnabled)
+
+  const zoomFactor = ZOOM_LEVELS[zoomIdx]
+  const cellW = Math.round(CELL_W * zoomFactor)
 
   const attached = status !== null
   const playhead = status?.playhead ?? 1
   const layers = status?.layers ?? []
-  // frontmost layer at top (engine order = bottom→top)
   const rows = [...layers].reverse()
   const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
 
-  // keep the viewport covering duration + playhead (never shrinks below MIN_CELLS)
+  // keep the viewport covering duration + playhead + the current cell width
   useEffect(() => {
-    setCells((c) => Math.max(c, MIN_CELLS, status?.duration ?? 1, (status?.playhead ?? 1) + EXTEND_MARGIN))
-  }, [status?.duration, status?.playhead])
+    const grid = gridRef.current
+    const viewW = grid ? grid.clientWidth : 0
+    const fitCells = viewW > NAME_W ? Math.ceil((viewW - NAME_W) / cellW) + EXTEND_MARGIN : 0
+    setCells((c) => Math.max(c, MIN_CELLS, status?.duration ?? 1, (status?.playhead ?? 1) + EXTEND_MARGIN, fitCells))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.duration, status?.playhead, zoomFactor])
 
-  const totalWidth = NAME_W + cells * CELL_W
+  const totalWidth = NAME_W + cells * cellW
 
   const frameFromClientX = (clientX: number): number => {
     const grid = gridRef.current
     if (!grid) return 1
     const rect = grid.getBoundingClientRect()
     const left = rect.left + NAME_W
-    // scrollLeft keeps the mapping correct when the strip is scrolled
-    const raw = 1 + Math.floor((clientX - left + grid.scrollLeft) / CELL_W)
+    const raw = 1 + Math.floor((clientX - left + grid.scrollLeft) / cellW)
     const f = Math.max(1, raw)
-    // auto-extend the viewport instead of clamping (no artificial limit)
     if (f > cellsRef.current) {
       const next = f + EXTEND_MARGIN
       cellsRef.current = next
@@ -103,7 +115,6 @@ export function TimelineStrip({ status, notify }: Props) {
     return f
   }
 
-  // scrub: jump then follow the mouse until mouseup (used by ruler + handle)
   const startScrub = (clientX: number) => {
     setPlayhead(frameFromClientX(clientX))
     scrubRef.current = true
@@ -132,7 +143,6 @@ export function TimelineStrip({ status, notify }: Props) {
     startScrub(e.clientX)
   }
 
-  // frame cell: click = select (no playhead move); shift/ctrl/cmd = toggle
   const selectCell = (layerIdx: number, frame: number, toggle: boolean) => {
     const key = `${layerIdx}:${frame}`
     setSelectedFrames((prev) => {
@@ -155,13 +165,10 @@ export function TimelineStrip({ status, notify }: Props) {
     selectCell(layerIdx, frame, e.shiftKey || e.ctrlKey || e.metaKey)
   }
 
-  // keyframe dot: drag = move (Alt = duplicate) — one command on release;
-  // plain click (below 3px) = select the cell; Escape cancels; zero delta = no
-  // command (Part 07 §7.4.9 / F-07-12 E1/E2).
   const onDotDown = (e: React.MouseEvent, layerIdx: number, frame: number) => {
     if (e.button !== 0) return
     const locked = layers[layerIdx]?.locked ?? false
-    if (locked) return // let the cell click-through select; engine blocks edits
+    if (locked) return
     e.preventDefault()
     e.stopPropagation()
     keyDragRef.current = { layer: layerIdx, from: frame, startX: e.clientX, moved: false }
@@ -179,11 +186,11 @@ export function TimelineStrip({ status, notify }: Props) {
       window.removeEventListener('keydown', onKey)
       if (!g) return
       if (!g.moved) {
-        selectCell(g.layer, g.from, false) // plain click on the dot = select
+        selectCell(g.layer, g.from, false)
         return
       }
       const target = frameFromClientX(ev.clientX)
-      if (target === g.from) return // zero movement → no command
+      if (target === g.from) return
       if (ev.altKey) {
         notify(duplicateKeyframe(g.layer, g.from, target) ? `keyframe duplicated ${g.from} → ${target}` : 'duplicate keyframe: target occupied or locked')
       } else {
@@ -203,7 +210,15 @@ export function TimelineStrip({ status, notify }: Props) {
     window.addEventListener('keydown', onKey)
   }
 
-  // keyboard frame ops + transport (Part 29.5/29.6)
+  // active layer's keyframes (sorted) for Alt+,/. hop
+  const activeKeyframes = (): number[] => {
+    const st = statusRef.current
+    const layer = st?.layers?.[st.active_layer ?? 0]
+    if (!layer) return []
+    return layer.keyframes.map((k) => k.frame).sort((a, b) => a - b)
+  }
+
+  // keyboard: frame ops + transport + zoom (Part 29.5/29.6, F-07-03/04)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
@@ -223,12 +238,37 @@ export function TimelineStrip({ status, notify }: Props) {
       } else if (e.key === 'End') {
         e.preventDefault()
         setPlayhead(Math.max(1, statusRef.current?.duration ?? 1))
+      } else if (e.key === '.' || e.key === ',') {
+        e.preventDefault()
+        const st = statusRef.current
+        const cur = st?.playhead ?? 1
+        if (e.altKey) {
+          // keyframe hop (F-07-04 Alt+,/. / F-03-08 E4)
+          const keys = activeKeyframes()
+          const target = e.key === '.' ? keys.find((k) => k > cur) : [...keys].reverse().find((k) => k < cur)
+          if (target !== undefined) setPlayhead(target)
+        } else {
+          setPlayhead(e.key === '.' ? cur + 1 : Math.max(1, cur - 1))
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const zoomIn = () => setZoomIdx((i) => Math.min(ZOOM_LEVELS.length - 1, i + 1))
+  const zoomOut = () => setZoomIdx((i) => Math.max(0, i - 1))
+  const toggleLoop = () => {
+    const next = !loopOn
+    setLoopOn(next)
+    setLoopEnabled(next)
+  }
+  const centerFrame = () => {
+    const grid = gridRef.current
+    if (!grid) return
+    grid.scrollLeft = Math.max(0, NAME_W + (playhead - 1) * cellW - grid.clientWidth / 2)
+  }
 
   const btn = (id: string, label: string, title: string, action: string) => {
     const disabled = !attached || activeLayerLocked
@@ -247,34 +287,65 @@ export function TimelineStrip({ status, notify }: Props) {
     )
   }
 
+  const navBtn = (id: string, label: string, title: string, onClick: () => void) => (
+    <button
+      data-testid={id}
+      aria-label={title}
+      title={title}
+      disabled={!attached}
+      onClick={onClick}
+      style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12, opacity: attached ? 1 : 0.5 }}
+    >
+      {label}
+    </button>
+  )
+
+  const interval = rulerInterval(cellW)
+
   return (
     <div data-testid="timeline" style={{ height: 24 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 12px', borderBottom: '1px solid #2a2a2a' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
         <span style={{ color: '#aaa', fontSize: 11, minWidth: 120 }}>
           frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(cells, playhead)}
         </span>
+        {navBtn('timeline-first', '⏮', 'Go to first frame (Home)', () => setPlayhead(1))}
+        {navBtn('timeline-last', '⏭', 'Go to last frame (End)', () => setPlayhead(Math.max(1, status?.duration ?? 1)))}
+        {navBtn('timeline-center', '◎', 'Center playhead', centerFrame)}
         {btn('timeline.key', '◈ Key', 'Insert keyframe (F6)', 'timeline.keyframe')}
         {btn('timeline.blank', '○ Blank', 'Insert blank keyframe (F7)', 'timeline.blank')}
         {btn('timeline.clear', '✕ Clear', 'Clear keyframe (Shift+F6)', 'timeline.clear')}
         {btn('timeline.insertframe', '＋ Frame', 'Insert frame (F5)', 'timeline.insertframe')}
         {btn('timeline.deleteframe', '− Frame', 'Delete frame (Shift+F5)', 'timeline.deleteframe')}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
+          {navBtn('timeline-zoom-out', '−', 'Timeline zoom out', zoomOut)}
+          <span data-testid="timeline-zoom-readout" style={{ color: '#888', fontSize: 11, minWidth: 34, textAlign: 'center' }}>{Math.round(zoomFactor * 100)}%</span>
+          {navBtn('timeline-zoom-in', '+', 'Timeline zoom in', zoomIn)}
+        </span>
+        <button
+          data-testid="timeline-loop"
+          data-on={loopOn ? 'true' : 'false'}
+          aria-label="Loop playback"
+          title="Loop playback"
+          onClick={toggleLoop}
+          style={{ padding: '2px 8px', borderRadius: 4, border: loopOn ? '1px solid #0a7cff' : '1px solid #555', background: loopOn ? '#0a3f7f' : '#2a2a2a', color: '#eee', cursor: 'pointer', fontSize: 12 }}
+        >
+          ⟳ Loop
+        </button>
         {activeLayerLocked && <span data-testid="timeline-locked-hint" style={{ color: '#e66', fontSize: 11 }}>🔒 layer locked</span>}
         {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
       </div>
 
       <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
         <div style={{ width: totalWidth, position: 'relative', minHeight: '100%' }}>
-          {/* ruler: click = jump, drag = scrub (F-07-03) */}
           <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a', cursor: 'pointer' }}>
-            {Array.from({ length: Math.ceil(cells / 5) }, (_, i) => (i === 0 ? 1 : i * 5)).map((f) => (
-              <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * CELL_W, top: 3, color: f === playhead ? '#e33' : '#666', fontWeight: f === playhead ? 700 : 400, fontSize: 10 }}>
+            {Array.from({ length: Math.ceil(cells / interval) }, (_, i) => (i === 0 ? 1 : i * interval)).map((f) => (
+              <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * cellW, top: 3, color: f === playhead ? '#e33' : '#666', fontWeight: f === playhead ? 700 : 400, fontSize: 10 }}>
                 {f}
               </span>
             ))}
-            <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', pointerEvents: 'none' }} />
+            <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW, top: 0, width: cellW, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', pointerEvents: 'none' }} />
           </div>
 
-          {/* layer rows */}
           {rows.map((l, ri) => {
             const engineIndex = layers.length - 1 - ri
             const kinds = cellKinds(l.keyframes, cells)
@@ -303,14 +374,14 @@ export function TimelineStrip({ status, notify }: Props) {
                         data-kind={kind}
                         data-selected={selected ? 'true' : 'false'}
                         onMouseDown={(e) => onCellDown(e, engineIndex, f)}
-                        style={{ position: 'absolute', left: (f - 1) * CELL_W, top: 0, width: CELL_W, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none' }}
+                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none' }}
                       >
                         {(kind === 'key' || kind === 'blank') && (
                           <span
                             data-testid={`kf-dot-${engineIndex}-${f}`}
                             data-blank={kind === 'blank' ? 'true' : 'false'}
                             onMouseDown={(e) => onDotDown(e, engineIndex, f)}
-                            style={{ position: 'absolute', left: CELL_W / 2 - 4, top: ROW_H / 2 - 4, width: 8, height: 8, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888', cursor: 'grab' }}
+                            style={{ position: 'absolute', left: cellW / 2 - 4, top: ROW_H / 2 - 4, width: 8, height: 8, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888', cursor: 'grab' }}
                           />
                         )}
                       </div>
@@ -321,16 +392,14 @@ export function TimelineStrip({ status, notify }: Props) {
             )
           })}
 
-          {/* playhead line (non-interactive) */}
           <div
             data-testid="playhead"
-            style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W - 1, top: 0, bottom: 0, width: 2, background: '#e33', pointerEvents: 'none' }}
+            style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW - 1, top: 0, bottom: 0, width: 2, background: '#e33', pointerEvents: 'none' }}
           />
-          {/* playhead handle (drag = scrub, F-07-04) */}
           <div
             data-testid="playhead-handle"
             onMouseDown={onHandleDown}
-            style={{ position: 'absolute', left: NAME_W + (playhead - 1) * CELL_W - 5, top: 0, width: 10, height: RULER_H, cursor: 'ew-resize' }}
+            style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW - 5, top: 0, width: 10, height: RULER_H, cursor: 'ew-resize' }}
           />
         </div>
       </div>

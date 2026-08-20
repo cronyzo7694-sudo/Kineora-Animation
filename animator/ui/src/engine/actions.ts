@@ -123,6 +123,18 @@ export function performAction(id: string, notify: Notify): void {
 
 // ——— playback (slice-1: a real engine playhead loop, stepped by the UI) ———
 let playTimer: number | null = null
+// Loop playback toggle (Part 07 §7.1.5 / C-08 tl.loop) — VIEW state (no undo,
+// not persisted). Default ON [OUR DESIGN DECISION — the blueprint specifies the
+// toggle but not its initial state; looping matches the current behavior].
+let loopEnabled = true
+
+export function isLoopEnabled(): boolean {
+  return loopEnabled
+}
+
+export function setLoopEnabled(on: boolean): void {
+  loopEnabled = on
+}
 
 export function isPlaying(): boolean {
   return playTimer !== null
@@ -150,10 +162,14 @@ export function togglePlay(notify: Notify): void {
   playTimer = window.setInterval(() => {
     const st = statusJson()
     if (!st) return
-    // Loop over the DERIVED duration (Part 07 §7.0; engineering REQ-TIM-004
-    // "seek clamps to [1,duration]") — the playhead never flies past the
-    // animation range.
+    // Playback range = [1, derived duration] (Part 07 §7.0; REQ-TIM-004).
     const dur = Math.max(1, st.duration ?? 1)
+    if (!loopEnabled && st.playhead >= dur) {
+      // Loop OFF → stop at the last frame (pause at end).
+      stopPlayback()
+      notify('play: finished (loop off)')
+      return
+    }
     const next = st.playhead >= dur ? 1 : st.playhead + 1
     setPlayhead(next)
   }, Math.round(1000 / fps))

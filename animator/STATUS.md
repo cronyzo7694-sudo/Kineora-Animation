@@ -19,7 +19,8 @@
 | **Color live preview** | MOD-SHELL/MOD-RENDER | COMPLETE | renderer-only live color/stroke preview during picker drag; one command on release; canvasRenderer + PropertiesPanel tests |
 | **Export (image: SVG/PNG/JPEG/WebP + scale)** | MOD-EXPORT/MOD-SHELL | COMPLETE (user-PC accepted ✅) | ExportDialog (format+scale), Rust export_svg_scaled, content-only rasterizer, export.rs (13 tests) + renderer/dialog tests |
 | **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | UNIT C accepted (52383e3) | unbounded viewport, lock-state honesty |
-| **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT B) — pending manual acceptance** | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands, frames.rs (22 tests) + TimelineStrip drag tests |
+| **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (1a02769) | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands |
+| **Timeline navigation + zoom + transport** | MOD-TIMELINE | **COMPLETE (this commit, UNIT D) — pending manual acceptance** | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -33,6 +34,30 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT D: timeline navigation + zoom + transport (F-07-03/04, Part 07 §7.1.5, C-08)
+- **Timeline zoom (ruler zoom)** — blueprint-required (F-07-03 "spacing adapts to ruler zoom", "ruler zoomed out → numbers sparse", engineering 07 "ruler-zoom not persisted" = view state). Implemented as discrete cell-width levels **50% / 100% / 200% / 400%** with adaptive ruler numbering (every 10 → 5 → 2 → 1 as you zoom in). Zoom is VIEW state: playhead/cells/dots/handle/indicator all remap exactly; the playhead frame never changes; selection and keyframe-drag target frames correctly at every zoom. Step size **[OUR DESIGN DECISION]** (blueprint gives no step; geometric ×2 matches Adobe's discrete frame-size presets **[ADOBE REFERENCE]**).
+- **Transport** (F-07-04 controls + Part 15 §15.1 step 6): **`.`/`,`** step one frame; **Alt+`,` / Alt+`.`** keyframe-hop on the active layer; **first/last/center** buttons (C-08 `tl.first/last/center`). Home/End unchanged.
+- **Loop toggle** (Part 07 §7.1.5 / C-08 `tl.loop`) — view state (no undo, not persisted): Play now honors it — loop ON wraps 1..duration; loop OFF stops at the last frame. Default **ON** **[OUR DESIGN DECISION]** (blueprint specifies the toggle but not its initial state).
+- **No engine changes** — this unit is pure view state (playhead moves are engine view-state via `kineora_set_playhead`; zoom/loop/selection are UI-only). Document mutations are untouched.
+
+### Manual acceptance matrix — UNIT D (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | click the timeline **− / +** zoom buttons | readout 100% → 200% → 400% → … → 50% (clamped) |
+| 2 | zoom to 50% | more frames visible, smaller cells; ruler shows 1,10,20… |
+| 3 | zoom to 200%/400% | bigger cells; ruler denser (every 2, then 1) |
+| 4 | zoom in/out then scrub & click | playhead/cells still land on the right frame |
+| 5 | zoom in then drag a keyframe dot | moves to the correct target frame |
+| 6 | zoom does NOT move the playhead or create undo entries | — |
+| 7 | press `.` / `,` | playhead steps ±1 (`,` clamps at 1) |
+| 8 | press Alt+`.` / Alt+`,` | jumps to next/prev keyframe on the active layer |
+| 9 | click ⏮ / ⏭ | jumps to first / last frame |
+| 10 | click ◎ | the playhead scrolls into view (no document change) |
+| 11 | click ⟳ Loop (off) then Play | playback stops at the last frame ("finished (loop off)") |
+| 12 | Loop back on → Play | wraps 1..last continuously |
+| 13 | Ctrl+Z during/after zoom/loop/step | NO undo entries (all view state) |
+| 14 | export after zooming/looping | export unchanged by timeline zoom/loop |
 
 ## This commit — UNIT B: frame manipulation (Part 07 §7.4.1/4/9 + F-07-12 E1)
 - **Engine**: four new undoable commands — `InsertFrames` (F5: shift later keyframes right → hold extends), `DeleteFrames` (Shift+F5: remove keyframe-at-frame + shift later left → timeline shortens), `MoveKeyframe` (drag: relocate a record verbatim; collision blocked), `DuplicateKeyframe` (Alt-drag: deep-copy at drop). All bit-exact via full-keyframe-map snapshots. Session guards make every no-op (nothing-to-shift, missing source, occupied target, `to<1`, zero delta, locked layer) create NO command. `move/duplicate_keyframe` take an explicit layer index so any visible row's keyframe can be dragged.

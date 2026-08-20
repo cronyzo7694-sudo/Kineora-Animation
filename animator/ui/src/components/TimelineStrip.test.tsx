@@ -10,10 +10,12 @@ vi.mock('../engine/client', () => ({
 
 vi.mock('../engine/actions', () => ({
   performAction: vi.fn(),
+  isLoopEnabled: () => true,
+  setLoopEnabled: vi.fn(),
 }))
 
 import { duplicateKeyframe, moveKeyframe, setActiveLayer, setPlayhead } from '../engine/client'
-import { performAction } from '../engine/actions'
+import { performAction, setLoopEnabled } from '../engine/actions'
 import { TimelineStrip, CELL_W, NAME_W } from './TimelineStrip'
 import type { StatusJson } from '../engine/wasmTypes'
 
@@ -22,6 +24,7 @@ const setActiveLayerMock = vi.mocked(setActiveLayer)
 const moveKeyframeMock = vi.mocked(moveKeyframe)
 const duplicateKeyframeMock = vi.mocked(duplicateKeyframe)
 const performActionMock = vi.mocked(performAction)
+const setLoopEnabledMock = vi.mocked(setLoopEnabled)
 const notify = vi.fn()
 
 function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
@@ -347,5 +350,119 @@ describe('TimelineStrip — keyframe drag (move + Alt-duplicate)', () => {
     fireEvent.mouseUp(window, { clientX: x + 40 })
     expect(moveKeyframeMock).not.toHaveBeenCalled()
     expect(duplicateKeyframeMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('TimelineStrip — timeline zoom (F-07-03 ruler zoom, view state)', () => {
+  it('zoom in/out changes the readout and remaps the playhead position', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 3 })} notify={notify} />)
+    expect(screen.getByTestId('timeline-zoom-readout')).toHaveTextContent('100%')
+    const baseLeft = NAME_W + (3 - 1) * CELL_W - 1
+    expect(screen.getByTestId('playhead')).toHaveStyle(`left: ${baseLeft}px`)
+
+    fireEvent.click(screen.getByTestId('timeline-zoom-in')) // 200%
+    expect(screen.getByTestId('timeline-zoom-readout')).toHaveTextContent('200%')
+    expect(screen.getByTestId('playhead')).toHaveStyle(`left: ${NAME_W + (3 - 1) * CELL_W * 2 - 1}px`)
+
+    fireEvent.click(screen.getByTestId('timeline-zoom-out'))
+    expect(screen.getByTestId('timeline-zoom-readout')).toHaveTextContent('100%')
+  })
+
+  it('zoom is clamped to the 50%..400% range', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    for (let i = 0; i < 6; i++) fireEvent.click(screen.getByTestId('timeline-zoom-in'))
+    expect(screen.getByTestId('timeline-zoom-readout')).toHaveTextContent('400%')
+    for (let i = 0; i < 6; i++) fireEvent.click(screen.getByTestId('timeline-zoom-out'))
+    expect(screen.getByTestId('timeline-zoom-readout')).toHaveTextContent('50%')
+  })
+
+  it('ruler numbers adapt: sparser when zoomed out, denser when zoomed in', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // 1× (18px) → every 5
+    expect(screen.getByTestId('frame-num-5')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('timeline-zoom-out')) // 0.5× (9px) → every 10
+    expect(screen.queryByTestId('frame-num-5')).not.toBeInTheDocument()
+    expect(screen.getByTestId('frame-num-10')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('timeline-zoom-in')) // back to 1×
+    fireEvent.click(screen.getByTestId('timeline-zoom-in')) // 2× (36px) → every 2
+    expect(screen.getByTestId('frame-num-2')).toBeInTheDocument()
+  })
+
+  it('zooming does NOT change the playhead frame (view-only)', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 7 })} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline-zoom-in'))
+    fireEvent.click(screen.getByTestId('timeline-zoom-in'))
+    expect(screen.getByTestId('timeline-frame-readout')).toHaveTextContent('7')
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('keyframe drag still targets the right frame after zooming', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline-zoom-in')) // 2× → cellW 36
+    const dot = screen.getByTestId('kf-dot-0-10')
+    const startX = NAME_W + (10 - 1) * CELL_W * 2
+    fireEvent.mouseDown(dot, { button: 0, clientX: startX })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (14 - 1) * CELL_W * 2 })
+    fireEvent.mouseUp(window, { clientX: NAME_W + (14 - 1) * CELL_W * 2 })
+    expect(moveKeyframeMock).toHaveBeenCalledWith(0, 10, 14)
+  })
+})
+
+describe('TimelineStrip — transport + loop (Part 07 §7.1.5, F-07-04)', () => {
+  it('. and , step the playhead by one frame', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 5 })} notify={notify} />)
+    fireEvent.keyDown(window, { key: '.' })
+    expect(setPlayheadMock).toHaveBeenLastCalledWith(6)
+    fireEvent.keyDown(window, { key: ',' })
+    expect(setPlayheadMock).toHaveBeenLastCalledWith(4)
+  })
+
+  it(', clamps to frame 1', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 1 })} notify={notify} />)
+    fireEvent.keyDown(window, { key: ',' })
+    expect(setPlayheadMock).toHaveBeenLastCalledWith(1)
+  })
+
+  it('Alt+. and Alt+, hop between keyframes on the active layer', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 5 })} notify={notify} />)
+    // active layer 0 keyframes: 1, 10, 20
+    fireEvent.keyDown(window, { key: '.', altKey: true })
+    expect(setPlayheadMock).toHaveBeenLastCalledWith(10)
+    fireEvent.keyDown(window, { key: ',', altKey: true })
+    expect(setPlayheadMock).toHaveBeenLastCalledWith(1)
+  })
+
+  it('Alt+. at the last keyframe is a no-op', () => {
+    render(<TimelineStrip status={makeStatus({ playhead: 20 })} notify={notify} />)
+    setPlayheadMock.mockClear()
+    fireEvent.keyDown(window, { key: '.', altKey: true })
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('first/last buttons jump the playhead', () => {
+    render(<TimelineStrip status={makeStatus({ duration: 20 })} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline-first'))
+    expect(setPlayheadMock).toHaveBeenCalledWith(1)
+    fireEvent.click(screen.getByTestId('timeline-last'))
+    expect(setPlayheadMock).toHaveBeenCalledWith(20)
+  })
+
+  it('center button scrolls without throwing (no document change)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-center')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('timeline-center'))
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('loop toggle flips the loop view state (no engine call)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const loop = screen.getByTestId('timeline-loop')
+    expect(loop).toHaveAttribute('data-on', 'true')
+    fireEvent.click(loop)
+    expect(loop).toHaveAttribute('data-on', 'false')
+    expect(setLoopEnabledMock).toHaveBeenCalledWith(false)
+    expect(setPlayheadMock).not.toHaveBeenCalled()
   })
 })

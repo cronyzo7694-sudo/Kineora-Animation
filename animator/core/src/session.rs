@@ -3,8 +3,8 @@ use std::path::Path;
 use crate::command::{
     ClearKeyframe, CreateLayer, DeleteFrames, DeleteLayer, DrawRect, DuplicateKeyframe, History,
     InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe, MoveSelection, PasteFrames,
-    RemoveFrames, RenameLayer, ReorderLayer, ReverseFrames, SetDocumentSettings, SetLayerLocked,
-    SetLayerVisible, SetNodeProps, TransformSelection,
+    RemoveClassicTween, RemoveFrames, RenameLayer, ReorderLayer, ReverseFrames, SetClassicTween,
+    SetDocumentSettings, SetLayerLocked, SetLayerVisible, SetNodeProps, TransformSelection,
 };
 use crate::eval::{evaluate, hit_test, hits_in_rect, node_transform_in_scene, RectItem};
 use crate::export::{export_svg, export_svg_scaled};
@@ -502,6 +502,65 @@ impl Session {
         true
     }
 
+    // ——— Classic tween (Part 09.2, MOD-TWEEN) ———
+
+    /// Create/update a classic tween span between two CONTENT keyframes holding
+    /// the SAME non-empty object (Part 09.2.1). One undoable command. Blocked on
+    /// locked layers; no-op when start ≥ end or the keyframes aren't the same
+    /// object.
+    pub fn set_classic_tween(&mut self, layer: usize, start: u32, end: u32, ease: f64) -> bool {
+        let scene = self.active_scene;
+        if start >= end {
+            return false;
+        }
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("tween:blocked(locked)");
+            return false;
+        }
+        let content_of = |frame: u32| -> Option<Vec<NodeId>> {
+            match l.keyframes.get(&frame) {
+                Some(Frame::Keyframe { content, .. }) => Some(content.clone()),
+                _ => None,
+            }
+        };
+        let (Some(c0), Some(c1)) = (content_of(start), content_of(end)) else {
+            self.log("tween:needs two content keyframes");
+            return false;
+        };
+        if c0.is_empty() || c0 != c1 {
+            self.log("tween:keyframes must hold the same object");
+            return false;
+        }
+        let cmd = SetClassicTween::new(scene, layer, start, end, ease);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("tween:{start}→{end} ease={ease}"));
+        true
+    }
+
+    /// Remove a classic tween span (F-07-13 "Remove Tween"). One undoable
+    /// command. Blocked on locked layers; no-op when no tween starts there.
+    pub fn remove_classic_tween(&mut self, layer: usize, start: u32) -> bool {
+        let scene = self.active_scene;
+        let Some(l) = self.doc.layer(scene, layer) else {
+            return false;
+        };
+        if l.locked {
+            self.log("remove-tween:blocked(locked)");
+            return false;
+        }
+        if !l.tweens.contains_key(&start) {
+            self.log("remove-tween:(none)");
+            return false;
+        }
+        let cmd = RemoveClassicTween::new(scene, layer, start);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("remove-tween@{start}"));
+        true
+    }
+
     // ——— Layers (MOD-LAYER, Part 20) ———
 
     /// Layer snapshot for the UI (bottom → top, engine order).
@@ -539,6 +598,7 @@ impl Session {
             id: self.doc.alloc_layer_id(),
             name,
             keyframes: std::collections::BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
+            tweens: std::collections::BTreeMap::new(),
             visible: true,
             locked: false,
         };

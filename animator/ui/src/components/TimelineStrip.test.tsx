@@ -11,6 +11,8 @@ vi.mock('../engine/client', () => ({
   pasteFrames: vi.fn(() => true),
   removeFrames: vi.fn(() => true),
   reverseFrames: vi.fn(() => true),
+  setClassicTween: vi.fn(() => true),
+  removeClassicTween: vi.fn(() => true),
 }))
 
 vi.mock('../engine/actions', () => ({
@@ -25,9 +27,11 @@ import {
   duplicateKeyframe,
   moveKeyframe,
   pasteFrames,
+  removeClassicTween,
   removeFrames,
   reverseFrames,
   setActiveLayer,
+  setClassicTween,
   setPlayhead,
 } from '../engine/client'
 import { performAction, setLoopEnabled } from '../engine/actions'
@@ -43,6 +47,8 @@ const cutFramesMock = vi.mocked(cutFrames)
 const pasteFramesMock = vi.mocked(pasteFrames)
 const removeFramesMock = vi.mocked(removeFrames)
 const reverseFramesMock = vi.mocked(reverseFrames)
+const setClassicTweenMock = vi.mocked(setClassicTween)
+const removeClassicTweenMock = vi.mocked(removeClassicTween)
 const performActionMock = vi.mocked(performAction)
 const setLoopEnabledMock = vi.mocked(setLoopEnabled)
 const notify = vi.fn()
@@ -66,6 +72,7 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
         active: true,
         selected_objects: 0,
         keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }, { frame: 20, blank: true }],
+        tweens: [],
       },
       {
         id: 2,
@@ -75,6 +82,7 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
         active: false,
         selected_objects: 0,
         keyframes: [{ frame: 1, blank: false }],
+        tweens: [],
       },
     ],
     active_layer: 0,
@@ -296,8 +304,8 @@ describe('TimelineStrip — locked-layer edit-state honesty', () => {
   it('frame-op buttons are disabled when the ACTIVE layer is locked', () => {
     const locked = makeStatus({
       layers: [
-        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }] },
-        { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [] },
+        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }], tweens: [] },
+        { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [], tweens: [] },
       ],
     })
     render(<TimelineStrip status={locked} notify={notify} />)
@@ -557,7 +565,7 @@ describe('TimelineStrip — frame range selection + clipboard/sequence ops (UNIT
   it('mutating sequence-ops are disabled on locked layers; copy stays enabled (read-only)', () => {
     const locked = makeStatus({
       layers: [
-        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }] },
+        { id: 1, name: 'Layer 1', visible: true, locked: true, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }], tweens: [] },
       ],
     })
     render(<TimelineStrip status={locked} notify={notify} />)
@@ -567,5 +575,94 @@ describe('TimelineStrip — frame range selection + clipboard/sequence ops (UNIT
     expect(screen.getByTestId('timeline-cut')).toBeDisabled()
     expect(screen.getByTestId('timeline-reverse')).toBeDisabled()
     expect(screen.getByTestId('timeline-remove')).toBeDisabled()
+  })
+})
+
+describe('TimelineStrip — classic tween (Part 09.2: span visuals + create/remove/ease)', () => {
+  it('renders a blue tween span with an arrow at the end cell', () => {
+    const tweened = makeStatus({
+      layers: [
+        {
+          id: 1,
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          active: true,
+          selected_objects: 0,
+          keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }],
+          tweens: [{ start: 1, end: 10, ease: 0 }],
+        },
+      ],
+    })
+    render(<TimelineStrip status={tweened} notify={notify} />)
+    for (const f of [1, 5, 10]) {
+      expect(screen.getByTestId(`cell-0-${f}`)).toHaveAttribute('data-tween', 'true')
+    }
+    expect(screen.getByTestId('cell-0-11')).toHaveAttribute('data-tween', 'false')
+    expect(screen.getByTestId('cell-0-10')).toHaveTextContent('▶')
+  })
+
+  it('Create Tween dispatches setClassicTween(layer, k1, k2, 0) when exactly 2 keyframes are selected', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // select cells 1..10 (keyframes at 1 and 10)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-1'), { button: 0, clientX: NAME_W })
+    fireEvent.mouseMove(window, { clientX: NAME_W + (10 - 1) * CELL_W })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('timeline-create-tween')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('timeline-create-tween'))
+    expect(setClassicTweenMock).toHaveBeenCalledWith(0, 1, 10, 0)
+  })
+
+  it('Create Tween is disabled when the selection has ≠2 keyframes', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // select only frame 1 (1 keyframe)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-1'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('timeline-create-tween')).toBeDisabled()
+  })
+
+  it('Remove Tween dispatches removeClassicTween(layer, start) for a selected span', () => {
+    const tweened = makeStatus({
+      layers: [
+        {
+          id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0,
+          keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }],
+          tweens: [{ start: 1, end: 10, ease: 0 }],
+        },
+      ],
+    })
+    render(<TimelineStrip status={tweened} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('timeline-remove-tween')).toBeEnabled()
+    fireEvent.click(screen.getByTestId('timeline-remove-tween'))
+    expect(removeClassicTweenMock).toHaveBeenCalledWith(0, 1)
+  })
+
+  it('ease slider shows the tween ease and commits setClassicTween on release', () => {
+    const tweened = makeStatus({
+      layers: [
+        {
+          id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0,
+          keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }],
+          tweens: [{ start: 1, end: 10, ease: 0 }],
+        },
+      ],
+    })
+    render(<TimelineStrip status={tweened} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-5'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.getByTestId('timeline-ease-value')).toHaveTextContent('0')
+    fireEvent.change(screen.getByTestId('timeline-ease-slider'), { target: { value: '60' } })
+    expect(screen.getByTestId('timeline-ease-value')).toHaveTextContent('60') // live preview
+    fireEvent.mouseUp(screen.getByTestId('timeline-ease-slider'))
+    expect(setClassicTweenMock).toHaveBeenCalledWith(0, 1, 10, 60)
+  })
+
+  it('no ease slider when no tween is selected', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-3'), { button: 0 })
+    fireEvent.mouseUp(window)
+    expect(screen.queryByTestId('timeline-ease-slider')).not.toBeInTheDocument()
   })
 })

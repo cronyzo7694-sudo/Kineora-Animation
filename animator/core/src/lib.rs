@@ -6,6 +6,7 @@
 //! MOD-COMMAND / MOD-PERSIST / MOD-EXPORT (SVG subset).
 
 pub mod command;
+pub mod easing;
 pub mod eval;
 pub mod export;
 pub mod id;
@@ -16,7 +17,8 @@ pub mod session;
 pub mod wasm;
 
 pub use command::{Command, History};
+pub use easing::{ease_classic, ease_penner, EaseFn, EaseMode};
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId};
-pub use model::{Document, Frame, Layer, Node, Scene, Settings, Transform};
+pub use model::{ClassicTween, Document, Frame, Layer, Node, Scene, Settings, Transform};
 pub use session::{NodePropsPatch, Session, SettingsPatch, TransformPatch};

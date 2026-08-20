@@ -119,8 +119,22 @@ pub struct Layer {
     pub name: String,
     /// frame number (1-based) → frame record; held frames derived.
     pub keyframes: BTreeMap<u32, Frame>,
+    /// Classic tween spans (Part 09.5 `{type:'classicTween', start, end, ease}`):
+    /// start keyframe frame → { end frame, ease }. Sparse; a span interpolates
+    /// between two content keyframes holding the SAME object. Held frames are
+    /// NOT tweens (Part 08 §8.0 — frame-by-frame holds; tweening interpolates).
+    #[serde(default)]
+    pub tweens: BTreeMap<u32, ClassicTween>,
     pub visible: bool,
     pub locked: bool,
+}
+
+/// Classic tween span record (Part 09.5): `ease` is the −100..+100 slider
+/// value (Part 09.4.3); `end` is the frame of the end keyframe.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ClassicTween {
+    pub end: u32,
+    pub ease: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -144,6 +158,7 @@ impl Document {
             id: LayerId(1),
             name: "Layer 1".into(),
             keyframes: BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
+            tweens: BTreeMap::new(),
             visible: true,
             locked: false,
         };

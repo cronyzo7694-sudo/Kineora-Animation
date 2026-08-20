@@ -2,7 +2,36 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::eval::{node_layer_index, node_transform_at};
 use crate::id::{LayerId, NodeId};
-use crate::model::{Document, Frame, Layer, Node, Settings, Transform};
+use crate::model::{ClassicTween, Document, Frame, Layer, Node, Settings, Transform};
+
+/// Remove tweens whose start OR end keyframe is the removed frame `frame`.
+fn drop_tweens_at(tweens: &mut BTreeMap<u32, ClassicTween>, frame: u32) {
+    tweens.retain(|start, tw| *start != frame && tw.end != frame);
+}
+
+/// Shift tween start/end frames greater than `gt` by `delta` (follows the
+/// keyframes they reference when F5/Shift+F5 shift the timeline).
+fn shift_tweens(tweens: &mut BTreeMap<u32, ClassicTween>, gt: u32, delta: i64) {
+    let mut out = BTreeMap::new();
+    for (start, tw) in tweens.iter() {
+        let mut s = *start;
+        let mut e = tw.end;
+        if s > gt {
+            s = (s as i64 + delta) as u32;
+        }
+        if e > gt {
+            e = (e as i64 + delta) as u32;
+        }
+        out.insert(
+            s,
+            ClassicTween {
+                end: e,
+                ease: tw.ease,
+            },
+        );
+    }
+    *tweens = out;
+}
 
 /// All document mutations are Commands (REQ-SYS-002). Selection/view state is
 /// not commanded; it is captured/restored by the Session around execute/undo.
@@ -382,6 +411,7 @@ pub struct InsertBlankKeyframe {
     pub layer: usize,
     pub frame: u32,
     prev_entry: Option<Frame>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl InsertBlankKeyframe {
@@ -391,6 +421,7 @@ impl InsertBlankKeyframe {
             layer,
             frame,
             prev_entry: None,
+            prev_tweens: None,
         }
     }
 }
@@ -404,8 +435,10 @@ impl Command for InsertBlankKeyframe {
             return;
         };
         self.prev_entry = l.keyframes.get(&self.frame).cloned();
+        self.prev_tweens = Some(l.tweens.clone());
         if let Some(l) = doc.layer_mut(self.scene, self.layer) {
             l.keyframes.insert(self.frame, Frame::Blank);
+            drop_tweens_at(&mut l.tweens, self.frame);
         }
     }
     fn revert(&mut self, doc: &mut Document) {
@@ -420,6 +453,9 @@ impl Command for InsertBlankKeyframe {
                 l.keyframes.remove(&self.frame);
             }
         }
+        if let Some(tw) = &self.prev_tweens {
+            l.tweens = tw.clone();
+        }
     }
 }
 
@@ -432,6 +468,7 @@ pub struct ClearKeyframe {
     pub frame: u32,
     prev_entry: Option<Frame>,
     existed: bool,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl ClearKeyframe {
@@ -442,6 +479,7 @@ impl ClearKeyframe {
             frame,
             prev_entry: None,
             existed: false,
+            prev_tweens: None,
         }
     }
 }
@@ -457,8 +495,10 @@ impl Command for ClearKeyframe {
         self.prev_entry = l.keyframes.get(&self.frame).cloned();
         self.existed = self.prev_entry.is_some();
         if self.existed {
+            self.prev_tweens = Some(l.tweens.clone());
             if let Some(l) = doc.layer_mut(self.scene, self.layer) {
                 l.keyframes.remove(&self.frame);
+                drop_tweens_at(&mut l.tweens, self.frame);
             }
         }
     }
@@ -472,6 +512,9 @@ impl Command for ClearKeyframe {
         if let Some(prev) = &self.prev_entry {
             l.keyframes.insert(self.frame, prev.clone());
         }
+        if let Some(tw) = &self.prev_tweens {
+            l.tweens = tw.clone();
+        }
     }
 }
 
@@ -484,6 +527,7 @@ pub struct InsertFrames {
     pub layer: usize,
     pub frame: u32,
     prev: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl InsertFrames {
@@ -493,6 +537,7 @@ impl InsertFrames {
             layer,
             frame,
             prev: None,
+            prev_tweens: None,
         }
     }
 }
@@ -506,6 +551,7 @@ impl Command for InsertFrames {
             return;
         };
         self.prev = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
         let moved: Vec<u32> = l
             .keyframes
             .keys()
@@ -522,10 +568,17 @@ impl Command for InsertFrames {
                 l.keyframes.insert(k + 1, fr);
             }
         }
+        shift_tweens(&mut l.tweens, self.frame, 1);
     }
     fn revert(&mut self, doc: &mut Document) {
-        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev.clone() {
             l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
         }
     }
 }
@@ -538,6 +591,7 @@ pub struct DeleteFrames {
     pub layer: usize,
     pub frame: u32,
     prev: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl DeleteFrames {
@@ -547,6 +601,7 @@ impl DeleteFrames {
             layer,
             frame,
             prev: None,
+            prev_tweens: None,
         }
     }
 }
@@ -560,6 +615,7 @@ impl Command for DeleteFrames {
             return;
         };
         self.prev = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
         let moved: Vec<u32> = l
             .keyframes
             .keys()
@@ -577,10 +633,18 @@ impl Command for DeleteFrames {
                 l.keyframes.insert(k - 1, fr);
             }
         }
+        drop_tweens_at(&mut l.tweens, self.frame);
+        shift_tweens(&mut l.tweens, self.frame, -1);
     }
     fn revert(&mut self, doc: &mut Document) {
-        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev.clone() {
             l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
         }
     }
 }
@@ -594,6 +658,7 @@ pub struct MoveKeyframe {
     pub from: u32,
     pub to: u32,
     prev: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl MoveKeyframe {
@@ -604,6 +669,7 @@ impl MoveKeyframe {
             from,
             to,
             prev: None,
+            prev_tweens: None,
         }
     }
 }
@@ -617,16 +683,31 @@ impl Command for MoveKeyframe {
             return;
         };
         self.prev = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
         let Some(l) = doc.layer_mut(self.scene, self.layer) else {
             return;
         };
         if let Some(fr) = l.keyframes.remove(&self.from) {
             l.keyframes.insert(self.to, fr);
         }
+        // a tween STARTING at the moved keyframe follows it; a tween whose END
+        // was moved away dies (broken → removed).
+        let followed = l.tweens.get(&self.from).cloned();
+        l.tweens.retain(|_start, tw| tw.end != self.from);
+        if let Some(tw) = followed {
+            l.tweens.remove(&self.from);
+            l.tweens.insert(self.to, tw);
+        }
     }
     fn revert(&mut self, doc: &mut Document) {
-        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev.clone() {
             l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
         }
     }
 }
@@ -684,6 +765,7 @@ pub struct RemoveFrames {
     pub start: u32,
     pub end: u32,
     prev: Option<BTreeMap<u32, Frame>>,
+    prev_tweens: Option<BTreeMap<u32, ClassicTween>>,
 }
 
 impl RemoveFrames {
@@ -694,6 +776,7 @@ impl RemoveFrames {
             start,
             end,
             prev: None,
+            prev_tweens: None,
         }
     }
 }
@@ -707,6 +790,7 @@ impl Command for RemoveFrames {
             return;
         };
         self.prev = Some(l.keyframes.clone());
+        self.prev_tweens = Some(l.tweens.clone());
         let victims: Vec<u32> = l
             .keyframes
             .keys()
@@ -720,10 +804,20 @@ impl Command for RemoveFrames {
         for k in victims {
             l.keyframes.remove(&k);
         }
+        // tweens whose start or end keyframe was removed die with it
+        l.tweens.retain(|s, tw| {
+            !(*s >= self.start && *s <= self.end) && !(tw.end >= self.start && tw.end <= self.end)
+        });
     }
     fn revert(&mut self, doc: &mut Document) {
-        if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = self.prev.clone() {
             l.keyframes = prev;
+        }
+        if let Some(tw) = self.prev_tweens.clone() {
+            l.tweens = tw;
         }
     }
 }
@@ -833,6 +927,105 @@ impl Command for ReverseFrames {
     fn revert(&mut self, doc: &mut Document) {
         if let (Some(prev), Some(l)) = (self.prev.clone(), doc.layer_mut(self.scene, self.layer)) {
             l.keyframes = prev;
+        }
+    }
+}
+
+/// CMD-TWEEN-CLASSIC — create/update a classic tween span between two content
+/// keyframes holding the SAME object (Part 09.2.1). One command; bit-exact
+/// revert via the previous tween record.
+pub struct SetClassicTween {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    pub end: u32,
+    pub ease: f64,
+    prev: Option<ClassicTween>,
+}
+
+impl SetClassicTween {
+    pub fn new(scene: usize, layer: usize, start: u32, end: u32, ease: f64) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            end,
+            ease,
+            prev: None,
+        }
+    }
+}
+
+impl Command for SetClassicTween {
+    fn label(&self) -> String {
+        "Create classic tween".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = l.tweens.get(&self.start).cloned();
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        l.tweens.insert(
+            self.start,
+            ClassicTween {
+                end: self.end,
+                ease: self.ease,
+            },
+        );
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        match &self.prev {
+            Some(prev) => {
+                l.tweens.insert(self.start, prev.clone());
+            }
+            None => {
+                l.tweens.remove(&self.start);
+            }
+        }
+    }
+}
+
+/// CMD-TWEEN-REMOVE — remove a classic tween span (F-07-13 "Remove Tween").
+pub struct RemoveClassicTween {
+    pub scene: usize,
+    pub layer: usize,
+    pub start: u32,
+    prev: Option<ClassicTween>,
+}
+
+impl RemoveClassicTween {
+    pub fn new(scene: usize, layer: usize, start: u32) -> Self {
+        Self {
+            scene,
+            layer,
+            start,
+            prev: None,
+        }
+    }
+}
+
+impl Command for RemoveClassicTween {
+    fn label(&self) -> String {
+        "Remove tween".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer(self.scene, self.layer) else {
+            return;
+        };
+        self.prev = l.tweens.get(&self.start).cloned();
+        let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
+        l.tweens.remove(&self.start);
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        let Some(l) = doc.layer_mut(self.scene, self.layer) else {
+            return;
+        };
+        if let Some(prev) = &self.prev {
+            l.tweens.insert(self.start, prev.clone());
         }
     }
 }

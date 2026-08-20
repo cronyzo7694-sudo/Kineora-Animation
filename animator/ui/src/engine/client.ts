@@ -215,6 +215,14 @@ export function reverseFrames(layer: number, start: number, end: number): boolea
   return mod?.kineora_reverse_frames(layer, start, end) ?? false
 }
 
+export function setClassicTween(layer: number, start: number, end: number, ease: number): boolean {
+  return mod?.kineora_set_classic_tween(layer, start, end, ease) ?? false
+}
+
+export function removeClassicTween(layer: number, start: number): boolean {
+  return mod?.kineora_remove_classic_tween(layer, start) ?? false
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

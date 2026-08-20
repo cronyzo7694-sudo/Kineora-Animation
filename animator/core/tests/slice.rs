@@ -61,6 +61,9 @@ fn keyframe_and_linear_interpolation() {
     s.draw_rect(0.0, 0.0, 100.0, 100.0, "#ff0000"); // frame 1 at (0,0)
     s.insert_keyframe(10);
     s.move_selection(100.0, 0.0); // frame 10 at (100,0)
+                                  // interpolation is EXPLICIT (Part 08 §8.0): frame-by-frame holds; a classic
+                                  // tween span interpolates.
+    assert!(s.set_classic_tween(0, 1, 10, 0.0));
 
     let f1 = s.evaluate(1)[0].clone();
     let f10 = s.evaluate(10)[0].clone();

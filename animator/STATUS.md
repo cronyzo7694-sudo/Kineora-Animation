@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 122 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 139 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -21,7 +21,8 @@
 | **Timeline + keyframes + frame ops** | MOD-TIMELINE/MOD-FRAME/MOD-KEYFRAME | UNIT C accepted (52383e3) | unbounded viewport, lock-state honesty |
 | **Frame manipulation (F5/Shift+F5 + keyframe drag)** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (1a02769) | InsertFrames/DeleteFrames/MoveKeyframe/DuplicateKeyframe commands |
 | **Timeline navigation + zoom + transport** | MOD-TIMELINE | ACCEPTED (24269fe) | ruler zoom 50–400% + adaptive numbering, `.`/`,` step, Alt+,/. hop, first/last/center, loop toggle |
-| **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | **COMPLETE (this commit, UNIT E) — pending manual acceptance** | drag-range selection, copy/cut/paste/reverse/remove frames (undoable commands), frames_seq.rs (11 tests) |
+| **Frame range selection + clipboard/sequence ops** | MOD-FRAME/MOD-KEYFRAME | ACCEPTED (e23c23f) | drag-range selection, copy/cut/paste/reverse/remove frames |
+| **Classic tween + easing foundation** | MOD-TWEEN/MOD-EASING | **COMPLETE (this commit, UNIT F) — pending manual acceptance** | explicit tween spans, hold-by-default, ease slider, span visuals, easing.rs + tween.rs (17 tests) |
 | CI (GitHub Actions) | MOD-TEST | READY (file) / BLOCKED (push: token needs `workflow` scope) | .github/workflows/ci.yml |
 | Object-level lock/hide (Arrange) | MOD-SELECTION | NOT STARTED | later unit (layer-level only today) |
 | Draggable pivot | MOD-XFR | NOT STARTED | pivot=center [ENGINEERING DECISION] |
@@ -35,6 +36,33 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — UNIT F: classic tween + easing foundation (Part 09.2 + Part 08 §8.0 + Part 09.4)
+- **Model correction (blueprint-mandated)**: interpolation is now EXPLICIT. Per Part 08 §8.0 (whole-frame keyframes hold for frame-by-frame; tweening interpolates) + Part 07 §7.3 (hold rule), the engine no longer auto-interpolates between keyframes holding the same node — frame-by-frame now HOLDS, and only a **classic tween span** interpolates. This replaced the slice-1 "linear seed" (IMP-DEC-006) with the real tween model.
+- **Engine**: `Layer.tweens` (sparse `start → {end, ease}` spans, `#[serde(default)]` for backward-compat). `node_states_at` rewritten: hold-by-default + classic-tween interpolation (x/y/scale lerp; rotation shortest-path). New `easing` module (`ease_classic` −100..+100 slider → quadratic in/out; `ease_penner` linear/quad/cubic/sine seed). Commands `SetClassicTween`/`RemoveClassicTween` (undoable). Session guards: two content keyframes holding the SAME object (Part 09.2.1); locked-layer blocked. Frame ops now keep tweens consistent (F5/Shift+F5 shift span frames with keyframes; delete/clear/F7/remove/move drop broken spans) with bit-exact undo. Status exposes per-layer `tweens`.
+- **UI**: tween span visual (blue cells + ▶ end arrow, F-07-05 E3), **~ Tween** (create between the two selected keyframes) and **✕ Tween** (remove) buttons, and an **ease slider** (−100..+100) that commits ONE command on release (Part 09.4.3). Engine-validated (toast when the keyframes aren't the same object).
+- **Breaking change documented**: three existing tests that asserted the old implicit interpolation now create a tween first (`slice.rs`, `transform.rs`, `properties.rs`) — this reflects the blueprint, not a test weakening.
+- **Deferred**: motion tween (per-property spans — needs symbols, Part 11), shape tween (needs shapes, Part 06), custom ease graph, motion path, broken-tween dashed visual (we drop the span on endpoint removal).
+
+### Manual acceptance matrix — UNIT F (test on your PC)
+| # | Action | Expect |
+|---|---|---|
+| 1 | draw a rect @1, F6 @10, move it @10 | frame 5 now HOLDS frame-1 (no auto-tween — dot-to-dot frame-by-frame) |
+| 2 | select frames 1..10, click **~ Tween** | blue span + ▶ arrow between 1 and 10 |
+| 3 | scrub to frame 5 | rect is halfway (interpolated) |
+| 4 | Play | rect animates 0→100 over 1..10 |
+| 5 | ease slider → +100 | rect leads early (ease-out); −100 lags (ease-in) |
+| 6 | ease slider drag then release | ONE undo entry for the whole gesture |
+| 7 | **✕ Tween** | span gone; frame 5 holds frame-1 again |
+| 8 | Undo / Redo tween create/remove | exact |
+| 9 | F5 at frame 5 (with tween 1..10) | span shifts to 1..11 (midpoint stays proportional) |
+| 10 | Shift+F5 delete the END keyframe | tween drops (reverts to hold); Undo restores it |
+| 11 | ~ Tween with two keyframes holding DIFFERENT objects | blocked + toast "must hold the same object" |
+| 12 | lock the layer → ~ Tween / ✕ Tween / ease | all blocked (buttons disabled) |
+| 13 | rotate 0°→350° with a tween | spins the SHORT way (−10°), not 350° |
+| 14 | scale 1→2 with a tween | grows smoothly |
+| 15 | Save → Reload | tween + ease survive |
+| 16 | Export SVG at frame 5 | interpolated position; no tween arrows/selection in SVG |
 
 ## This commit — UNIT E: frame range selection + clipboard/sequence ops (Part 07 §7.4.6–10 + F-07-12/13)
 - **Frame range selection** (engineering 07 "drag=range", F-03-08): click a cell = select that frame; **drag across cells = select a contiguous range** (single-layer, like Animate's per-row frame selection); Shift/Ctrl/Cmd+click = toggle. Selection is view state (no undo, no playhead move).
@@ -315,9 +343,9 @@ Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyfra
 - **Tauri run in AI sandbox**: webkit2gtk system libs absent (IMP-DEC-007). Engine+UI build/test in CI; desktop runs on the user's Linux PC.
 
 ## Next units (order)
-1. Tweening (Part 09): motion tween spans + per-property keys + easing — completes the "it animates" release (blueprint Release 1 step 6).
-2. Frame ops completion: F5 insert-frame / Shift+F5 delete-frame (span shifting), frame copy/paste/move/reverse.
-3. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps).
-4. Tool-options schema for Properties (REQ-PRP-001 step 1) + keyboard shortcut wiring (Ctrl+A select-all, etc.).
-5. Drawing tools (oval/line) + shape merge model (Part 05/06), symbols/library (Part 11/12).
+1. Tweening completion (Part 09): motion tween spans + per-property keys + full Penner easing + motion presets (depends on symbols, Part 11) · shape tween (depends on shapes, Part 06).
+2. Symbols + Library (Part 11/12) — the prerequisite for motion tween; Release 1 step 7.
+3. Drawing tools (oval/line) + shape merge model (Part 05/06) — the prerequisite for shape tween.
+4. Object-level lock/hide + draggable pivot (finish MOD-SELECTION/MOD-XFR gaps) + tool-options schema + shortcut wiring.
+5. Onion skin (Part 15) · camera/audio (Part 16/17) — Release 2.
 6. Export extensions (sequence / animated GIF / video — native encoder jobs, IMP-DEC-005) + progress/cancel + publish profiles.

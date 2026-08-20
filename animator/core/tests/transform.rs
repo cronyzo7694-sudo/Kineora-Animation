@@ -14,6 +14,7 @@ fn move_on_interpolated_frame_uses_interpolated_before() {
     s.draw_rect(0.0, 0.0, 100.0, 100.0, "#ff0000"); // frame 1 @ (0,0)
     s.insert_keyframe(10); // copies content, still (0,0)
     s.move_selection(100.0, 0.0); // frame 10 @ (100,0) → animated 0→100
+    assert!(s.set_classic_tween(0, 1, 10, 0.0)); // explicit tween (Part 08 §8.0)
 
     // interpolated at frame 5 = 0 + (100-0)*4/9 ≈ 44.44
     let before = s.evaluate(5)[0].clone();

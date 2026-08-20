@@ -6,12 +6,14 @@ import {
   duplicateKeyframe,
   moveKeyframe,
   pasteFrames,
+  removeClassicTween,
   removeFrames,
   reverseFrames,
   setActiveLayer,
+  setClassicTween,
   setPlayhead,
 } from '../engine/client'
-import type { FrameMarkerJson, StatusJson } from '../engine/wasmTypes'
+import type { FrameMarkerJson, StatusJson, TweenJson } from '../engine/wasmTypes'
 
 /** Base cell width in px at 1× timeline zoom (exported for tests). */
 export const CELL_W = 18
@@ -93,6 +95,7 @@ export function TimelineStrip({ status, notify }: Props) {
   const keyDragRef = useRef<{ layer: number; from: number; startX: number; moved: boolean } | null>(null)
   const [zoomIdx, setZoomIdx] = useState(1) // ZOOM_LEVELS[1] = 1×
   const [loopOn, setLoopOn] = useState(isLoopEnabled)
+  const [easeDraft, setEaseDraft] = useState<number | null>(null)
 
   const zoomFactor = ZOOM_LEVELS[zoomIdx]
   const cellW = Math.round(CELL_W * zoomFactor)
@@ -102,6 +105,24 @@ export function TimelineStrip({ status, notify }: Props) {
   const layers = status?.layers ?? []
   const rows = [...layers].reverse()
   const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
+
+  // selected range + tween state (view state; the engine validates mutations)
+  const selSorted = selLayer !== null ? [...selFrames].sort((a, b) => a - b) : []
+  const selMin = selSorted[0] ?? 0
+  const selMax = selSorted[selSorted.length - 1] ?? 0
+  const selLayerObj = selLayer !== null ? layers[selLayer] : null
+  const selKeyframes = selLayerObj
+    ? selLayerObj.keyframes.filter((k) => k.frame >= selMin && k.frame <= selMax).map((k) => k.frame).sort((a, b) => a - b)
+    : []
+  // a tween whose span INTERSECTS the selection (so clicking any cell of a
+  // tween span lets you remove it or edit its ease)
+  const selTween = selLayerObj
+    ? selLayerObj.tweens.find((tw) => tw.end >= selMin && tw.start <= selMax)
+    : undefined
+  const activeEase = easeDraft ?? (selTween?.ease ?? 0)
+
+  const tweenAt = (layer: StatusJson['layers'][number], f: number): TweenJson | null =>
+    layer.tweens.find((tw) => f >= tw.start && f <= tw.end) ?? null
 
   // keep the viewport covering duration + playhead + the current cell width
   useEffect(() => {
@@ -342,6 +363,17 @@ export function TimelineStrip({ status, notify }: Props) {
     )
   }
 
+  const twBtnStyle = (disabled: boolean): React.CSSProperties => ({
+    padding: '2px 8px',
+    borderRadius: 4,
+    border: '1px solid #555',
+    background: '#2a2a2a',
+    color: '#eee',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: 12,
+    opacity: disabled ? 0.5 : 1,
+  })
+
   const navBtn = (id: string, label: string, title: string, onClick: () => void) => (
     <button
       data-testid={id}
@@ -438,6 +470,65 @@ export function TimelineStrip({ status, notify }: Props) {
         })}
         {seqBtn('timeline-reverse', 'Reverse', 'Reverse selected keyframes', () => doRange(reverseFrames, 'reverse frames'))}
         {seqBtn('timeline-remove', 'Remove', 'Remove selected frames (leave gap)', () => doRange(removeFrames, 'remove frames'))}
+        <span style={{ width: 1, height: 16, background: '#333', display: 'inline-block' }} />
+        <button
+          data-testid="timeline-create-tween"
+          data-disabled={(!attached || selLayer === null || selKeyframes.length !== 2 || (selLayerObj?.locked ?? false)) ? 'true' : 'false'}
+          aria-label="Create classic tween"
+          title="Create classic tween between the two selected keyframes"
+          disabled={!attached || selLayer === null || selKeyframes.length !== 2 || (selLayerObj?.locked ?? false)}
+          onClick={() => {
+            if (selLayer === null) return
+            notify(setClassicTween(selLayer, selKeyframes[0], selKeyframes[1], 0) ? `tween ${selKeyframes[0]} → ${selKeyframes[1]}` : 'tween: the two keyframes must hold the same object')
+          }}
+          style={twBtnStyle(!attached || selLayer === null || selKeyframes.length !== 2 || (selLayerObj?.locked ?? false))}
+        >
+          ~ Tween
+        </button>
+        <button
+          data-testid="timeline-remove-tween"
+          data-disabled={(!attached || !selTween || (selLayerObj?.locked ?? false)) ? 'true' : 'false'}
+          aria-label="Remove tween"
+          title="Remove the classic tween in the selection"
+          disabled={!attached || !selTween || (selLayerObj?.locked ?? false)}
+          onClick={() => {
+            if (selLayer === null || !selTween) return
+            notify(removeClassicTween(selLayer, selTween.start) ? `tween removed @ ${selTween.start}` : 'remove tween: none')
+          }}
+          style={twBtnStyle(!attached || !selTween || (selLayerObj?.locked ?? false))}
+        >
+          ✕ Tween
+        </button>
+        {selTween && (
+          <span data-testid="timeline-ease" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#888', fontSize: 11 }}>ease</span>
+            <input
+              type="range"
+              data-testid="timeline-ease-slider"
+              min={-100}
+              max={100}
+              step={1}
+              value={activeEase}
+              onChange={(e) => setEaseDraft(Number(e.target.value))}
+              onMouseUp={() => {
+                if (selLayer !== null && selTween && easeDraft !== null && easeDraft !== selTween.ease) {
+                  setClassicTween(selLayer, selTween.start, selTween.end, easeDraft)
+                  notify(`tween ease → ${easeDraft}`)
+                }
+                setEaseDraft(null)
+              }}
+              onKeyUp={() => {
+                if (selLayer !== null && selTween && easeDraft !== null && easeDraft !== selTween.ease) {
+                  setClassicTween(selLayer, selTween.start, selTween.end, easeDraft)
+                  notify(`tween ease → ${easeDraft}`)
+                }
+                setEaseDraft(null)
+              }}
+              style={{ width: 70 }}
+            />
+            <span data-testid="timeline-ease-value" style={{ color: '#8ec8ff', fontSize: 11, minWidth: 26 }}>{Math.round(activeEase)}</span>
+          </span>
+        )}
       </div>
 
       <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
@@ -471,16 +562,19 @@ export function TimelineStrip({ status, notify }: Props) {
                   {kinds.map((kind, i) => {
                     const f = i + 1
                     const selected = selLayer === engineIndex && selFrames.has(f)
-                    const bg = kind === 'held' ? '#333333' : 'transparent'
+                    const tw = tweenAt(l, f)
+                    const bg = tw ? '#1d4e7f' : kind === 'held' ? '#333333' : 'transparent'
                     return (
                       <div
                         key={f}
                         data-testid={`cell-${engineIndex}-${f}`}
                         data-kind={kind}
+                        data-tween={tw ? 'true' : 'false'}
                         data-selected={selected ? 'true' : 'false'}
                         onMouseDown={(e) => onCellDown(e, engineIndex, f)}
-                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none' }}
+                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none', color: '#8ec8ff', fontSize: 9, lineHeight: `${ROW_H}px`, textAlign: 'center' }}
                       >
+                        {tw && f === tw.end ? '▶' : ''}
                         {(kind === 'key' || kind === 'blank') && (
                           <span
                             data-testid={`kf-dot-${engineIndex}-${f}`}

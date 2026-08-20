@@ -21,8 +21,11 @@ fn main() {
         s.evaluate(10)
     );
 
+    // classic tween between the two keyframes (Part 09.2) — interpolation is
+    // explicit; without it, frame 5 HOLDs the frame-1 content.
+    s.set_classic_tween(0, 1, 10, 0.0);
     s.set_playhead(5);
-    println!("[5] playhead@5 → interpolated {:?}", s.evaluate(5));
+    println!("[5] playhead@5 → tweened {:?}", s.evaluate(5));
 
     s.undo();
     println!("[6] undo (last move) → frame10 {:?}", s.evaluate(10));

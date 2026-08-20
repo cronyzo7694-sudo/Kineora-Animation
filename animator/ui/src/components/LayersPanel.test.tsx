@@ -34,8 +34,8 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
     scene: 'Scene 1',
     layer: 'Layer 1',
     layers: [
-      { id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [] },
-      { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 1, keyframes: [] },
+      { id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [], tweens: [] },
+      { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 1, keyframes: [], tweens: [] },
     ],
     active_layer: 0,
     fps: 24,
@@ -98,7 +98,7 @@ describe('LayersPanel', () => {
   })
 
   it('delete button is disabled when only one layer exists', () => {
-    const one = makeStatus({ layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [] }] })
+    const one = makeStatus({ layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [], tweens: [] }] })
     render(<LayersPanel status={one} notify={notify} />)
     expect(screen.getByTestId('layers-delete')).toBeDisabled()
   })

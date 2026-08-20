@@ -68,6 +68,14 @@ struct FrameMarkerOut {
     blank: bool,
 }
 
+/// Classic tween span for the timeline (Part 09.2).
+#[derive(Serialize)]
+struct TweenOut {
+    start: u32,
+    end: u32,
+    ease: f64,
+}
+
 /// Layer row for the Layers panel / timeline (Part 20 / C-22 / Part 07).
 #[derive(Serialize)]
 struct LayerOut {
@@ -80,6 +88,8 @@ struct LayerOut {
     selected_objects: u32,
     /// sparse keyframe markers (ascending) for the timeline frame cells
     keyframes: Vec<FrameMarkerOut>,
+    /// classic tween spans (ascending by start) for the timeline
+    tweens: Vec<TweenOut>,
 }
 
 #[derive(serde::Deserialize)]
@@ -338,6 +348,19 @@ pub fn kineora_remove_frames(layer: u32, start: u32, end: u32) -> bool {
 #[wasm_bindgen]
 pub fn kineora_reverse_frames(layer: u32, start: u32, end: u32) -> bool {
     with_session(|s| s.reverse_frames(layer as usize, start, end)).unwrap_or(false)
+}
+
+/// Create/update a classic tween span between two same-object keyframes
+/// (Part 09.2). One undoable command.
+#[wasm_bindgen]
+pub fn kineora_set_classic_tween(layer: u32, start: u32, end: u32, ease: f64) -> bool {
+    with_session(|s| s.set_classic_tween(layer as usize, start, end, ease)).unwrap_or(false)
+}
+
+/// Remove a classic tween span (F-07-13 "Remove Tween"). One undoable command.
+#[wasm_bindgen]
+pub fn kineora_remove_classic_tween(layer: u32, start: u32) -> bool {
+    with_session(|s| s.remove_classic_tween(layer as usize, start)).unwrap_or(false)
 }
 
 #[wasm_bindgen]
@@ -611,6 +634,15 @@ pub fn kineora_status() -> String {
                                 blank: matches!(fr, crate::model::Frame::Blank),
                             })
                             .collect();
+                        let tweens = l
+                            .tweens
+                            .iter()
+                            .map(|(start, tw)| TweenOut {
+                                start: *start,
+                                end: tw.end,
+                                ease: tw.ease,
+                            })
+                            .collect();
                         LayerOut {
                             id: l.id.0,
                             name: l.name.clone(),
@@ -619,6 +651,7 @@ pub fn kineora_status() -> String {
                             active: i == s.active_layer,
                             selected_objects,
                             keyframes,
+                            tweens,
                         }
                     })
                     .collect::<Vec<_>>()

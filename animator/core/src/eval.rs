@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::easing::ease_classic;
 use crate::id::NodeId;
 use crate::model::{Document, Frame, Layer, Node, Transform};
 
@@ -21,23 +22,6 @@ pub struct RectItem {
     pub stroke_width: f64,
 }
 
-/// Effective transform of a node at a specific keyframe entry.
-fn effective_at(entry: Option<(&u32, &Frame)>, doc: &Document, id: NodeId) -> Option<Transform> {
-    let (_, fr) = entry?;
-    match fr {
-        Frame::Keyframe {
-            content,
-            transforms,
-        } if content.contains(&id) => Some(
-            transforms
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| base_transform(doc, id)),
-        ),
-        _ => None,
-    }
-}
-
 fn base_transform(doc: &Document, id: NodeId) -> Transform {
     doc.nodes
         .get(&id)
@@ -45,48 +29,89 @@ fn base_transform(doc: &Document, id: NodeId) -> Transform {
         .unwrap_or_default()
 }
 
-/// Node → transform at `frame`: linearly interpolates x/y between the previous
-/// and next keyframes that both hold the node (classic-tween seed, IMP-DEC-006).
+/// Node → transform at `frame`.
+/// Hold rule (Part 07 §7.3): content holds from the nearest keyframe ≤ frame.
+/// A **classic tween span** (Part 09.2) interpolates the transforms of nodes
+/// present in BOTH the start and end keyframes (same object); frame-by-frame
+/// keyframes HOLD (Part 08 §8.0). A tween whose end keyframe is missing or
+/// whose content differs is BROKEN → holds the start (dashed in the UI).
 pub(crate) fn node_states_at(
     doc: &Document,
     layer: &Layer,
     frame: u32,
 ) -> BTreeMap<NodeId, Transform> {
     let mut res = BTreeMap::new();
-    let prev = layer.keyframes.range(..=frame).next_back();
-    let next = layer.keyframes.range((frame + 1)..).next();
+    let Some((&pf, prev_fr)) = layer.keyframes.range(..=frame).next_back() else {
+        return res; // before the first keyframe → empty
+    };
+    let (prev_content, prev_xforms) = match prev_fr {
+        Frame::Keyframe {
+            content,
+            transforms,
+        } => (content, transforms),
+        Frame::Blank => return res, // blank keyframe holds nothing
+    };
 
-    let mut ids = BTreeSet::new();
-    for entry in [prev, next].into_iter().flatten() {
-        if let Frame::Keyframe { content, .. } = entry.1 {
-            ids.extend(content.iter().copied());
-        }
+    // HOLD: every node in the prev keyframe holds its effective transform.
+    for id in prev_content {
+        let t = prev_xforms
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| base_transform(doc, *id));
+        res.insert(*id, t);
     }
 
-    for id in ids {
-        let p = effective_at(prev, doc, id);
-        let n = effective_at(next, doc, id);
-        match (p, n) {
-            (Some(a), Some(b)) => {
-                let pf = prev.map(|(f, _)| *f).unwrap_or(frame);
-                let nf = next.map(|(f, _)| *f).unwrap_or(frame + 1);
-                let span = (nf as f64 - pf as f64).max(1.0);
-                let t = (frame as f64 - pf as f64) / span;
-                let mut tr = a.clone();
-                tr.x = a.x + (b.x - a.x) * t;
-                tr.y = a.y + (b.y - a.y) * t;
-                res.insert(id, tr);
+    // CLASSIC TWEEN: interpolate nodes shared by the start and end keyframes.
+    if let Some(tw) = layer.tweens.get(&pf) {
+        if tw.end > pf && frame <= tw.end {
+            if let Some(Frame::Keyframe {
+                content: c1,
+                transforms: t1,
+            }) = layer.keyframes.get(&tw.end)
+            {
+                let span = (tw.end - pf) as f64;
+                let t = ease_classic(tw.ease, (frame - pf) as f64 / span);
+                for id in prev_content {
+                    if !c1.contains(id) {
+                        continue; // not the same object → holds start
+                    }
+                    let a = prev_xforms
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| base_transform(doc, *id));
+                    let b = t1
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| base_transform(doc, *id));
+                    res.insert(*id, lerp_transform(&a, &b, t));
+                }
             }
-            (Some(a), None) => {
-                res.insert(id, a);
-            }
-            (None, Some(b)) => {
-                res.insert(id, b);
-            }
-            (None, None) => {}
         }
     }
     res
+}
+
+/// Linear transform interpolation for classic tween: x/y/scale lerp; rotation
+/// shortest-path (Part 08 §8.2). Skew/pivot are not tweened in this unit.
+fn lerp_transform(a: &Transform, b: &Transform, t: f64) -> Transform {
+    let mut d = b.rotation - a.rotation;
+    while d > 180.0 {
+        d -= 360.0;
+    }
+    while d < -180.0 {
+        d += 360.0;
+    }
+    Transform {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        scale_x: a.scale_x + (b.scale_x - a.scale_x) * t,
+        scale_y: a.scale_y + (b.scale_y - a.scale_y) * t,
+        rotation: a.rotation + d * t,
+        skew_x: a.skew_x,
+        skew_y: a.skew_y,
+        pivot_x: a.pivot_x,
+        pivot_y: a.pivot_y,
+    }
 }
 
 /// Interpolated/held transform of a node at `frame` — the SAME value the

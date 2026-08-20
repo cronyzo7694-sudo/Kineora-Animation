@@ -45,6 +45,13 @@ export interface FrameMarkerJson {
   blank: boolean
 }
 
+/** Classic tween span for the timeline (Part 09.2). */
+export interface TweenJson {
+  start: number
+  end: number
+  ease: number
+}
+
 /** Layer row for the Layers panel / timeline (matches Rust `LayerOut`). */
 export interface LayerJson {
   id: number
@@ -54,6 +61,7 @@ export interface LayerJson {
   active: boolean
   selected_objects: number
   keyframes: FrameMarkerJson[]
+  tweens: TweenJson[]
 }
 
 export interface StatusJson {
@@ -129,6 +137,8 @@ export interface KineoraWasm {
   kineora_paste_frames(layer: number, at: number): boolean
   kineora_remove_frames(layer: number, start: number, end: number): boolean
   kineora_reverse_frames(layer: number, start: number, end: number): boolean
+  kineora_set_classic_tween(layer: number, start: number, end: number, ease: number): boolean
+  kineora_remove_classic_tween(layer: number, start: number): boolean
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string

@@ -19,4 +19,4 @@ pub use command::{Command, History};
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId};
 pub use model::{Document, Frame, Layer, Node, Scene, Settings, Transform};
-pub use session::Session;
+pub use session::{NodePropsPatch, Session, SettingsPatch, TransformPatch};

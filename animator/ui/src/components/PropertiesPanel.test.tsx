@@ -1,0 +1,169 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../engine/client', () => ({
+  patchTransforms: vi.fn(),
+  setNodeProps: vi.fn(),
+  setDocumentSettings: vi.fn(() => true),
+}))
+
+import { patchTransforms, setDocumentSettings, setNodeProps } from '../engine/client'
+import { PropertiesPanel } from './PropertiesPanel'
+import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
+
+const patchTransformsMock = vi.mocked(patchTransforms)
+const setNodePropsMock = vi.mocked(setNodeProps)
+const setDocumentSettingsMock = vi.mocked(setDocumentSettings)
+
+const notify = vi.fn()
+
+function detail(overrides: Partial<SelDetailJson> = {}): SelDetailJson {
+  return {
+    id: 1,
+    x: 10,
+    y: 20,
+    w: 100,
+    h: 50,
+    base_w: 100,
+    base_h: 50,
+    scale_x: 1,
+    scale_y: 1,
+    rotation: 0,
+    fill: '#ff0000',
+    stroke: null,
+    stroke_width: 0,
+    ...overrides,
+  }
+}
+
+function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
+  return {
+    playhead: 1,
+    selection: [1],
+    selection_rects: [],
+    selection_details: [detail()],
+    undo_len: 0,
+    redo_len: 0,
+    scene: 'Scene 1',
+    layer: 'Layer 1',
+    layers: [],
+    active_layer: 0,
+    fps: 24,
+    doc_width: 800,
+    doc_height: 600,
+    background: '#ffffff',
+    event_log: [],
+    ...overrides,
+  }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  notify.mockClear()
+})
+
+describe('PropertiesPanel', () => {
+  it('nothing selected → document schema (size/fps/background)', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
+    expect(screen.getByTestId('props-context')).toHaveTextContent('Document')
+    expect(screen.getByTestId('doc-width')).toHaveValue('800')
+    expect(screen.getByTestId('doc-height')).toHaveValue('600')
+    expect(screen.getByTestId('doc-fps')).toHaveValue('24')
+    expect(screen.queryByTestId('prop-x')).not.toBeInTheDocument()
+  })
+
+  it('single selection → object schema with real values', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('props-context')).toHaveTextContent('Object')
+    expect(screen.getByTestId('prop-x')).toHaveValue('10')
+    expect(screen.getByTestId('prop-y')).toHaveValue('20')
+    expect(screen.getByTestId('prop-w')).toHaveValue('100')
+    expect(screen.getByTestId('prop-h')).toHaveValue('50')
+    expect(screen.getByTestId('prop-rotation')).toHaveValue('0')
+    expect(screen.getByTestId('prop-fill')).toBeInTheDocument()
+  })
+
+  it('multi selection → common fields only + mixed badge (no fill/stroke)', () => {
+    const multi = makeStatus({
+      selection: [1, 2],
+      selection_details: [detail({ id: 1 }), detail({ id: 2, x: 30 })],
+    })
+    render(<PropertiesPanel status={multi} notify={notify} />)
+    expect(screen.getByTestId('props-context')).toHaveTextContent('Objects (2)')
+    expect(screen.getByTestId('props-mixed')).toBeInTheDocument()
+    expect(screen.getByTestId('prop-x')).toBeInTheDocument()
+    expect(screen.queryByTestId('prop-fill')).not.toBeInTheDocument()
+    // X differs across the two objects → shown blank ("mixed")
+    expect(screen.getByTestId('prop-x')).toHaveValue('')
+  })
+
+  it('editing X commits ONE patchTransforms call per selected object', () => {
+    const multi = makeStatus({
+      selection: [1, 2],
+      selection_details: [detail({ id: 1, x: 10 }), detail({ id: 2, x: 10 })],
+    })
+    render(<PropertiesPanel status={multi} notify={notify} />)
+    const x = screen.getByTestId('prop-x')
+    fireEvent.change(x, { target: { value: '55' } })
+    fireEvent.blur(x)
+    expect(patchTransformsMock).toHaveBeenCalledTimes(1)
+    expect(patchTransformsMock).toHaveBeenCalledWith([
+      { id: 1, x: 55 },
+      { id: 2, x: 55 },
+    ])
+  })
+
+  it('editing W commits setNodeProps (base property)', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const w = screen.getByTestId('prop-w')
+    fireEvent.change(w, { target: { value: '200' } })
+    fireEvent.blur(w)
+    expect(setNodePropsMock).toHaveBeenCalledWith([{ id: 1, width: 200 }])
+  })
+
+  it('Enter commits and Esc cancels (no engine call)', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const x = screen.getByTestId('prop-x')
+    fireEvent.change(x, { target: { value: '42' } })
+    fireEvent.keyDown(x, { key: 'Enter' })
+    expect(patchTransformsMock).toHaveBeenCalledTimes(1)
+
+    const y = screen.getByTestId('prop-y')
+    fireEvent.change(y, { target: { value: '999' } })
+    fireEvent.keyDown(y, { key: 'Escape' })
+    expect(patchTransformsMock).toHaveBeenCalledTimes(1) // no second commit
+    expect(y).toHaveValue('20') // reverted to engine value
+  })
+
+  it('invalid numeric input reverts with an inline error (never silent)', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const x = screen.getByTestId('prop-x')
+    fireEvent.change(x, { target: { value: 'not-a-number' } })
+    fireEvent.blur(x)
+    expect(patchTransformsMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('prop-x-error')).toBeInTheDocument()
+    expect(x).toHaveValue('10') // reverted
+  })
+
+  it('unmodified blur produces no command', () => {
+    render(<PropertiesPanel status={makeStatus()} notify={notify} />)
+    const x = screen.getByTestId('prop-x')
+    fireEvent.focus(x)
+    fireEvent.blur(x)
+    expect(patchTransformsMock).not.toHaveBeenCalled()
+  })
+
+  it('document field edit commits setDocumentSettings', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
+    const w = screen.getByTestId('doc-width')
+    fireEvent.change(w, { target: { value: '1280' } })
+    fireEvent.blur(w)
+    expect(setDocumentSettingsMock).toHaveBeenCalledWith({ width: 1280 })
+  })
+
+  it('reports engine-not-attached honestly', () => {
+    render(<PropertiesPanel status={null} notify={notify} />)
+    expect(screen.getByTestId('props-empty')).toHaveTextContent('engine not attached')
+    expect(screen.getByTestId('props-context')).toHaveTextContent('—')
+  })
+})

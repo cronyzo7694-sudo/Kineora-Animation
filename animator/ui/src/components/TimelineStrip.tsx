@@ -1,9 +1,9 @@
 import type { AppContext } from '../controlRegistry'
 
-export function TimelineStrip({ ctx, playhead }: { ctx: AppContext; playhead: number }) {
+export function TimelineStrip({ ctx, playhead, layer }: { ctx: AppContext; playhead: number; layer: string }) {
   return (
     <div data-testid="timeline" style={{ height: 96, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
-      <span style={{ color: '#aaa', fontSize: 12 }}>Layer 1</span>
+      <span data-testid="timeline-layer" style={{ color: '#aaa', fontSize: 12 }}>{layer}</span>
       <div style={{ flex: 1, height: 40, background: '#2a2a2a', borderRadius: 4, position: 'relative', overflow: 'hidden' }}>
         {[1, 5, 10, 15, 20].map((f) => (
           <div key={f} style={{ position: 'absolute', left: f * 24, top: 4, color: '#666', fontSize: 11 }}>{f}</div>

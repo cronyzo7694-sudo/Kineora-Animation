@@ -11,7 +11,9 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::command::History;
+use crate::id::NodeId;
 use crate::model::Document;
+use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
 use crate::{Session, Settings};
 
 thread_local! {
@@ -39,7 +41,8 @@ struct SelRect {
 }
 
 /// Full per-selected-node detail: base (unscaled) dims + current scale/rotation
-/// so the UI can compute exact scale/rotate transforms (Part 04 semantics).
+/// so the UI can compute exact scale/rotate transforms (Part 04 semantics),
+/// plus base style props for the Properties panel (Part 26.2).
 #[derive(Serialize)]
 struct SelDetail {
     id: u64,
@@ -52,6 +55,21 @@ struct SelDetail {
     scale_x: f64,
     scale_y: f64,
     rotation: f64,
+    fill: String,
+    stroke: Option<String>,
+    stroke_width: f64,
+}
+
+/// Layer row for the Layers panel (Part 20 / C-22).
+#[derive(Serialize)]
+struct LayerOut {
+    id: u64,
+    name: String,
+    visible: bool,
+    locked: bool,
+    active: bool,
+    /// number of selected objects that live on this layer at the playhead
+    selected_objects: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -68,6 +86,53 @@ struct TransIn {
     pivot_y: f64,
 }
 
+/// Transform field patch: absent/null = leave unchanged.
+#[derive(serde::Deserialize)]
+struct PatchIn {
+    id: u64,
+    #[serde(default)]
+    x: Option<f64>,
+    #[serde(default)]
+    y: Option<f64>,
+    #[serde(default)]
+    scale_x: Option<f64>,
+    #[serde(default)]
+    scale_y: Option<f64>,
+    #[serde(default)]
+    rotation: Option<f64>,
+}
+
+/// Base-property patch: absent/null = leave unchanged.
+#[derive(serde::Deserialize)]
+struct PropsIn {
+    id: u64,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+    #[serde(default)]
+    fill: Option<String>,
+    #[serde(default)]
+    stroke_enabled: Option<bool>,
+    #[serde(default)]
+    stroke: Option<String>,
+    #[serde(default)]
+    stroke_width: Option<f64>,
+}
+
+/// Document-settings patch: absent/null = leave unchanged.
+#[derive(serde::Deserialize)]
+struct SettingsIn {
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    height: Option<f64>,
+    #[serde(default)]
+    fps: Option<u32>,
+    #[serde(default)]
+    background: Option<String>,
+}
+
 #[derive(Serialize)]
 struct StatusOut {
     playhead: u32,
@@ -78,6 +143,8 @@ struct StatusOut {
     redo_len: usize,
     scene: String,
     layer: String,
+    layers: Vec<LayerOut>,
+    active_layer: usize,
     fps: u32,
     doc_width: f64,
     doc_height: f64,
@@ -245,6 +312,112 @@ pub fn kineora_load_json(json: String) -> bool {
     }
 }
 
+// ——— Layers (MOD-LAYER, Part 20) ———
+
+#[wasm_bindgen]
+pub fn kineora_set_active_layer(index: u32) -> bool {
+    with_session(|s| s.set_active_layer(index as usize)).unwrap_or(false)
+}
+
+/// Create a new layer above the active one. Returns its index.
+#[wasm_bindgen]
+pub fn kineora_create_layer() -> u32 {
+    with_session(|s| s.create_layer().unwrap_or(0) as u32).unwrap_or(0)
+}
+
+#[wasm_bindgen]
+pub fn kineora_delete_layer(index: u32) -> bool {
+    with_session(|s| s.delete_layer(index as usize)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_rename_layer(index: u32, name: String) -> bool {
+    with_session(|s| s.rename_layer(index as usize, &name)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_layer_visible(index: u32, visible: bool) -> bool {
+    with_session(|s| s.set_layer_visible(index as usize, visible)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_layer_locked(index: u32, locked: bool) -> bool {
+    with_session(|s| s.set_layer_locked(index as usize, locked)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_move_layer(from: u32, to: u32) -> bool {
+    with_session(|s| s.move_layer(from as usize, to as usize)).unwrap_or(false)
+}
+
+// ——— Object / document properties (Part 26) ———
+
+/// Edit transform fields at the current playhead (one undoable command).
+#[wasm_bindgen]
+pub fn kineora_patch_transforms(json: String) {
+    let Ok(list) = serde_json::from_str::<Vec<PatchIn>>(&json) else {
+        return;
+    };
+    let patches: Vec<(NodeId, TransformPatch)> = list
+        .into_iter()
+        .map(|p| {
+            (
+                NodeId(p.id),
+                TransformPatch {
+                    x: p.x,
+                    y: p.y,
+                    scale_x: p.scale_x,
+                    scale_y: p.scale_y,
+                    rotation: p.rotation,
+                },
+            )
+        })
+        .collect();
+    let _ = with_session(|s| s.patch_node_transforms(patches));
+}
+
+/// Edit base node properties (one undoable command across all patched nodes).
+#[wasm_bindgen]
+pub fn kineora_set_node_props(json: String) {
+    let Ok(list) = serde_json::from_str::<Vec<PropsIn>>(&json) else {
+        return;
+    };
+    let patches: Vec<(NodeId, NodePropsPatch)> = list
+        .into_iter()
+        .map(|p| {
+            (
+                NodeId(p.id),
+                NodePropsPatch {
+                    width: p.width,
+                    height: p.height,
+                    fill: p.fill,
+                    stroke_enabled: p.stroke_enabled,
+                    stroke: p.stroke,
+                    stroke_width: p.stroke_width,
+                },
+            )
+        })
+        .collect();
+    let _ = with_session(|s| s.set_node_props(patches));
+}
+
+/// Edit document settings (one undoable command).
+#[wasm_bindgen]
+pub fn kineora_set_document_settings(json: String) -> bool {
+    let Ok(p) = serde_json::from_str::<SettingsIn>(&json) else {
+        return false;
+    };
+    with_session(|s| {
+        s.set_document_settings(SettingsPatch {
+            width: p.width,
+            height: p.height,
+            fps: p.fps,
+            background: p.background,
+        })
+    })
+    .unwrap_or(false)
+}
+
 /// Dev-mode observability: JSON status (Phase-4 manual-test requirement).
 #[wasm_bindgen]
 pub fn kineora_status() -> String {
@@ -276,15 +449,23 @@ pub fn kineora_status() -> String {
                 rotation: it.rotation,
             })
             .collect();
-        // Per-node detail (base dims + current scale/rotation) for exact math.
+        // Per-node detail (base dims + current scale/rotation + base style)
+        // for exact math and the Properties panel (Part 26.2).
         let selection_details = s
             .selection
             .iter()
             .filter_map(|id| {
                 let t = s.selected_transform(*id)?;
                 let base = s.doc.nodes.get(id)?;
-                let (base_w, base_h) = match base {
-                    crate::model::Node::Rect { width, height, .. } => (*width, *height),
+                let (base_w, base_h, fill, stroke, stroke_width) = match base {
+                    crate::model::Node::Rect {
+                        width,
+                        height,
+                        fill,
+                        stroke,
+                        stroke_width,
+                        ..
+                    } => (*width, *height, fill.clone(), stroke.clone(), *stroke_width),
                 };
                 Some(SelDetail {
                     id: id.0,
@@ -297,9 +478,37 @@ pub fn kineora_status() -> String {
                     scale_x: t.scale_x,
                     scale_y: t.scale_y,
                     rotation: t.rotation,
+                    fill,
+                    stroke,
+                    stroke_width,
                 })
             })
             .collect();
+
+        // Layer rows (bottom → top) with selection markers for the Layers panel.
+        let layers = s
+            .doc
+            .scene(s.active_scene)
+            .map(|sc| {
+                sc.layers
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        let content = s.doc.content_at(s.active_scene, i, s.playhead);
+                        let selected_objects =
+                            content.iter().filter(|id| sel.contains(&id.0)).count() as u32;
+                        LayerOut {
+                            id: l.id.0,
+                            name: l.name.clone(),
+                            visible: l.visible,
+                            locked: l.locked,
+                            active: i == s.active_layer,
+                            selected_objects,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         let out = StatusOut {
             playhead: s.playhead,
@@ -310,6 +519,8 @@ pub fn kineora_status() -> String {
             redo_len: s.history.redo_len(),
             scene,
             layer,
+            layers,
+            active_layer: s.active_layer,
             fps: s.doc.settings.fps,
             doc_width: s.doc.settings.width,
             doc_height: s.doc.settings.height,

@@ -7,6 +7,8 @@ import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
 import { StatusBar } from './components/StatusBar'
 import { DebugPanel } from './components/DebugPanel'
+import { LayersPanel } from './components/LayersPanel'
+import { PropertiesPanel } from './components/PropertiesPanel'
 
 export default function App() {
   const [tool, setTool] = useState('select')
@@ -14,6 +16,7 @@ export default function App() {
   const [toasts, setToasts] = useState<string[]>([])
   const [engine, setEngine] = useState<EngineStatus>(() => getEngineStatus())
   const [tick, setTick] = useState(0)
+  const [panels, setPanels] = useState<Record<string, boolean>>({ layers: true, properties: true })
 
   // attach the WASM core once
   useEffect(() => {
@@ -26,9 +29,10 @@ export default function App() {
     }
   }, [])
 
-  // light status poll so the playhead / engine event log stay live
+  // light status poll so the playhead / engine event log / panels stay live
+  // (the bridge is synchronous; polling is the honest refresh mechanism)
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 300)
+    const id = window.setInterval(() => setTick((t) => t + 1), 120)
     return () => {
       window.clearInterval(id)
       stopPlayback()
@@ -40,7 +44,11 @@ export default function App() {
     setToasts((t) => [...t.slice(-19), msg])
   }
 
-  const ctx: AppContext = { engine, notify, setTool }
+  const togglePanel = (id: string) => {
+    setPanels((p) => ({ ...p, [id]: !p[id] }))
+  }
+
+  const ctx: AppContext = { engine, notify, setTool, togglePanel, panels }
   const registryErrors = useMemo(() => validateRegistry(controls), [])
   const status = statusJson()
 
@@ -51,10 +59,14 @@ export default function App() {
       </div>
       <Toolbar controls={controls.filter((c) => c.visibility !== 'HIDDEN-WHEN-UNAVAILABLE')} ctx={ctx} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} />
-        <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+        {panels.layers && <LayersPanel status={status} notify={notify} />}
+        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} />
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {panels.properties && <PropertiesPanel status={status} notify={notify} />}
+          <DebugPanel registryErrors={registryErrors} toasts={toasts} engine={engine} engineLog={status?.event_log ?? []} />
+        </div>
       </div>
-      <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} />
+      <TimelineStrip ctx={ctx} playhead={status?.playhead ?? 1} layer={status?.layer ?? '—'} />
       <StatusBar engine={engine} tool={tool} toast={toast} playhead={status?.playhead ?? 1} fps={status?.fps ?? 24} />
     </div>
   )

@@ -21,6 +21,10 @@ export interface AppContext {
   engine: EngineStatus
   notify: (msg: string) => void
   setTool: (tool: string) => void
+  /** Open/close a docked panel ('layers' | 'properties'). */
+  togglePanel: (id: string) => void
+  /** Current open/closed state of each docked panel. */
+  panels: Record<string, boolean>
 }
 
 export interface Control {
@@ -44,8 +48,8 @@ export const controls: Control[] = [
   { id: 'timeline.keyframe', label: 'Keyframe', a11y: 'Insert keyframe', tooltip: 'Insert keyframe (F6)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'F6', action: (c) => performAction('timeline.keyframe', c.notify) },
   { id: 'file.save', label: 'Save', a11y: 'Save project', tooltip: 'Save (downloads project JSON)', state: 'FUNCTIONAL', visibility: 'ALWAYS', shortcut: 'Ctrl+S', action: (c) => performAction('file.save', c.notify) },
   { id: 'file.export', label: 'Export', a11y: 'Export SVG', tooltip: 'Export frame as SVG', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => performAction('file.export', c.notify) },
-  { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.notify('layers panel: next unit') },
-  { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.notify('properties panel: next unit') },
+  { id: 'panel.layers', label: 'Layers', a11y: 'Layers panel', tooltip: 'Toggle layers panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('layers') },
+  { id: 'panel.properties', label: 'Properties', a11y: 'Properties panel', tooltip: 'Toggle properties panel', state: 'FUNCTIONAL', visibility: 'ALWAYS', action: (c) => c.togglePanel('properties') },
   { id: 'nav.back', label: 'Back', a11y: 'Back one level', tooltip: 'Exit edit depth (Esc)', state: 'FUNCTIONAL', visibility: 'CONTEXTUAL', shortcut: 'Esc', action: (c) => c.notify('back: next unit') },
 ]
 

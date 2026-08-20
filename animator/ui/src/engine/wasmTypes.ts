@@ -34,6 +34,19 @@ export interface SelDetailJson {
   scale_x: number
   scale_y: number
   rotation: number
+  fill: string
+  stroke: string | null
+  stroke_width: number
+}
+
+/** Layer row for the Layers panel (matches Rust `LayerOut`). */
+export interface LayerJson {
+  id: number
+  name: string
+  visible: boolean
+  locked: boolean
+  active: boolean
+  selected_objects: number
 }
 
 export interface StatusJson {
@@ -45,11 +58,42 @@ export interface StatusJson {
   redo_len: number
   scene: string
   layer: string
+  layers: LayerJson[]
+  active_layer: number
   fps: number
   doc_width: number
   doc_height: number
   background: string
   event_log: string[]
+}
+
+/** Partial transform field edit (absent field = leave unchanged). */
+export interface TransformPatchJson {
+  id: number
+  x?: number
+  y?: number
+  scale_x?: number
+  scale_y?: number
+  rotation?: number
+}
+
+/** Partial base-property edit (absent field = leave unchanged). */
+export interface NodePropsPatchJson {
+  id: number
+  width?: number
+  height?: number
+  fill?: string
+  stroke_enabled?: boolean
+  stroke?: string
+  stroke_width?: number
+}
+
+/** Partial document-settings edit (absent field = leave unchanged). */
+export interface SettingsPatchJson {
+  width?: number
+  height?: number
+  fps?: number
+  background?: string
 }
 
 export interface KineoraWasm {
@@ -73,6 +117,16 @@ export interface KineoraWasm {
   kineora_status(): string
   kineora_project_json?(): string
   kineora_load_json?(json: string): boolean
+  kineora_set_active_layer(index: number): boolean
+  kineora_create_layer(): number
+  kineora_delete_layer(index: number): boolean
+  kineora_rename_layer(index: number, name: string): boolean
+  kineora_set_layer_visible(index: number, visible: boolean): boolean
+  kineora_set_layer_locked(index: number, locked: boolean): boolean
+  kineora_move_layer(from: number, to: number): boolean
+  kineora_patch_transforms(json: string): void
+  kineora_set_node_props(json: string): void
+  kineora_set_document_settings(json: string): boolean
   /** wasm-bindgen --target web default init (accepts explicit wasm input). */
   default?: (input?: ArrayBuffer | Response | string | URL) => Promise<unknown>
 }

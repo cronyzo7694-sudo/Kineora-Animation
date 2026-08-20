@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 import { controls, validateRegistry } from './controlRegistry'
 
@@ -43,5 +43,19 @@ describe('app shell', () => {
     render(<App />)
     screen.getByTestId('edit.undo').click()
     expect(await screen.findByTestId('toast')).toHaveTextContent('undo: engine not attached')
+  })
+
+  it('renders engine-backed Layers and Properties panels by default', () => {
+    render(<App />)
+    expect(screen.getByTestId('layers-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
+  })
+
+  it('panel.layers toggle hides the Layers panel (real panel control)', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
+    expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel.layers'))
+    expect(screen.getByTestId('layers-panel')).toBeInTheDocument()
   })
 })

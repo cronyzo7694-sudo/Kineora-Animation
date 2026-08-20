@@ -105,6 +105,43 @@ pub(crate) fn node_transform_at(
     node_states_at(doc, layer_, frame).get(&id).cloned()
 }
 
+/// Scene-wide transform lookup: a selection can span layers (marquee / Select
+/// All), so the effective transform is found by scanning every layer for the
+/// first one that holds the node at `frame`. Returns `None` if the node isn't
+/// held on any layer at this frame.
+pub(crate) fn node_transform_in_scene(
+    doc: &Document,
+    scene: usize,
+    frame: u32,
+    id: NodeId,
+) -> Option<Transform> {
+    let scene_ = doc.scene(scene)?;
+    for layer in &scene_.layers {
+        let idx = layer_index(scene_, layer);
+        if let Some(t) = node_transform_at(doc, scene, idx, frame, id) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// Index of the layer that holds `id` at `frame` (scene-wide). Commands use
+/// this so cross-layer selections write their overrides into the RIGHT layer.
+pub(crate) fn node_layer_index(
+    doc: &Document,
+    scene: usize,
+    frame: u32,
+    id: NodeId,
+) -> Option<usize> {
+    let scene_ = doc.scene(scene)?;
+    scene_
+        .layers
+        .iter()
+        .enumerate()
+        .find(|(i, _)| doc.content_at(scene, *i, frame).contains(&id))
+        .map(|(i, _)| i)
+}
+
 /// Evaluate the document at `frame` into a flat, ordered render-item list.
 /// Bottom→top layers; back→front nodes (content order). Deterministic.
 pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {

@@ -47,7 +47,7 @@ cd ../desktop/src-tauri && cargo tauri dev
 ```
 
 ## Engine ↔ UI contract (WASM bridge)
-The UI talks to the core **only** through `ui/src/engine/client.ts`. The generated package (canonical `ui/public/wasm/`, built by `scripts/build-wasm.sh` via `npm run wasm`) is a **static public asset**, so Vite cannot `import()` it as a source module. The loader therefore uses a browser-native mechanism: **fetch the glue as text → evaluate via a Blob URL → fetch the `.wasm` explicitly and pass it to the wasm-bindgen default init** (never relying on `import.meta.url`). Works identically in Vite dev, Vite build, and Tauri. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_all / clear_selection / move_selection / set_playhead / insert_keyframe / undo / redo / evaluate / export_svg / save / load / status / project_json / load_json`. All values cross as JSON. If the package isn't built, the UI reports an honest "not attached" state naming the exact URL + build command — never a fake control. Regressions: `wasmLoader.test.ts` (path contract + full loader flow with injected fakes) and `scripts/verify-wasm-path.sh` (canonical output dir via a fake wasm-pack).
+The UI talks to the core **only** through `ui/src/engine/client.ts`. The generated package (canonical `ui/public/wasm/`, built by `scripts/build-wasm.sh` via `npm run wasm`) is a **static public asset**, so Vite cannot `import()` it as a source module. The loader therefore uses a browser-native mechanism: **fetch the glue as text → evaluate via a Blob URL → fetch the `.wasm` explicitly and pass it to the wasm-bindgen default init** (never relying on `import.meta.url`). Works identically in Vite dev, Vite build, and Tauri. Facade API (`core/src/wasm.rs`): `kineora_new / draw_rect / select_at / select_toggle_at / select_in_rect / select_all / clear_selection / move_selection / transform_selection / patch_transforms / set_node_props / set_document_settings / set_playhead / insert_keyframe / set_active_layer / create_layer / delete_layer / rename_layer / set_layer_visible / set_layer_locked / move_layer / undo / redo / evaluate / export_svg / save / load / status / project_json / load_json`. All values cross as JSON. If the package isn't built, the UI reports an honest "not attached" state naming the exact URL + build command — never a fake control. Regressions: `wasmLoader.test.ts` (path contract + full loader flow with injected fakes) and `scripts/verify-wasm-path.sh` (canonical output dir via a fake wasm-pack).
 
 ## CI (GitHub Actions)
 Every push/PR runs: `cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo build --target wasm32-unknown-unknown` (verifies the wasm facade), `npm ci && npm test && npm run build`. Check the Actions tab.
@@ -124,11 +124,36 @@ Manual test (after `npm run wasm && npm run dev`):
 | K | draw rect, keyframe@10, move it, scrub to 5, drag | moves from the interpolated position (no jump) |
 | L | move, then Export SVG | no selection box / no preview in the SVG |
 
+## Layers + Properties panels (current unit)
+- **Layers panel** (`components/LayersPanel.tsx`) — a projection of the engine's real layer list (no duplicate React state): eye / lock / name / selection-marker per row; click a row = activate layer (view state, no undo); double-click = rename (undoable); + / 🗑 = create/delete (undoable, last layer blocked); ▲▼ buttons + HTML5 drag = reorder (undoable, bottom→top render order). Top row = frontmost layer.
+- **Properties panel** (`components/PropertiesPanel.tsx`) — context-bound inspector (REQ-PRP-001 precedence, slice-1 subset): stage selection → object schema (single = X/Y/W/H/Rotation/Scale X%/Scale Y%/Fill/Stroke+width; multi = common X/Y/W/H + "mixed" badge); nothing selected → document schema (W/H/fps/background). Every commit = ONE engine command (Enter/blur commit, Esc cancel, invalid input reverts with inline error — never silent). No direct document writes — all edits go through Rust commands.
+- **Rust** — new commands `SetNodeProps / SetDocumentSettings / CreateLayer / DeleteLayer / RenameLayer / SetLayerVisible / SetLayerLocked / ReorderLayer`; `MoveSelection`/`TransformSelection` are layer-aware (cross-layer selections move/transform correctly); `select_all` spans layers (skips hidden/locked); `draw_rect` rejects locked/hidden targets; selection pruned on hide/lock/delete. Property edits on an interpolated frame write the interpolated value + delta (no jump) with exact undo.
+- Visibility semantics (Part 20.2): hidden = not rendered/selectable/exported; locked = rendered, not selectable/select-all-able, still exported. Object-level lock/hide, folders, layer types, outline mode = later units.
+
+Manual test (after `npm run wasm && npm run dev`):
+| # | Action | Expect |
+|---|---|---|
+| A | draw two rects | Layers shows active "Layer 1" |
+| B | click a rect | row gets a blue ● dot; Properties shows Object: real X/Y/W/H |
+| C | click a Layers row | row activates (draws go there) |
+| D | edit X then Enter | object moves; one Undo entry |
+| E | edit Y/W/H/Rotation/Scale | renderer updates; Undo/Redo exact |
+| F | change Fill / enable Stroke | object restyles (base props, all frames) |
+| G | add layer + draw on it | stacking correct (top = front) |
+| H | eye-off a layer | objects vanish (canvas + SVG export) |
+| I | lock a layer | visible but not selectable/select-all-able |
+| J | reorder (▲▼ or drag) | render order flips; Undo restores |
+| K | dbl-click rename | name changes; Undo restores |
+| L | delete a layer | gone + nodes; Undo restores exactly |
+| M | multi-select across layers → drag | both move, each on its own layer |
+| N | edit property on an interpolated frame | no jump; playback correct |
+| O | Save/reload, Export SVG | layers+props round-trip; no overlays in SVG |
+
 ## Manual test checklist (vertical slice 1)
-1. `cd core && cargo test` → 10 acceptance tests green.
+1. `cd core && cargo test` → 48 acceptance tests green.
 2. `cargo run` → prints create/draw/move/keyframe/interp(≈216.67)/undo/redo/export/save-load steps; check `/tmp/out.svg` has exactly background + one content rect (no overlay).
 3. `cd ui && npm run wasm && npm ci && npm run dev` → Dev Panel shows `engine: attached`; toolbar Undo/Redo/Save/Export/Keyframe bound to real engine calls.
 4. Draw → select → move → undo → redo → save → reload → export — every action changes the Dev Panel event log.
 
 ## Status
-See `STATUS.md`. Current unit: **WASM bridge** (this commit).
+See `STATUS.md`. Current unit: **Layers + Properties panels (engine-backed)** (this commit).

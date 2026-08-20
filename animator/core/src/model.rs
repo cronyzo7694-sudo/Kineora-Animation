@@ -164,6 +164,33 @@ impl Document {
         id
     }
 
+    /// Next unique LayerId (1 + max existing). Layer ids are stable (REQ-SYS-004).
+    pub fn alloc_layer_id(&self) -> LayerId {
+        let mut max = 0u64;
+        for sc in &self.scenes {
+            for l in &sc.layers {
+                max = max.max(l.id.0);
+            }
+        }
+        LayerId(max + 1)
+    }
+
+    /// All node ids referenced by ANY layer's keyframe content (any frame).
+    /// Used to find orphaned nodes when a layer is deleted.
+    pub fn referenced_node_ids(&self) -> std::collections::BTreeSet<NodeId> {
+        let mut set = std::collections::BTreeSet::new();
+        for sc in &self.scenes {
+            for l in &sc.layers {
+                for fr in l.keyframes.values() {
+                    if let Frame::Keyframe { content, .. } = fr {
+                        set.extend(content.iter().copied());
+                    }
+                }
+            }
+        }
+        set
+    }
+
     pub fn scene(&self, i: usize) -> Option<&Scene> {
         self.scenes.get(i)
     }

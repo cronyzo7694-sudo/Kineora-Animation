@@ -20,7 +20,14 @@
 // "attached" state (no-fake-features rule).
 
 import type { EngineStatus } from '../controlRegistry'
-import type { KineoraWasm, RectItemJson, StatusJson } from './wasmTypes'
+import type {
+  KineoraWasm,
+  NodePropsPatchJson,
+  RectItemJson,
+  SettingsPatchJson,
+  StatusJson,
+  TransformPatchJson,
+} from './wasmTypes'
 
 /** Canonical generated module (must match scripts/build-wasm.sh output). */
 export const WASM_PKG_URL = '/wasm/kineora_core.js'
@@ -186,4 +193,52 @@ export function projectJson(): string {
 
 export function loadProjectJson(json: string): boolean {
   return mod?.kineora_load_json?.(json) ?? false
+}
+
+// ——— Layers (MOD-LAYER) ———
+
+export function setActiveLayer(index: number): boolean {
+  return mod?.kineora_set_active_layer(index) ?? false
+}
+
+/** Returns the new layer's index, or -1 if the engine is absent. */
+export function createLayer(): number {
+  if (!mod) return -1
+  return mod.kineora_create_layer()
+}
+
+export function deleteLayer(index: number): boolean {
+  return mod?.kineora_delete_layer(index) ?? false
+}
+
+export function renameLayer(index: number, name: string): boolean {
+  return mod?.kineora_rename_layer(index, name) ?? false
+}
+
+export function setLayerVisible(index: number, visible: boolean): boolean {
+  return mod?.kineora_set_layer_visible(index, visible) ?? false
+}
+
+export function setLayerLocked(index: number, locked: boolean): boolean {
+  return mod?.kineora_set_layer_locked(index, locked) ?? false
+}
+
+export function moveLayer(from: number, to: number): boolean {
+  return mod?.kineora_move_layer(from, to) ?? false
+}
+
+// ——— Object / document properties (Part 26) ———
+
+/** Edit transform fields at the current playhead (one undoable command). */
+export function patchTransforms(patches: TransformPatchJson[]): void {
+  mod?.kineora_patch_transforms(JSON.stringify(patches))
+}
+
+/** Edit base node properties (one undoable command across all patched nodes). */
+export function setNodeProps(patches: NodePropsPatchJson[]): void {
+  mod?.kineora_set_node_props(JSON.stringify(patches))
+}
+
+export function setDocumentSettings(patch: SettingsPatchJson): boolean {
+  return mod?.kineora_set_document_settings(JSON.stringify(patch)) ?? false
 }

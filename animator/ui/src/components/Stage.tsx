@@ -34,6 +34,7 @@ interface Props {
   tool: string
   playhead: number
   tick: number
+  notify?: (msg: string) => void
 }
 
 interface SelectGesture {
@@ -56,7 +57,7 @@ interface TransformGesture {
   details: SelDetail[]
 }
 
-export function Stage({ engine, tool, playhead, tick }: Props) {
+export function Stage({ engine, tool, playhead, tick, notify }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
@@ -224,7 +225,10 @@ export function Stage({ engine, tool, playhead, tick }: Props) {
       const rp = rectPreviewRef.current
       rectPreviewRef.current = null
       if (rg?.dragging && rp && isValidRect(rp)) {
-        drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
+        const id = drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
+        if (id === 0 && engine.kind === 'ok' && notify) {
+          notify('draw blocked: active layer is locked or hidden')
+        }
       }
       scheduleRedraw()
     }

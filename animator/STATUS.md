@@ -3,7 +3,7 @@
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |
-| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 139 cargo tests |
+| Rust core — doc/frame/selection/xfr/command/persist/export/eval | MOD-DOC/FRAME/SELECTION/XFR/COMMAND/PERSIST/EXPORT | COMPLETE | 144 cargo tests |
 | CLI demo (offline manual test) | — | COMPLETE | cargo run |
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
@@ -36,6 +36,12 @@
 - **Root cause** (proven, not guessed): the viewport math was already correct; the defects were (a) **no visible Stage boundary** — the renderer filled the whole canvas with the background color (an "infinite white canvas"), and (b) **wrong default document size** — 800×600 instead of the canonical **1920×1080** (Part 33 §33.1 / engineering 03), which made fit-zoom land at ~62% on narrow layouts and produced large-looking document coordinates for ordinary drags.
 - **Fixes**: renderer draws gray pasteboard → stage rect (doc background) → stage border (authoring-only); `Settings::default()` → 1920×1080; WASM loader calls `kineora_new_default()` (no size drift); view commands Ctrl+=/Ctrl+-/Ctrl+1/Ctrl+0; SVG export clips to the stage (`clipPath`) so pasteboard art is not exported.
 - **Verified invariants** (new tests): zoom/pan never mutate doc coordinates; screen↔doc round-trips at 25%–800%; 1 screen-px = 1/zoom doc units; export = document stage bounds, independent of viewport; settings survive Save→Load; resizing the stage does not move content.
+
+## This commit — Ease audit (UNIT F follow-up, per manual "ease looks identical" report)
+- **Audit verdict: the easing MATH was CORRECT.** Part 09.4.3 (range −100..+100; negative = ease-IN slow-start; positive = ease-OUT fast-start; 0 = linear; quadratic by default) is implemented exactly: at the normalized midpoint the three curves are **0.25 / 0.50 / 0.75** — for a 200px tween the mid-span positions are **50 / 100 / 150 px**. The user's "almost identical" came from two things: (1) the **start and end frames are IDENTICAL by design** (every curve is exact at its endpoints — the difference lives only in the intermediate frames), and (2) the ease slider committed only on a single fragile `mouseup`/`keyup` release event — if that event was missed, the ease never reached the engine, so all three literally stayed linear.
+- **Fix (UI robustness)**: the ease slider now commits on **pointerup + mouseup + keyup + blur**, idempotently (one undoable command per gesture, proven by test), and the readout keeps the committed value instead of snapping back. Selecting a different tween clears any pending draft. The engine was NOT changed.
+- **Regression tests added**: exact numeric proofs that −100/0/+100 differ at the midpoint and preserve endpoints; undo/redo restores the exact eased value (and un-creating the tween reverts to hold); ease survives save/load exactly; export uses the eased position; slider sign/range/quadratic-extreme checks; one-gesture-one-command and no-op-release UI tests.
+- **Manual note**: to SEE the difference, scrub to the **middle** of the span — the ends are always identical by design. Use a long span + large movement (e.g. move 200px over 20 frames → mid positions 50/100/150).
 
 ## This commit — UNIT F: classic tween + easing foundation (Part 09.2 + Part 08 §8.0 + Part 09.4)
 - **Model correction (blueprint-mandated)**: interpolation is now EXPLICIT. Per Part 08 §8.0 (whole-frame keyframes hold for frame-by-frame; tweening interpolates) + Part 07 §7.3 (hold rule), the engine no longer auto-interpolates between keyframes holding the same node — frame-by-frame now HOLDS, and only a **classic tween span** interpolates. This replaced the slice-1 "linear seed" (IMP-DEC-006) with the real tween model.

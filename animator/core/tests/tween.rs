@@ -223,6 +223,135 @@ fn shift_f5_delete_frame_shifts_tween_end_left() {
 }
 
 #[test]
+fn ease_curves_differ_at_midpoint_and_preserve_exact_endpoints() {
+    // Part 09.4.3 regression: -100/0/+100 must produce measurably DIFFERENT
+    // intermediate positions while keeping the exact start/end frames.
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#ff0000"); // key @1 @ (0,0)
+    s.insert_keyframe(21); // key @21
+    s.move_selection(200.0, 0.0); // @21 x=200 → span 20, frame 11 = t=0.5
+    assert!(s.set_classic_tween(0, 1, 21, 0.0));
+
+    let lin = s.evaluate(11)[0].x;
+    assert!(
+        (lin - 100.0).abs() < 0.01,
+        "linear midpoint = 100, got {lin}"
+    );
+
+    s.set_classic_tween(0, 1, 21, -100.0);
+    let ein = s.evaluate(11)[0].x;
+    assert!(
+        (ein - 50.0).abs() < 0.01,
+        "ease-in midpoint = 50, got {ein}"
+    );
+
+    s.set_classic_tween(0, 1, 21, 100.0);
+    let eout = s.evaluate(11)[0].x;
+    assert!(
+        (eout - 150.0).abs() < 0.01,
+        "ease-out midpoint = 150, got {eout}"
+    );
+
+    // all three distinct
+    assert!(
+        ein < lin && lin < eout,
+        "ein {ein} < lin {lin} < eout {eout}"
+    );
+
+    // all three preserve the exact endpoints
+    assert_eq!(s.evaluate(1)[0].x, 0.0, "start exact");
+    assert_eq!(s.evaluate(21)[0].x, 200.0, "end exact");
+}
+
+#[test]
+fn ease_undo_redo_restores_exact_value() {
+    let mut s = session();
+    animated_pair(&mut s); // 1..10, x 0→100
+    s.set_classic_tween(0, 1, 10, 0.0); // linear tween (command A)
+    s.set_classic_tween(0, 1, 10, 100.0); // update ease (command B)
+    let eout = s.evaluate(5)[0].x;
+    assert!(
+        (eout - 69.14).abs() < 0.5,
+        "ease-out frame5 ≈ 69.14, got {eout}"
+    );
+
+    s.undo(); // undo B → back to linear (ease 0), tween still present
+    let lin = s.evaluate(5)[0].x;
+    assert!(
+        (lin - 44.44).abs() < 0.5,
+        "undo restores linear 44.44, got {lin}"
+    );
+    assert!((eout - lin).abs() > 5.0, "eased value differs from linear");
+
+    s.redo(); // redo B → ease 100 again
+    assert!(
+        (s.evaluate(5)[0].x - eout).abs() < 1e-9,
+        "redo restores the exact eased value"
+    );
+
+    s.undo(); // undo B → linear
+    s.undo(); // undo A → tween gone → frame 5 HOLDs frame-1 content
+    assert_eq!(s.evaluate(5)[0].x, 0.0, "no tween → hold");
+}
+
+#[test]
+fn ease_survives_save_load_exactly() {
+    let path = std::env::temp_dir().join("animator_ease_test.json");
+    let mut s = session();
+    animated_pair(&mut s);
+    s.set_classic_tween(0, 1, 10, -75.0);
+    s.save(&path).unwrap();
+
+    let loaded = Session::load(&path).unwrap();
+    assert_eq!(
+        loaded.doc.scene(0).unwrap().layers[0]
+            .tweens
+            .get(&1)
+            .unwrap()
+            .ease,
+        -75.0,
+        "ease value persisted exactly"
+    );
+    assert!(
+        (loaded.evaluate(5)[0].x - s.evaluate(5)[0].x).abs() < 1e-9,
+        "eased position identical after reload"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn ease_export_uses_the_eased_position() {
+    let mut s = session();
+    animated_pair(&mut s); // 1..10, x 0→100
+    s.set_classic_tween(0, 1, 10, 100.0); // ease-out → frame 5 ≈ 69.14
+    let svg = s.export_svg(5);
+    assert!(
+        svg.contains("69.13") || svg.contains("69.14"),
+        "eased x in SVG: {svg}"
+    );
+}
+
+#[test]
+fn ease_range_is_clamped_and_sign_matches_blueprint() {
+    // Part 09.4.3: negative = ease-IN (lag), positive = ease-OUT (lead), 0 = linear.
+    for t in [0.1, 0.25, 0.5, 0.75, 0.9] {
+        let lin = ease_classic(0.0, t);
+        assert!(
+            ease_classic(-100.0, t) <= lin + 1e-12,
+            "ease-in ≤ linear at t={t}"
+        );
+        assert!(
+            ease_classic(100.0, t) >= lin - 1e-12,
+            "ease-out ≥ linear at t={t}"
+        );
+    }
+    // extremes must equal the quadratic curves exactly (blueprint "quadratic by default")
+    assert_eq!(ease_classic(-100.0, 0.5), 0.25);
+    assert_eq!(ease_classic(100.0, 0.5), 0.75);
+    assert_eq!(ease_classic(0.0, 0.5), 0.5);
+}
+
+#[test]
 fn tween_blocked_on_locked_layer() {
     let mut s = session();
     animated_pair(&mut s);

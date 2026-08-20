@@ -665,4 +665,47 @@ describe('TimelineStrip — classic tween (Part 09.2: span visuals + create/remo
     fireEvent.mouseUp(window)
     expect(screen.queryByTestId('timeline-ease-slider')).not.toBeInTheDocument()
   })
+
+  it('one ease gesture = ONE command across pointerup/mouseup/keyup/blur', () => {
+    const tweened = makeStatus({
+      layers: [
+        {
+          id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0,
+          keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }],
+          tweens: [{ start: 1, end: 10, ease: 0 }],
+        },
+      ],
+    })
+    render(<TimelineStrip status={tweened} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-5'), { button: 0 })
+    fireEvent.mouseUp(window)
+    const slider = screen.getByTestId('timeline-ease-slider')
+    fireEvent.change(slider, { target: { value: '60' } })
+    fireEvent.pointerUp(slider)
+    fireEvent.mouseUp(slider)
+    fireEvent.keyUp(slider, { key: 'ArrowRight' })
+    fireEvent.blur(slider)
+    expect(setClassicTweenMock).toHaveBeenCalledTimes(1)
+    expect(setClassicTweenMock).toHaveBeenCalledWith(0, 1, 10, 60)
+  })
+
+  it('releasing the ease slider at its current value commits nothing', () => {
+    const tweened = makeStatus({
+      layers: [
+        {
+          id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0,
+          keyframes: [{ frame: 1, blank: false }, { frame: 10, blank: false }],
+          tweens: [{ start: 1, end: 10, ease: 0 }],
+        },
+      ],
+    })
+    render(<TimelineStrip status={tweened} notify={notify} />)
+    fireEvent.mouseDown(screen.getByTestId('cell-0-5'), { button: 0 })
+    fireEvent.mouseUp(window)
+    const slider = screen.getByTestId('timeline-ease-slider')
+    fireEvent.change(slider, { target: { value: '0' } }) // back to the same value
+    fireEvent.pointerUp(slider)
+    fireEvent.blur(slider)
+    expect(setClassicTweenMock).not.toHaveBeenCalled()
+  })
 })

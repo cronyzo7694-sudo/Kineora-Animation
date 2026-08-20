@@ -96,6 +96,9 @@ export function TimelineStrip({ status, notify }: Props) {
   const [zoomIdx, setZoomIdx] = useState(1) // ZOOM_LEVELS[1] = 1×
   const [loopOn, setLoopOn] = useState(isLoopEnabled)
   const [easeDraft, setEaseDraft] = useState<number | null>(null)
+  // idempotency guard for the ease commit (multiple release events per gesture
+  // — pointerup/mouseup/keyup/blur — must produce ONE undoable command).
+  const easeCommitRef = useRef<number | null>(null)
 
   const zoomFactor = ZOOM_LEVELS[zoomIdx]
   const cellW = Math.round(CELL_W * zoomFactor)
@@ -123,6 +126,26 @@ export function TimelineStrip({ status, notify }: Props) {
 
   const tweenAt = (layer: StatusJson['layers'][number], f: number): TweenJson | null =>
     layer.tweens.find((tw) => f >= tw.start && f <= tw.end) ?? null
+
+  // reset the ease commit guard + pending draft when the selected tween changes
+  useEffect(() => {
+    easeCommitRef.current = null
+    setEaseDraft(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selLayer, selTween?.start, selTween?.end])
+
+  // Commit the ease slider (Part 09.4.3): ONE undoable command per gesture.
+  // Idempotent across pointerup/mouseup/keyup/blur so a single drag produces a
+  // single command even when several release events fire. The draft is kept
+  // until the engine status reflects it, so the slider never snaps back.
+  const commitEase = () => {
+    if (selLayer === null || !selTween || easeDraft === null) return
+    if (easeDraft !== selTween.ease && easeCommitRef.current !== easeDraft) {
+      setClassicTween(selLayer, selTween.start, selTween.end, easeDraft)
+      notify(`tween ease → ${easeDraft}`)
+    }
+    easeCommitRef.current = easeDraft
+  }
 
   // keep the viewport covering duration + playhead + the current cell width
   useEffect(() => {
@@ -510,20 +533,10 @@ export function TimelineStrip({ status, notify }: Props) {
               step={1}
               value={activeEase}
               onChange={(e) => setEaseDraft(Number(e.target.value))}
-              onMouseUp={() => {
-                if (selLayer !== null && selTween && easeDraft !== null && easeDraft !== selTween.ease) {
-                  setClassicTween(selLayer, selTween.start, selTween.end, easeDraft)
-                  notify(`tween ease → ${easeDraft}`)
-                }
-                setEaseDraft(null)
-              }}
-              onKeyUp={() => {
-                if (selLayer !== null && selTween && easeDraft !== null && easeDraft !== selTween.ease) {
-                  setClassicTween(selLayer, selTween.start, selTween.end, easeDraft)
-                  notify(`tween ease → ${easeDraft}`)
-                }
-                setEaseDraft(null)
-              }}
+              onPointerUp={commitEase}
+              onMouseUp={commitEase}
+              onKeyUp={commitEase}
+              onBlur={commitEase}
               style={{ width: 70 }}
             />
             <span data-testid="timeline-ease-value" style={{ color: '#8ec8ff', fontSize: 11, minWidth: 26 }}>{Math.round(activeEase)}</span>

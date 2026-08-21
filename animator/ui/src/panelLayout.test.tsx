@@ -5,6 +5,7 @@ import App from './App'
 beforeEach(() => {
   try {
     localStorage.removeItem('kineora.workspace.panelLayout')
+    localStorage.removeItem('kineora.workspace')
   } catch {
     /* ignore */
   }
@@ -148,7 +149,7 @@ describe('panel layout — persistence + Reset Workspace (Part 01 §1.1.2 / C-06
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 600 })
     fireEvent.mouseUp(window)
-    expect(setSpy).toHaveBeenCalledWith('kineora.workspace.panelLayout', expect.stringContaining('layersW'))
+    expect(setSpy).toHaveBeenCalledWith('kineora.workspace', expect.stringContaining('layersW'))
     setSpy.mockRestore()
   })
 

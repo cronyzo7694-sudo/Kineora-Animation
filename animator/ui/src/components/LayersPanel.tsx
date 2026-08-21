@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { createLayer, deleteLayer, moveLayer, renameLayer, setActiveLayer, setLayerLocked, setLayerVisible } from '../engine/client'
 import type { LayerJson, StatusJson } from '../engine/wasmTypes'
+import { PanelHeader } from './PanelHeader'
 
 interface Props {
   status: StatusJson | null
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize). */
   width?: number
+  /** Panel chrome (SYS-01): collapse to header-only. */
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+  onClose?: () => void
 }
 
 /**
@@ -15,7 +20,7 @@ interface Props {
  * (view state, no undo); eye/lock/reorder/rename/create/delete are undoable
  * engine commands. Top row = frontmost (engine index n-1, render order bottom→top).
  */
-export function LayersPanel({ status, notify, width }: Props) {
+export function LayersPanel({ status, notify, width, collapsed = false, onToggleCollapse, onClose }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState<number | null>(null)
@@ -74,27 +79,26 @@ export function LayersPanel({ status, notify, width }: Props) {
 
   return (
     <aside data-testid="layers-panel" aria-label="Layers" style={{ width: width ?? 200, background: '#1e1e1e', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
-        <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Layers</span>
-        <span style={{ display: 'flex', gap: 4 }}>
-          <button data-testid="layers-add" aria-label="Add layer" title="Add layer" disabled={!attached} onClick={add} style={btn}>+</button>
-          <button data-testid="layers-delete" aria-label="Delete active layer" title="Delete active layer" disabled={!attached || layers.length <= 1} onClick={() => remove(layers.findIndex((l) => l.active))} style={btn}>🗑</button>
-        </span>
-      </div>
+      <PanelHeader id="layers" title="Layers" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
+        <button data-testid="layers-add" aria-label="Add layer" title="Add layer" disabled={!attached} onClick={add} style={btn}>+</button>
+        <button data-testid="layers-delete" aria-label="Delete active layer" title="Delete active layer" disabled={!attached || layers.length <= 1} onClick={() => remove(layers.findIndex((l) => l.active))} style={btn}>🗑</button>
+      </PanelHeader>
 
-      {!attached && (
+      {collapsed && null}
+      {!collapsed && !attached && (
         <div data-testid="layers-empty" style={{ padding: 12, color: '#e66', fontSize: 12 }}>
           Layers unavailable — engine not attached.
         </div>
       )}
 
-      {attached && layers.length === 0 && (
+      {!collapsed && attached && layers.length === 0 && (
         <div data-testid="layers-empty" style={{ padding: 12, color: '#888', fontSize: 12 }}>
           No layers.
         </div>
       )}
 
-      <ul style={{ listStyle: 'none', margin: 0, padding: 4, overflowY: 'auto', flex: 1 }}>
+      {!collapsed && (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 4, overflowY: 'auto', flex: 1 }}>
         {rows.map((l) => {
           const active = l.active
           const rowStyle: React.CSSProperties = {
@@ -187,7 +191,8 @@ export function LayersPanel({ status, notify, width }: Props) {
             </li>
           )
         })}
-      </ul>
+        </ul>
+      )}
     </aside>
   )
 }

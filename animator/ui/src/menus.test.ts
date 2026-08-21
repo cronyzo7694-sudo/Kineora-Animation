@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getCommand } from './commands'
 import { menus, type MenuEntry } from './menus'
 
-function* walk(entries: MenuEntry[]): Generator<{ type: 'command'; id: string } | { type: 'submenu' | 'separator' }> {
+function* walk(entries: MenuEntry[]): Generator<MenuEntry> {
   for (const e of entries) {
     yield e
     if (e.type === 'submenu') yield* walk(e.items)

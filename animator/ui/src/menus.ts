@@ -10,6 +10,8 @@ export type MenuEntry =
   | { type: 'command'; id: string }
   | { type: 'submenu'; label: string; items: MenuEntry[] }
   | { type: 'separator' }
+  /** Dynamic list of saved workspaces (each runs workspace.load with its name). */
+  | { type: 'workspaceList' }
 
 export interface MenuDef {
   id: string
@@ -325,7 +327,17 @@ export const menus: MenuDef[] = [
       { type: 'command', id: 'panel.library' },
       { type: 'command', id: 'panel.debug' },
       sep,
-      { type: 'command', id: 'window.resetWorkspace' },
+      {
+        type: 'submenu',
+        label: 'Workspaces',
+        items: [
+          { type: 'command', id: 'workspace.saveCurrent' },
+          { type: 'command', id: 'workspace.saveNew' },
+          { type: 'command', id: 'window.resetWorkspace' },
+          sep,
+          { type: 'workspaceList' },
+        ],
+      },
       { type: 'command', id: 'window.workspacePresets' },
     ],
   },

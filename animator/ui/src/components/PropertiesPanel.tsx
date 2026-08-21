@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { library, patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
+import { PanelHeader } from './PanelHeader'
 
 interface Props {
   status: StatusJson | null
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize); the panel fills the dock column. */
   width?: number
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+  onClose?: () => void
   /**
    * Live preview channel (Part 26.12 "color controls live" + C-09 "live
    * preview; commit on release"): called during field editing so the Stage
@@ -27,7 +31,7 @@ interface Props {
  * release (blur / picker-close / Enter); Esc cancels. Numeric fields commit on
  * Enter/blur with validation (Part 26.12).
  */
-export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
+export function PropertiesPanel({ status, notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
   const attached = status !== null
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
@@ -102,11 +106,11 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
 
   return (
     <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
-        <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Properties</span>
+      <PanelHeader id="properties" title="Properties" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
         <span data-testid="props-context" style={{ color: '#8ef', fontSize: 11, background: '#2a2a2a', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
-      </div>
+      </PanelHeader>
 
+      {!collapsed && (
       <div style={{ padding: 8, overflowY: 'auto', flex: 1, fontSize: 12, color: '#bbb' }}>
         {!attached && (
           <div data-testid="props-empty" style={{ color: '#e66' }}>Properties unavailable — engine not attached.</div>
@@ -228,6 +232,7 @@ export function PropertiesPanel({ status, notify, width, onPreview }: Props) {
           </div>
         )}
       </div>
+      )}
     </aside>
   )
 }

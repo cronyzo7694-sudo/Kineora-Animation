@@ -70,6 +70,7 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
   beforeEach(() => {
     try {
       localStorage.removeItem('kineora.workspace.panelLayout')
+      localStorage.removeItem('kineora.workspace')
     } catch {
       /* ignore */
     }

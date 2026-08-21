@@ -20,6 +20,7 @@ import {
   statusJson,
   undo,
 } from './client'
+import { bus } from '../bus'
 
 export type Notify = (msg: string) => void
 
@@ -117,6 +118,7 @@ export function performAction(id: string, notify: Notify): void {
       if (!engineAttached()) return void notify(notAttached('save'))
       {
         downloadBlob('kineora-project.json', projectJson(), 'application/json')
+        bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
         notify('save: downloaded kineora-project.json')
       }
       break
@@ -188,6 +190,7 @@ export function stopPlayback(): void {
   if (playTimer !== null) {
     window.clearInterval(playTimer)
     playTimer = null
+    bus.emit('playback:stopped', {})
   }
 }
 
@@ -217,6 +220,7 @@ export function togglePlay(notify: Notify): void {
     const next = st.playhead >= dur ? 1 : st.playhead + 1
     setPlayhead(next)
   }, Math.round(1000 / fps))
+  bus.emit('playback:started', {})
   notify('play: started')
 }
 

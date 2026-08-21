@@ -187,6 +187,9 @@ function Entries({
         if (e.type === 'separator') {
           return <div key={`sep-${i}`} style={{ height: 1, background: border, margin: '4px 0' }} />
         }
+        if (e.type === 'workspaceList') {
+          return <WorkspaceListRows key={`ws-${menuId}`} onRun={onRun} ctx={ctx} />
+        }
         if (e.type === 'submenu') {
           const key = `${menuId}>${e.label}`
           const expanded = openSub === key
@@ -222,6 +225,44 @@ function Entries({
           )
         }
         return <CommandRow key={e.id} id={e.id} onRun={onRun} ctx={ctx} />
+      })}
+    </>
+  )
+}
+
+/** Dynamic Window ▸ Workspaces list — each saved name runs workspace.load(name). */
+function WorkspaceListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandContext }) {
+  const names = ctx.listWorkspaces()
+  const cmd = getCommand('workspace.load')
+  if (!cmd) return null
+  if (names.length === 0) {
+    return <div style={{ padding: '5px 12px', fontSize: 12, color: dim }}>No saved workspaces</div>
+  }
+  return (
+    <>
+      {names.map((name) => {
+        const active = ctx.activeWorkspace() === name
+        return (
+          <button
+            key={name}
+            data-testid={`menu-item-ws-${name}`}
+            role="menuitem"
+            onClick={() => {
+              onRun()
+              cmd.run(ctx, name)
+            }}
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.background = hoverBg
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '5px 12px', fontSize: 13, background: 'transparent', color: text, border: 'none', cursor: 'pointer' }}
+          >
+            <span style={{ width: 14, display: 'inline-block', textAlign: 'center' }}>{active ? '✓' : ''}</span>
+            <span style={{ flex: 1 }}>{name}</span>
+          </button>
+        )
       })}
     </>
   )

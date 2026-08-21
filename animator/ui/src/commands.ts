@@ -62,6 +62,18 @@ export interface CommandContext {
   resetWorkspace: () => void
   /** Live engine status (injected so panels can serve their own view of it). */
   getStatus: () => StatusJson | null
+  // ——— SYS-01 workspace / navigation ———
+  collapsed: Record<string, boolean>
+  toggleCollapse: (id: string) => void
+  activeWorkspace: () => string
+  listWorkspaces: () => string[]
+  saveWorkspace: (name: string) => void
+  loadWorkspace: (name: string) => void
+  /** Symbol edit depth (0 = document root; SYS-19 drives this). */
+  editDepth: () => number
+  exitEditOne: () => void
+  exitEditRoot: () => void
+  openGoToFrame: () => void
 }
 
 export interface Command {
@@ -80,7 +92,7 @@ export interface Command {
   whyDisabled?: (ctx: CommandContext) => string
   /** Toggle check state (Window panels, loop, etc.). */
   checked?: (ctx: CommandContext) => boolean
-  run: (ctx: CommandContext) => void
+  run: (ctx: CommandContext, input?: unknown) => void
   /** Render this command in the floating toolbar (default false). */
   toolbar?: boolean
 }
@@ -1278,6 +1290,16 @@ export const commands: Command[] = [
     run: (c) => setPlayhead(Math.max(1, c.getStatus()?.duration ?? 1)),
   },
   {
+    id: 'control.gotoFrame',
+    label: 'Go to Frame…',
+    category: 'control',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] C-05 st.activeFrame (goToFrame dialog)',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) => c.openGoToFrame(),
+  },
+  {
     id: 'control.stepForward',
     label: 'Step Forward One Frame',
     category: 'control',
@@ -1435,6 +1457,31 @@ export const commands: Command[] = [
     run: (c) => c.resetWorkspace(),
   },
   {
+    id: 'workspace.saveCurrent',
+    label: 'Save Current Workspace',
+    category: 'window',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.1.2 (workspace.save)',
+    run: (c) => c.saveWorkspace(c.activeWorkspace()),
+  },
+  {
+    id: 'workspace.saveNew',
+    label: 'New Workspace…',
+    category: 'window',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.1.2 (workspace.save)',
+    run: (c) => c.saveWorkspace(''),
+  },
+  {
+    id: 'workspace.load',
+    label: 'Switch Workspace',
+    category: 'window',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.1.2 (workspace.load)',
+    // input = workspace name (single command, parameterized — §30)
+    run: (c, input) => c.loadWorkspace(typeof input === 'string' ? input : ''),
+  },
+  {
     id: 'window.workspacePresets',
     label: 'Workspace Presets…',
     category: 'window',
@@ -1442,6 +1489,29 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.1.2',
     reason: 'saved workspace presets are a future feature',
     run: () => {},
+  },
+
+  // ——— Navigation / edit depth (SYS-01 chrome; behavior owned by SYS-19) ———
+  {
+    id: 'edit.exitOneLevel',
+    label: 'Back one level',
+    category: 'app',
+    shortcut: 'Esc',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] C-38 (nav.back → edit.exitOneLevel)',
+    enabled: (c) => c.editDepth() > 0,
+    whyDisabled: () => 'at document root',
+    run: (c) => c.exitEditOne(),
+  },
+  {
+    id: 'edit.exitRoot',
+    label: 'Exit to document',
+    category: 'app',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] C-38 (nav.root → edit.exitRoot)',
+    enabled: (c) => c.editDepth() > 0,
+    whyDisabled: () => 'at document root',
+    run: (c) => c.exitEditRoot(),
   },
 
   // ——— Help (Part 01 §1.2.11) ———
@@ -1631,6 +1701,16 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     openPalette: () => {},
     resetWorkspace: () => {},
     getStatus: () => statusJson(),
+    collapsed: {},
+    toggleCollapse: () => {},
+    activeWorkspace: () => 'Essentials',
+    listWorkspaces: () => [],
+    saveWorkspace: () => {},
+    loadWorkspace: () => {},
+    editDepth: () => 0,
+    exitEditOne: () => {},
+    exitEditRoot: () => {},
+    openGoToFrame: () => {},
     ...partial,
   }
 }

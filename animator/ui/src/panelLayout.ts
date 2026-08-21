@@ -47,8 +47,6 @@ export const DEFAULT_LAYOUT: PanelLayout = {
   debugH: 200,
 }
 
-export const PANEL_PREFS_KEY = 'kineora.workspace.panelLayout'
-
 export function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v))
 }
@@ -110,47 +108,6 @@ export function clampLayout(l: PanelLayout): PanelLayout {
   }
 }
 
-export function loadLayout(): PanelLayout {
-  try {
-    const raw = localStorage.getItem(PANEL_PREFS_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<PanelLayout>
-      if (
-        typeof p.layersW === 'number' &&
-        typeof p.propsW === 'number' &&
-        typeof p.timelineH === 'number' &&
-        typeof p.libraryH === 'number' &&
-        typeof p.debugH === 'number'
-      ) {
-        return clampLayout({
-          layersW: p.layersW,
-          propsW: p.propsW,
-          timelineH: p.timelineH,
-          libraryH: p.libraryH,
-          debugH: p.debugH,
-        })
-      }
-    }
-  } catch {
-    /* corrupt prefs → defaults */
-  }
-  return { ...DEFAULT_LAYOUT }
-}
-
-export function saveLayout(l: PanelLayout): void {
-  try {
-    localStorage.setItem(PANEL_PREFS_KEY, JSON.stringify(l))
-  } catch {
-    /* storage unavailable → session-only */
-  }
-}
-
-/** Reset Workspace (C-06 §D): clear saved prefs and return to defaults. */
-export function resetLayout(): PanelLayout {
-  try {
-    localStorage.removeItem(PANEL_PREFS_KEY)
-  } catch {
-    /* ignore */
-  }
-  return { ...DEFAULT_LAYOUT }
-}
+// NOTE: workspace layout persistence lives in workspace.ts (the single
+// SYS-01 prefs boundary for layout + visibility + collapse + named
+// workspaces). panelLayout.ts keeps only the pure sizing math + constants.

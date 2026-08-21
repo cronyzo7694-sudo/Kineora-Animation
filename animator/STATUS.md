@@ -481,3 +481,15 @@ Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyfra
 - **Dead button removed** — `nav.back` ("back: next unit") removed; it was a placeholder.
 - **Engine unchanged** — no Rust files touched; facade exports verified (incl. select_all / clear_selection / new_default / set_document_settings).
 - Tests: UI 322/322 · Rust 214/214 · fmt ✓ · clippy 0 · wasm ✓.
+
+## SYS-01 Application/Workspace (forensic spec v5) — implemented (partial → see gaps)
+- **MOD-BUS** (`bus.ts` + `useBus.ts`): typed event bus (tool/panel/workspace/playback/saving/…) with failure isolation (§27.0); wired for tool:changed, panel:changed, workspace:changed, playback:started/stopped, saving:changed. Engine-state events re-read the model per §27.0 "stale" rule.
+- **Panel chrome** (`PanelHeader.tsx`): close × (hide) + collapse/expand chevron on Layers/Properties/Library/Dev; visibility + collapse + layout persisted to `kineora.workspace` (single prefs boundary, `workspace.ts`); reopen via Window menu + palette; corrupt prefs → auto-reset + toast.
+- **Workspace save/switch/reset**: named workspaces (Save Current / New Workspace… / Reset / named list) via Window ▸ Workspaces (dynamic list) + header workspace switcher; `workspace.save/load/reset` command ids (§30 single-commandId mapping); duplicate name → overwrite (recreate covers M-1); Reset = PREFS (clear).
+- **Status bar 12 cells** (C-05): tool/selection/layer/frame(clickable→Go-to-frame dialog)/scene/symbol/rec/play/save/export/mode/snap, honest "—"/off for cells whose owning systems are future.
+- **Edit bar / breadcrumb** (`EditBar.tsx`): scene breadcrumb at root; nav.back → edit.exitOneLevel / nav.root → edit.exitRoot commands (CONTEXTUAL, hidden at depth 0) — nav.back dead-stub fixed the spec way (§6.6), not deleted.
+- **Toolbar overflow**: "⋮ More tools" (measured; pure `computeVisibleCount` unit-tested).
+- **Theme tokens**: CSS variables defined (`:root`); dark theme applied.
+- **Go-to-frame dialog** (st.activeFrame click; real kineora_set_playhead).
+- **Engine unchanged** (0 core files). UI tests 355/355.
+- Remaining SYS-01 gaps (honest): panel dock/float/tab-stack (dedicated docking-engine unit) · multi-document tabs (needs SYS-28 multi-doc persistence) · scene tabs (SYS-06) · light theme (needs token adoption across systems) · mobile bottom-sheets (breakpoints partial).

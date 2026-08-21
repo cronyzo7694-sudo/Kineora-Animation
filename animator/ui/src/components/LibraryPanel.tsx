@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { deleteSymbol, hasSymbolFacade, library, renameSymbol } from '../engine/client'
 import type { EngineStatus } from '../controlRegistry'
 import type { LibraryItemJson } from '../engine/wasmTypes'
+import { PanelHeader } from './PanelHeader'
 
 interface Props {
   engine: EngineStatus
@@ -9,6 +10,9 @@ interface Props {
   onNewSymbol: () => void
   /** Id of the most recently created symbol (highlighted until it changes). */
   highlightId?: number | null
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+  onClose?: () => void
 }
 
 const TYPE_ICON: Record<string, string> = { graphic: '◆', movieClip: '▶', button: '⬚' }
@@ -20,7 +24,7 @@ const TYPE_ICON: Record<string, string> = { graphic: '◆', movieClip: '▶', bu
  * the stage (place instance) or onto a selected instance (swap). Honest states:
  * engine unattached / engine build out-of-date / genuinely empty / list.
  */
-export function LibraryPanel({ engine, notify, onNewSymbol, highlightId }: Props) {
+export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collapsed = false, onToggleCollapse, onClose }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
 
@@ -51,8 +55,7 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId }: Props
 
   return (
     <aside data-testid="library-panel" aria-label="Library" style={{ width: '100%', boxSizing: 'border-box', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid #333' }}>
-        <span style={{ color: '#ddd', fontSize: 12, fontWeight: 700 }}>Library</span>
+      <PanelHeader id="library" title="Library" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
         <button
           data-testid="library-create"
           aria-label="New symbol"
@@ -63,8 +66,9 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId }: Props
         >
           + Symbol
         </button>
-      </div>
+      </PanelHeader>
 
+      {!collapsed && (
       <ul data-testid="library-list" style={{ listStyle: 'none', margin: 0, padding: 4, overflowY: 'auto', flex: 1, fontSize: 12, color: '#bbb' }}>
         {!attached && (
           <li data-testid="library-engine-error" style={{ padding: 8, color: '#e66' }}>
@@ -129,6 +133,7 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId }: Props
           </li>
         ))}
       </ul>
+      )}
     </aside>
   )
 }

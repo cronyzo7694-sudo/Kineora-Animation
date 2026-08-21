@@ -5,6 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kineora Animation — 2D Animation Editor</title>
     <style>
+      /* Kineora design tokens (SYS-01 theme contract). Shell chrome references
+         these; subsystem components adopt them as they are built. Dark is the
+         complete default theme; a light theme is a token swap once every
+         system adopts these variables (not a fake half-theme toggle). */
+      :root {
+        --kineora-bg: #101010;
+        --kineora-panel: #1e1e1e;
+        --kineora-panel-2: #161616;
+        --kineora-chrome: #2a2a2a;
+        --kineora-dropdown: #232323;
+        --kineora-text: #ddd;
+        --kineora-muted: #888;
+        --kineora-accent: #0a7cff;
+        --kineora-accent-text: #8ec8ff;
+        --kineora-border: #333;
+        --kineora-border-2: #3a3a3a;
+        --kineora-danger: #e66;
+        --kineora-ok: #4a4;
+      }
       /* Kill the browser's default page margin (the white gap around the app). */
       html, body, #root {
         margin: 0;

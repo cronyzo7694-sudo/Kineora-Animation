@@ -517,3 +517,11 @@ Deferred (documented, not in this unit): F5/Shift+F5 frame insert/delete, keyfra
 - **Event:** App subscribes `activeDoc:changed` → immediate document-bound rebind (H00 §12), on top of the 120ms poll.
 - **UI:** New dialog (defaults 1920×1080/px/24/#fff/HTML5 Canvas; W/H≥2 no max, fps 1–120, Enter/Esc/Tab, Create disabled on invalid, cancel/esc create nothing) · Template gallery + Save-as-Template (preset-JSON; seed = fresh engine parse → independent document, never the source instance).
 - Tests: core 230/230 · UI 419/419 · fmt ✓ clippy 0 ✓ wasm32 ✓ · full `tauri build --no-bundle` ✓ (desktop shell links the refactor).
+
+## SYS-02 H00 — constitutional compliance audit + fixes
+- **H00 §7 dirty semantics (P0 fixed):** `History` now stores the last-saved SNAPSHOT and computes `is_dirty = (content != snapshot)` — undo/redo back to the exact saved state is CLEAN (was: a plain bool set on every undo/redo). `next_id` allocator deliberately excluded from the comparison (IDs are never reused). +4 native tests (core 230→234).
+- **H00 §12 tab switch (INV-MD-8 fixed):** `DocumentTabs` now switches via canonical `switchActiveDocument()` in file.ts — engine switch + `activeDoc:changed` emission → immediate document-bound UI rebind (was: direct `setActiveDoc` with no event). +1 UI test (UI 419→420).
+- **H00 §17 INV-VIS-2:** CloseConfirmationDialog (destructive guard) converted to design tokens; `:focus-visible` ring global (INV-VIS-4).
+- Verified PASS (no change needed): INV-008 (markClean only after successful write) · INV-009 (save keeps undo history) · INV-011 (session-level Document ID; Save As keeps it) · INV-012 (workspace never in project JSON) · INV-013 (right-click = no-op) · INV-014/015 (registry lint + single commandId) · INV-016 (failed ops leave no partial state) · INV-010 (every failure surfaces) · engine multi-doc invariants (doc_manager.rs).
+- Classified remaining: AMB-001/AMB-002 (persisted-ID adoption + same-path) = DEPENDENCY → H02/H05/H10; full token adoption of content panels = H11; no-doc File-menu exact presentation = H07; tab drag/context-menu = H02/H03.
+- Gates: core 234/234 · UI 420/420 · fmt ✓ clippy 0 ✓ wasm32 ✓ · full `tauri build --no-bundle` ✓.

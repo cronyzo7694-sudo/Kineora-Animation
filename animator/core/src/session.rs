@@ -71,9 +71,10 @@ pub struct Session {
 
 impl Session {
     pub fn new(settings: Settings) -> Self {
+        let doc = Document::new(settings);
         let mut s = Self {
-            doc: Document::new(settings),
-            history: History::new(),
+            history: History::new(&doc),
+            doc,
             selection: Vec::new(),
             playhead: 1,
             active_scene: 0,
@@ -1433,14 +1434,16 @@ impl Session {
         ok
     }
 
-    /// STM-DIRTY: has the document unsaved edits since the last save/load/new?
+    /// STM-DIRTY / H00 §7: has the document unsaved edits — i.e. does the
+    /// current document differ from the last-saved snapshot?
     pub fn is_dirty(&self) -> bool {
-        self.history.is_dirty()
+        self.history.is_dirty(&self.doc)
     }
 
-    /// Mark the document clean (Save / Load / New).
+    /// Mark the document clean (successful Save). Load/New set their own
+    /// baseline at construction.
     pub fn mark_clean(&mut self) {
-        self.history.mark_clean();
+        self.history.mark_clean(&self.doc);
     }
 
     pub fn redo(&mut self) -> bool {
@@ -1484,8 +1487,8 @@ impl Session {
     /// §16: selection reset, playhead reset, history reset).
     pub fn from_document(doc: Document) -> Self {
         Self {
+            history: History::new(&doc),
             doc,
-            history: History::new(),
             selection: Vec::new(),
             playhead: 1,
             active_scene: 0,

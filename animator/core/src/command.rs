@@ -43,27 +43,36 @@ pub trait Command {
     fn revert(&mut self, doc: &mut Document);
 }
 
-#[derive(Default)]
 pub struct History {
     undo: Vec<Box<dyn Command>>,
     redo: Vec<Box<dyn Command>>,
-    /// STM-DIRTY (engineering 04): has the document been mutated since the
-    /// last save/load/new? Every mutation flows through execute/undo/redo, so
-    /// the history is the single authoritative dirty source — no per-command
-    /// bookkeeping. `mark_clean` is called by Save/Load/New.
-    dirty: bool,
+    /// The last-saved snapshot (H00 §7: dirty = "differs from last-saved
+    /// snapshot"). `Some` from construction (New/Open start CLEAN against their
+    /// own initial state) and refreshed by `mark_clean` on a successful write.
+    saved: Option<Document>,
+    /// Fast-path hint: `false` ⇒ known-clean (doc == saved); any mutation sets
+    /// it `true`, after which `is_dirty` compares the document against the
+    /// snapshot so an undo that returns to the exact saved state is CLEAN.
+    dirty_hint: bool,
 }
 
 impl History {
-    pub fn new() -> Self {
-        Self::default()
+    /// A history for a freshly-created/loaded document: the current document
+    /// state IS the saved baseline (New/Open start CLEAN per H00 §7).
+    pub fn new(doc: &Document) -> Self {
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            saved: Some(doc.clone()),
+            dirty_hint: false,
+        }
     }
 
     pub fn execute(&mut self, doc: &mut Document, mut cmd: Box<dyn Command>) {
         cmd.apply(doc);
         self.undo.push(cmd);
         self.redo.clear(); // redo invalidation (Phase-3 Part 12)
-        self.dirty = true;
+        self.dirty_hint = true;
     }
 
     pub fn undo(&mut self, doc: &mut Document) -> bool {
@@ -72,7 +81,7 @@ impl History {
         };
         c.revert(doc);
         self.redo.push(c);
-        self.dirty = true;
+        self.dirty_hint = true;
         true
     }
 
@@ -82,20 +91,37 @@ impl History {
         };
         c.apply(doc);
         self.undo.push(c);
-        self.dirty = true;
+        self.dirty_hint = true;
         true
     }
 
-    /// Whether the document has unsaved edits (STM-DIRTY). Save/Load/New reset
-    /// it; undo/redo/execute set it (undo/redo are themselves document
-    /// mutations — the document content changes relative to the saved state).
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
+    /// H00 §7 (INV-DIRTY-1/2): dirty = "the document CONTENT differs from the
+    /// last-saved snapshot" — NOT "an undo entry exists". An undo/redo that
+    /// returns to the exact saved state is CLEAN; anything else is DIRTY.
+    ///
+    /// `next_id` is deliberately EXCLUDED from the comparison: it is a
+    /// monotonic ID allocator that commands never roll back (IDs are never
+    /// reused — a data-safety property), so it is not document content.
+    pub fn is_dirty(&self, doc: &Document) -> bool {
+        if !self.dirty_hint {
+            return false;
+        }
+        match &self.saved {
+            Some(snap) => {
+                doc.settings != snap.settings
+                    || doc.scenes != snap.scenes
+                    || doc.nodes != snap.nodes
+                    || doc.library != snap.library
+            }
+            None => false,
+        }
     }
 
-    /// Called by Save / Load / New — the document is now persisted (or fresh).
-    pub fn mark_clean(&mut self) {
-        self.dirty = false;
+    /// Called by Save (successful write) — the document becomes the new saved
+    /// baseline. Does NOT touch the undo/redo stacks (INV-UNDO-1 / INV-009).
+    pub fn mark_clean(&mut self, doc: &Document) {
+        self.saved = Some(doc.clone());
+        self.dirty_hint = false;
     }
 
     pub fn undo_len(&self) -> usize {

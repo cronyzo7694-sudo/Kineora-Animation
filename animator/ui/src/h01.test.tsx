@@ -176,4 +176,12 @@ describe('H01 — destructive safety (H00 §10 INV-DSTR-1/2, INV-013)', () => {
     fireEvent.click(screen.getByTestId('doc-tab-close-1'))
     expect(closeDocMock).toHaveBeenCalledWith(1)
   })
+
+  it('tab activation emits activeDoc:changed (H00 §12 → document-bound UI rebinds)', () => {
+    const events: number[] = []
+    bus.on('activeDoc:changed', (p) => events.push(p.docId))
+    renderTabs()
+    fireEvent.click(screen.getByTestId('doc-tab-2'))
+    expect(events).toEqual([2])
+  })
 })

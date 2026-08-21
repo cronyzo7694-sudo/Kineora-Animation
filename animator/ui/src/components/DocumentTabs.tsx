@@ -1,6 +1,6 @@
 import { getCommand } from '../commands'
 import type { CommandContext } from '../commands'
-import { setActiveDoc } from '../engine/client'
+import { switchActiveDocument } from '../file'
 import type { DocJson } from '../engine/wasmTypes'
 
 interface Props {
@@ -43,7 +43,9 @@ export function DocumentTabs({ ctx, docs, activeId }: Props) {
             title={d.title}
             onClick={() => {
               if (d.id === activeId) return
-              if (setActiveDoc(d.id)) ctx.notify(`switched to "${d.title}"`)
+              // H00 §12: switch through the canonical path (engine switch +
+              // activeDoc:changed) so document-bound UI rebinds immediately.
+              switchActiveDocument(d.id, ctx.notify)
             }}
             onContextMenu={(e) => {
               // H00 INV-DSTR-1: invoking the right-click surface must NEVER

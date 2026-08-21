@@ -22,6 +22,7 @@ import {
   newDocFull,
   openDocJson,
   projectJson,
+  setActiveDoc,
   setDocTitle,
   statusJson,
 } from './engine/client'
@@ -185,6 +186,18 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   addRecent(title, json)
   notify(`saved "${title}"`)
   return true
+}
+
+// ——— Active-document switch (H00 §12: view-state action) ———
+// Canonical single path for tab activation: switch the ENGINE's active doc,
+// then emit `activeDoc:changed` so every document-bound panel re-reads the new
+// active document (INV-MD-8). Switching never mutates document content.
+export function switchActiveDocument(id: number, notify: Notify): void {
+  if (id === activeDocId()) return
+  if (setActiveDoc(id)) {
+    bus.emit('activeDoc:changed', { docId: id })
+    notify(`switched to "${statusJson()?.doc_title ?? id}"`)
+  }
 }
 
 // ——— Close / Close All / Exit (guard lives in App via ctx.confirmClose) ———

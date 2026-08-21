@@ -40,19 +40,19 @@ export function CloseConfirmationDialog({ request, onSave, onDiscard, onCancel }
 
   return (
     <div data-testid="dlg-close" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 95 }}>
-      <div role="alertdialog" aria-label="Unsaved changes" style={{ width: 360, background: '#1d1d1d', border: '1px solid #3a3a3a', borderRadius: 8, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.7)' }}>
-        <h3 style={{ margin: '0 0 8px', color: '#eee', fontSize: 15 }}>Unsaved changes</h3>
-        <p style={{ margin: '0 0 16px', color: '#aaa', fontSize: 13 }}>
+      <div role="alertdialog" aria-label="Unsaved changes" style={{ width: 360, maxWidth: '92vw', background: 'var(--kineora-surface)', color: 'var(--kineora-text)', border: '1px solid var(--kineora-border-2)', borderRadius: 8, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.7)', colorScheme: 'dark' }}>
+        <h3 style={{ margin: '0 0 8px', color: 'var(--kineora-text-bright)', fontSize: 15 }}>Unsaved changes</h3>
+        <p style={{ margin: '0 0 16px', color: 'var(--kineora-muted)', fontSize: 13 }}>
           {label} unsaved changes. Save before closing {request.what}?
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button data-testid="dlg-close-cancel" onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
+          <button data-testid="dlg-close-cancel" onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-border)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-text)', cursor: 'pointer', fontSize: 13 }}>
             Cancel
           </button>
-          <button data-testid="dlg-close-discard" onClick={onDiscard} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #a33', background: '#3a1a1a', color: '#fbb', cursor: 'pointer', fontSize: 13 }}>
+          <button data-testid="dlg-close-discard" onClick={onDiscard} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-danger)', background: 'var(--kineora-btn-bg)', color: '#ffb3b3', cursor: 'pointer', fontSize: 13 }}>
             Discard
           </button>
-          <button data-testid="dlg-close-save" onClick={onSave} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
+          <button data-testid="dlg-close-save" onClick={onSave} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
             Save
           </button>
         </div>

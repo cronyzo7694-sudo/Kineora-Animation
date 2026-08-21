@@ -1,0 +1,17 @@
+{
+  "name": "kineora-desktop",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Kineora Animation — native desktop shell (Tauri v2). Hosts the shared React/UI + Rust/WASM application; no editor code lives here.",
+  "scripts": {
+    "wasm": "bash ../../scripts/build-wasm.sh",
+    "dev:ui": "bash ../../scripts/build-wasm.sh && npm --prefix ../ui run dev",
+    "build:ui": "bash ../../scripts/build-wasm.sh && npm --prefix ../ui run build",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build",
+    "icon": "tauri icon src-tauri/icons/app-icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0"
+  }
+}

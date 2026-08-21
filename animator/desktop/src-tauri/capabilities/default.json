@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Kineora main window capabilities: core defaults (events, window, invoke). Application commands (open/save/close/shell-status) and the Rust-side dialog plugin need no extra JS permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

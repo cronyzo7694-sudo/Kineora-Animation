@@ -1,5 +1,6 @@
 import { controls } from '../controlRegistry'
 import type { EngineStatus } from '../controlRegistry'
+import type { Identity, ShellStatus } from '../platform'
 import { PanelHeader } from './PanelHeader'
 
 export function DebugPanel({
@@ -10,6 +11,8 @@ export function DebugPanel({
   collapsed = false,
   onToggleCollapse,
   onClose,
+  shellStatus = null,
+  identity = null,
 }: {
   registryErrors: string[]
   toasts: string[]
@@ -18,6 +21,8 @@ export function DebugPanel({
   collapsed?: boolean
   onToggleCollapse?: () => void
   onClose?: () => void
+  shellStatus?: ShellStatus | null
+  identity?: Identity | null
 }) {
   return (
     <aside data-testid="debug-panel" aria-label="Developer panel" style={{ width: '100%', boxSizing: 'border-box', height: '100%', borderLeft: '1px solid #333', background: '#161616', overflow: 'auto', fontSize: 12, color: '#aaa', display: 'flex', flexDirection: 'column' }}>
@@ -38,6 +43,20 @@ export function DebugPanel({
               {engine.kind === 'ok' ? engine.detail : engine.detail}
             </div>
           </section>
+
+          {shellStatus && (
+            <section style={{ marginTop: 10 }}>
+              <div><strong>Desktop shell</strong></div>
+              <div data-testid="shell-status" style={{ color: '#8ec8ff' }}>
+                {shellStatus.product} v{shellStatus.version} · {shellStatus.build_mode} · {shellStatus.platform}/{shellStatus.arch} · engine {shellStatus.engine}
+              </div>
+              {identity && (
+                <div data-testid="shell-identity" style={{ color: '#eeb' }}>
+                  identity: {identity.display_name} {identity.dev_only ? '(DEVELOPMENT ONLY)' : ''}
+                </div>
+              )}
+            </section>
+          )}
 
           <section style={{ marginTop: 10 }}>
             <div><strong>Engine event log</strong></div>

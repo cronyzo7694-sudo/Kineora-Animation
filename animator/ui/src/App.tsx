@@ -4,6 +4,7 @@ import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
 import { openDocument, saveDocument } from './file'
+import { platform, type Identity, type ShellStatus } from './platform'
 import { bus } from './bus'
 import {
   DEBUG_PANE,
@@ -89,6 +90,9 @@ export default function App() {
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const [closeReq, setCloseReq] = useState<(CloseConfirmationRequest & { proceed: () => void; dirtyIds: number[] }) | null>(null)
   const [exited, setExited] = useState(false)
+  // ——— desktop shell diagnostics (Dev panel; desktop only) ———
+  const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null)
+  const [identity, setIdentity] = useState<Identity | null>(null)
   const layoutRef = useRef(layout)
   const originRef = useRef<PanelLayout>(layout)
   const colRef = useRef<HTMLDivElement | null>(null)
@@ -263,8 +267,44 @@ export default function App() {
   }
 
   const exitApp = () => {
-    setExited(true)
+    // Desktop: request the OS close (guard already resolved via confirmClose).
+    // Browser: show the honest application-exit screen.
+    if (platform.isDesktop()) platform.exit()
+    else setExited(true)
   }
+
+  // ——— OS close → SYS-02 guard (desktop) + beforeunload (browser) ———
+  useEffect(() => {
+    const off = platform.onCloseRequested(() => {
+      // Hand the OS close to the canonical Save/Discard/Cancel guard over ALL
+      // dirty documents (like Exit). Only approveClose() actually closes.
+      confirmClose(() => {
+        void platform.approveClose()
+      }, 'all')
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (platform.isDesktop()) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const dirty = docList().some((d) => d.dirty)
+      if (dirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
+
+  // Fetch desktop-shell diagnostics once (Dev panel).
+  useEffect(() => {
+    if (!platform.isDesktop()) return
+    void platform.getShellStatus().then((s) => s && setShellStatus(s))
+    void platform.getIdentity().then((i) => i && setIdentity(i))
+  }, [])
 
   const ctx: AppContext = {
     engine,
@@ -497,6 +537,8 @@ export default function App() {
                   collapsed={collapsed.debug}
                   onToggleCollapse={() => toggleCollapse('debug')}
                   onClose={() => togglePanel('debug')}
+                  shellStatus={shellStatus}
+                  identity={identity}
                 />
               </div>
             )}

@@ -10,7 +10,7 @@
 // ============================================================================
 
 import { bus } from './bus'
-import { downloadBlob } from './engine/actions'
+import { platform } from './platform'
 import {
   activeDocId,
   closeDoc,
@@ -82,31 +82,35 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
 }
 
 // ——— Open (replace active — SYS-02 §13.3) ———
+// ——— native path tracking (desktop shell) ———
+// The desktop Save-As dialog returns a real path; a TITLED Save overwrites
+// that path without re-prompting (SYS-02 P-1). Paths are SESSION state (the
+// browser has no path; recent files remain the durable record).
+const docPaths = new Map<number, string>()
+
+function setDocPath(docId: number, path: string): void {
+  if (path) docPaths.set(docId, path)
+}
+
+export function docPath(docId: number): string | undefined {
+  return docPaths.get(docId)
+}
+
 export function openDocument(notify: Notify): void {
   if (!engineOk()) return notify('open: engine not attached')
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json,application/json'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (!file) return // cancelled → no change
-    const reader = new FileReader()
-    reader.onload = () => {
-      const json = String(reader.result)
-      const title = (file.name || 'Untitled').replace(/\.json$/i, '')
-      const ok = loadProjectJson(json, title)
-      if (!ok) {
-        notify('open failed: invalid or corrupt project file')
-        return
-      }
-      addRecent(title, json)
-      bus.emit('activeDoc:changed', { docId: activeDocId() })
-      notify(`opened "${title}"`)
+  void (async () => {
+    const opened = await platform.openProject()
+    if (!opened) return // cancelled → no change
+    const ok = loadProjectJson(opened.content, opened.name)
+    if (!ok) {
+      notify('open failed: invalid or corrupt project file')
+      return
     }
-    reader.onerror = () => notify('open failed: could not read the file')
-    reader.readAsText(file)
-  }
-  input.click()
+    setDocPath(activeDocId(), opened.path)
+    addRecent(opened.name, opened.content)
+    bus.emit('activeDoc:changed', { docId: activeDocId() })
+    notify(`opened "${opened.name}"`)
+  })()
 }
 
 // ——— Save / Save As ———
@@ -135,74 +139,52 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
 
   const docId = activeDocId()
   let title = st.doc_title ?? ''
+  const knownPath = docPath(docId)
+
+  const saveError = () => {
+    notify('Save error: could not write the file (document left dirty — retry)')
+  }
 
   if (opts.saveAs || !isTitled(title)) {
-    const chosen = await chooseSaveName(title)
-    if (chosen === null) return false // cancelled → no change
-    title = chosen
+    // Save As, or a first save of an untitled document → name/path prompt.
+    const res = await platform.saveProjectAs(title, json)
+    if (res === 'cancelled') return false // cancelled → no change
+    if (res === 'failed') {
+      saveError()
+      return false
+    }
+    title = res.name
+    setDocPath(docId, res.path)
+  } else if (platform.isDesktop() && knownPath) {
+    // Titled + known path → overwrite in place (P-1, no prompt).
+    if (!(await platform.writeProject(knownPath, title, json))) {
+      saveError()
+      return false
+    }
+  } else if (platform.isDesktop()) {
+    // Titled in desktop but no known path (e.g. after reload) → Save As.
+    const res = await platform.saveProjectAs(title, json)
+    if (res === 'cancelled') return false
+    if (res === 'failed') {
+      saveError()
+      return false
+    }
+    title = res.name
+    setDocPath(docId, res.path)
+  } else {
+    // Titled in browser → P-1 overwrite (pathless re-download).
+    if (!(await platform.writeProject(null, title, json))) {
+      saveError()
+      return false
+    }
   }
 
-  const result = await persistToDisk(title, json)
-  if (result === 'cancelled') return false // picker cancelled → no change
-  if (result === 'failed') {
-    notify('Save error: could not write the file (document left dirty — retry)')
-    return false
-  }
   setDocTitle(docId, title)
   markClean()
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
   addRecent(title, json)
   notify(`saved "${title}"`)
   return true
-}
-
-/** Save As: native save picker (Chrome) → else a filename prompt + download. */
-async function chooseSaveName(currentTitle: string): Promise<string | null> {
-  const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<{ name: string; createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker
-  if (typeof picker === 'function') {
-    try {
-      const handle = await picker({
-        suggestedName: jsonName(currentTitle),
-        types: [{ description: 'Kineora project', accept: { 'application/json': ['.json'] } }],
-      })
-      const w = await handle.createWritable()
-      await w.write(projectJson())
-      await w.close()
-      return handle.name.replace(/\.json$/i, '')
-    } catch {
-      return null // AbortError (user cancel) or unsupported — treated as cancel
-    }
-  }
-  const name = window.prompt('Save as (filename):', currentTitle || 'kineora-project')
-  if (!name) return null
-  return name.replace(/\.json$/i, '')
-}
-
-/** Write the project JSON to disk. Browser fallback = download (pathless). */
-async function persistToDisk(title: string, json: string): Promise<'saved' | 'cancelled' | 'failed'> {
-  const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<{ createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker
-  if (typeof picker === 'function') {
-    try {
-      const handle = await picker({
-        suggestedName: jsonName(title),
-        types: [{ description: 'Kineora project', accept: { 'application/json': ['.json'] } }],
-      })
-      const w = await handle.createWritable()
-      await w.write(json)
-      await w.close()
-      return 'saved'
-    } catch (e) {
-      return (e as DOMException)?.name === 'AbortError' ? 'cancelled' : 'failed'
-    }
-  }
-  // Pathless browser write (SYS-28 native atomic-write is a Tauri integration
-  // gap; download is the honest web equivalent).
-  try {
-    downloadBlob(jsonName(title), json, 'application/json')
-    return 'saved'
-  } catch {
-    return 'failed'
-  }
 }
 
 // ——— Close / Close All / Exit (guard lives in App via ctx.confirmClose) ———

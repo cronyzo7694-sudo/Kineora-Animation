@@ -1,22 +1,26 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kineora Animation",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dev.kineora.animation",
   "build": {
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "npm run dev:ui",
+    "beforeBuildCommand": "npm run build:ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "Kineora Animation",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
-        "minHeight": 600
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
       }
     ],
     "security": { "csp": null }
@@ -24,6 +28,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "category": "GraphicsAndDesign"
+    "category": "GraphicsAndDesign",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }

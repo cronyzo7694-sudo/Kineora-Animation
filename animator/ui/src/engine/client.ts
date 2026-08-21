@@ -130,8 +130,22 @@ export async function loadEngine(deps: LoaderDeps = {}): Promise<EngineStatus> {
 }
 
 // ——— typed facade helpers (all cross the bridge as JSON where relevant) ———
+
+// u64 BRIDGE CONTRACT (wasm-bindgen): every Rust `u64` parameter MUST receive
+// a JS `bigint` — passing a plain number throws TypeError AT THE BOUNDARY —
+// and every `u64` RETURN arrives as a bigint (breaking `===` against the
+// plain numbers that come out of JSON-parsed status/doc lists).
+// ROOT CAUSE of the SYS-02 H01 manual-QA failure on the native desktop:
+// tab switch / tab close / symbol-id ops silently crashed in the click
+// handler — mocked UI tests could never see it (continuity lesson #9).
+// The UI keeps plain numbers everywhere (ids are ≤ 2^53); conversion happens
+// EXACTLY at this boundary and nowhere else. Guarded by client.u64.test.ts.
+const asU64 = (id: number): bigint => BigInt(Math.trunc(id))
+const asNum = (v: bigint | number | undefined): number =>
+  typeof v === 'bigint' ? Number(v) : v ?? 0
+
 export function drawRect(x: number, y: number, w: number, h: number, fill: string): number {
-  return mod?.kineora_draw_rect(x, y, w, h, fill) ?? 0
+  return asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
 }
 
 export function evaluate(frame: number): RectItemJson[] {
@@ -251,31 +265,31 @@ export function setFrameLabel(layer: number, frame: number, label: string): bool
 // ——— Symbols + Library (Part 11/12) ———
 
 export function convertToSymbol(name: string, symbolType: string, regGrid: number): number {
-  return mod?.kineora_convert_to_symbol(name, symbolType, regGrid) ?? 0
+  return asNum(mod?.kineora_convert_to_symbol(name, symbolType, regGrid))
 }
 
 export function newSymbol(name: string, symbolType: string): number {
-  return mod?.kineora_new_symbol(name, symbolType) ?? 0
+  return asNum(mod?.kineora_new_symbol(name, symbolType))
 }
 
 export function placeSymbol(symbolId: number, x: number, y: number): number {
-  return mod?.kineora_place_symbol(symbolId, x, y) ?? 0
+  return asNum(mod?.kineora_place_symbol(asU64(symbolId), x, y))
 }
 
 export function renameSymbol(symbolId: number, name: string): boolean {
-  return mod?.kineora_rename_symbol(symbolId, name) ?? false
+  return mod?.kineora_rename_symbol(asU64(symbolId), name) ?? false
 }
 
 export function deleteSymbol(symbolId: number, breakApart: boolean): boolean {
-  return mod?.kineora_delete_symbol(symbolId, breakApart) ?? false
+  return mod?.kineora_delete_symbol(asU64(symbolId), breakApart) ?? false
 }
 
 export function swapInstance(instanceId: number, symbolId: number): boolean {
-  return mod?.kineora_swap_instance(instanceId, symbolId) ?? false
+  return mod?.kineora_swap_instance(asU64(instanceId), asU64(symbolId)) ?? false
 }
 
 export function setInstanceLoop(instanceId: number, loopMode: string, firstFrame: number): boolean {
-  return mod?.kineora_set_instance_loop(instanceId, loopMode, firstFrame) ?? false
+  return mod?.kineora_set_instance_loop(asU64(instanceId), loopMode, firstFrame) ?? false
 }
 
 export function library(): LibraryItemJson[] {
@@ -345,7 +359,7 @@ export function loadProjectJson(json: string, title: string): boolean {
 
 /** New document from full Settings (platform/units/W/H/fps/background). Returns id. */
 export function newDocFull(settings: { width: number; height: number; fps: number; background: string; units: string; platform: string }): number {
-  return mod?.kineora_new_full?.(JSON.stringify(settings)) ?? 0
+  return asNum(mod?.kineora_new_full?.(JSON.stringify(settings)))
 }
 
 export function docCount(): number {
@@ -362,24 +376,24 @@ export function docList(): import('./wasmTypes').DocJson[] {
 }
 
 export function activeDocId(): number {
-  return mod?.kineora_active_doc_id?.() ?? 0
+  return asNum(mod?.kineora_active_doc_id?.())
 }
 
 export function setActiveDoc(id: number): boolean {
-  return mod?.kineora_set_active_doc?.(id) ?? false
+  return mod?.kineora_set_active_doc?.(asU64(id)) ?? false
 }
 
 export function closeDoc(id: number): boolean {
-  return mod?.kineora_close_doc?.(id) ?? false
+  return mod?.kineora_close_doc?.(asU64(id)) ?? false
 }
 
 export function setDocTitle(id: number, title: string): boolean {
-  return mod?.kineora_set_doc_title?.(id, title) ?? false
+  return mod?.kineora_set_doc_title?.(asU64(id), title) ?? false
 }
 
 /** Open a JSON document as a NEW tab (New-from-template seeding). */
 export function openDocJson(json: string, title: string): number {
-  return mod?.kineora_open_json?.(json, title) ?? 0
+  return asNum(mod?.kineora_open_json?.(json, title))
 }
 
 /** Mark the active document clean (Save success → STM-DIRTY CLEAN). */

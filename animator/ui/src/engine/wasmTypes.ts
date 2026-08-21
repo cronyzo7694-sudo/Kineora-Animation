@@ -149,20 +149,25 @@ export interface SettingsPatchJson {
 export interface KineoraWasm {
   kineora_new(width: number, height: number, fps: number, background: string): boolean
   kineora_new_default(): boolean
+  // u64 BRIDGE (wasm-bindgen): every Rust `u64` crosses the wire as a JS
+  // `bigint` — params REQUIRE bigint (a plain number throws TypeError at the
+  // boundary) and returns ARRIVE as bigint. These members are typed at the
+  // wire level; the typed facade in client.ts converts to/from plain numbers
+  // (asU64/asNum) so the rest of the UI never touches a bigint.
   /** SYS-02 New dialog: full Settings JSON → new tab id. */
-  kineora_new_full?(settingsJson: string): number
+  kineora_new_full?(settingsJson: string): bigint
   /** Multi-document manager */
   kineora_doc_count?(): number
   kineora_doc_list?(): string
-  kineora_active_doc_id?(): number
-  kineora_set_active_doc?(id: number): boolean
-  kineora_close_doc?(id: number): boolean
-  kineora_set_doc_title?(id: number, title: string): boolean
+  kineora_active_doc_id?(): bigint
+  kineora_set_active_doc?(id: bigint): boolean
+  kineora_close_doc?(id: bigint): boolean
+  kineora_set_doc_title?(id: bigint, title: string): boolean
   /** Open a JSON document as a NEW tab (template seeding). Returns id. */
-  kineora_open_json?(json: string, title: string): number
+  kineora_open_json?(json: string, title: string): bigint
   /** Mark the active document clean (Save success). */
   kineora_mark_clean?(): boolean
-  kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): number
+  kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): bigint
   kineora_select_at(x: number, y: number): boolean
   kineora_select_toggle_at(x: number, y: number): boolean
   kineora_select_in_rect(x0: number, y0: number, x1: number, y1: number): void
@@ -191,13 +196,13 @@ export interface KineoraWasm {
   kineora_convert_to_keyframes(layer: number, start: number, end: number): boolean
   kineora_convert_to_blank_keyframes(layer: number, start: number, end: number): boolean
   kineora_set_frame_label(layer: number, frame: number, label: string | null): boolean
-  kineora_convert_to_symbol(name: string, symbolType: string, regGrid: number): number
-  kineora_new_symbol(name: string, symbolType: string): number
-  kineora_place_symbol(symbolId: number, x: number, y: number): number
-  kineora_rename_symbol(symbolId: number, name: string): boolean
-  kineora_delete_symbol(symbolId: number, breakApart: boolean): boolean
-  kineora_swap_instance(instanceId: number, symbolId: number): boolean
-  kineora_set_instance_loop(instanceId: number, loopMode: string, firstFrame: number): boolean
+  kineora_convert_to_symbol(name: string, symbolType: string, regGrid: number): bigint
+  kineora_new_symbol(name: string, symbolType: string): bigint
+  kineora_place_symbol(symbolId: bigint, x: number, y: number): bigint
+  kineora_rename_symbol(symbolId: bigint, name: string): boolean
+  kineora_delete_symbol(symbolId: bigint, breakApart: boolean): boolean
+  kineora_swap_instance(instanceId: bigint, symbolId: bigint): boolean
+  kineora_set_instance_loop(instanceId: bigint, loopMode: string, firstFrame: number): boolean
   kineora_library(): string
   kineora_undo(): boolean
   kineora_redo(): boolean

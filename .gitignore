@@ -25,3 +25,6 @@ Thumbs.db
 
 # editor (keep .vscode config committed — protocol §23)
 .idea/
+
+# tauri-build generated schemas (regenerated on every build)
+animator/desktop/src-tauri/gen/

@@ -19,9 +19,13 @@ const client = vi.hoisted(() => {
     newDocFull: vi.fn((_s: unknown) => nextId++),
     openDocJson: vi.fn((_json: string, _title: string) => nextId++),
     projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
-    docList: vi.fn(() => []),
+    docList: vi.fn(() => [
+      { id: 1, title: 'Untitled-1', dirty: false },
+      { id: 2, title: 'scene2', dirty: true },
+    ]),
     activeDocId: vi.fn(() => 1),
     closeDoc: vi.fn(() => true),
+    reorderDoc: vi.fn(() => true),
     setActiveDoc: vi.fn(() => true),
     setDocTitle: vi.fn(() => true),
     markClean: vi.fn(() => true),
@@ -166,9 +170,11 @@ describe('H01 — templates (independent seed, never the source instance)', () =
 })
 
 describe('H01 — destructive safety (H00 §10 INV-DSTR-1/2, INV-013)', () => {
-  function renderTabs(docs = [{ id: 1, title: 'Untitled-1', dirty: false }, { id: 2, title: 'scene2', dirty: true }]) {
+  // H02: DocumentTabs reads the open-set from the engine (single source of
+  // truth) — the mocked docList/activeDocId above drive the strip.
+  function renderTabs() {
     const c = ctx()
-    render(<DocumentTabs ctx={c} docs={docs} activeId={1} />)
+    render(<DocumentTabs ctx={c} />)
     return c
   }
 

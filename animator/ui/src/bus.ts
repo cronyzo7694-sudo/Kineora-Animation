@@ -30,6 +30,12 @@ export interface BusEvents {
   'snap:changed': { mode: string }
   'recording:changed': { active: boolean }
   'activeDoc:changed': { docId: number }
+  /** H02 D-AMB-004 (approved, locked): the ordered open-set changed.
+   *  `activeDoc:changed` means ONLY "active pointer changed"; this event
+   *  means ONLY "open-set changed". When both happen, emit this FIRST, then
+   *  `activeDoc:changed` (H02 §14 — open-set is authoritative before the
+   *  dependent UI consumes the active notification). */
+  'openSet:changed': { change: 'added' | 'removed' | 'reordered'; docId?: number }
 }
 
 export type BusEventName = keyof BusEvents

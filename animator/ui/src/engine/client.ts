@@ -327,9 +327,11 @@ export function clearSelection(): void {
   mod?.kineora_clear_selection()
 }
 
-/** Replace the document with the canonical default (File ▸ New). */
+/** New document from the engine's default settings (File ▸ New fallback).
+ *  `created_at` = epoch-seconds supplied by the caller (wasm has no wall
+ *  clock — H01 §7 meta ownership). */
 export function newDefaultDocument(): boolean {
-  return mod?.kineora_new_default() ?? false
+  return mod?.kineora_new_default(Math.floor(Date.now() / 1000)) ?? false
 }
 
 export function selectToggleAt(x: number, y: number): boolean {
@@ -388,6 +390,13 @@ export function setActiveDoc(id: number): boolean {
 
 export function closeDoc(id: number): boolean {
   return mod?.kineora_close_doc?.(asU64(id)) ?? false
+}
+
+/** H02 app.tab.reorder — move an open document to `toIndex` within the
+ *  open-set. View/SESSION state: the active document is unchanged and no
+ *  document content/History/dirty is touched. False when the id is not open. */
+export function reorderDoc(id: number, toIndex: number): boolean {
+  return mod?.kineora_reorder?.(asU64(id), toIndex) ?? false
 }
 
 export function setDocTitle(id: number, title: string): boolean {

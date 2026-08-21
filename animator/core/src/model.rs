@@ -271,7 +271,11 @@ pub struct Meta {
     pub author: Option<String>,
     #[serde(default, rename = "createdAt")]
     pub created_at: u64,
-    #[serde(default, rename = "modifiedAt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "modifiedAt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub modified_at: Option<u64>,
 }
 

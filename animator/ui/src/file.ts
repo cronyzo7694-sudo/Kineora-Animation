@@ -17,11 +17,11 @@ import {
   docList,
   getEngine,
   getEngineStatus,
-  loadProjectJson,
   markClean,
   newDocFull,
   openDocJson,
   projectJson,
+  reorderDoc,
   setActiveDoc,
   setDocTitle,
   statusJson,
@@ -100,6 +100,8 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
     createdAt: nowSec(),
   })
   if (id === 0) return notify('new: failed to create document')
+  // H02 §14 (ST1): open-set change FIRST, then the active pointer.
+  bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
   notify('new document created')
 }
@@ -119,19 +121,48 @@ export function docPath(docId: number): string | undefined {
   return docPaths.get(docId)
 }
 
+/** Test-only: clear the session path map (jsdom has no session boundary). */
+export function __resetDocPathsForTests(): void {
+  docPaths.clear()
+}
+
+/** The open document that already holds `path`, if any (H02 D-AMB-001:
+ *  path = location, used ONLY for duplicate-open detection — never identity). */
+export function findDocByPath(path: string): number | undefined {
+  if (!path) return undefined
+  for (const [id, p] of docPaths) {
+    if (p === path) return id
+  }
+  return undefined
+}
+
 export function openDocument(notify: Notify): void {
   if (!engineOk()) return notify('open: engine not attached')
   void (async () => {
     const opened = await platform.openProject()
     if (!opened) return // cancelled → no change
-    const ok = loadProjectJson(opened.content, opened.name)
-    if (!ok) {
+    // H02 D-AMB-001 (approved): a saved path may NOT open as a second
+    // instance. No second document, no second tab, NO disk reload — activate
+    // the existing document; its session/dirty/selection/playhead/History are
+    // preserved exactly (ST2b: `activeDoc:changed` only).
+    const existing = findDocByPath(opened.path)
+    if (existing !== undefined) {
+      switchActiveDocument(existing, notify)
+      notify(`already open — activated "${opened.name}"`)
+      return
+    }
+    // H02 §3 (ST2): Open ADDS a document to the open-set — it never replaces
+    // the active document. The previous document stays open, untouched.
+    const id = openDocJson(opened.content, opened.name)
+    if (id === 0) {
       notify('open failed: invalid or corrupt project file')
       return
     }
-    setDocPath(activeDocId(), opened.path)
+    setDocPath(id, opened.path)
     addRecent(opened.name, opened.content)
-    bus.emit('activeDoc:changed', { docId: activeDocId() })
+    // H02 §14 (ST2): open-set change FIRST, then the active pointer.
+    bus.emit('openSet:changed', { change: 'added', docId: id })
+    bus.emit('activeDoc:changed', { docId: id })
     notify(`opened "${opened.name}"`)
   })()
 }
@@ -214,25 +245,76 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
 // Canonical single path for tab activation: switch the ENGINE's active doc,
 // then emit `activeDoc:changed` so every document-bound panel re-reads the new
 // active document (INV-MD-8). Switching never mutates document content.
+// H02 edge 11: activating the already-active document is an idempotent no-op
+// (no event, no feedback). H02 §18 / edge 26: a failed activation is HONEST
+// feedback — stay on the current document, emit nothing, corrupt nothing.
 export function switchActiveDocument(id: number, notify: Notify): void {
+  if (id === 0) return
   if (id === activeDocId()) return
   if (setActiveDoc(id)) {
     bus.emit('activeDoc:changed', { docId: id })
     notify(`switched to "${statusJson()?.doc_title ?? id}"`)
+  } else {
+    notify(`switch failed: document ${id} is not available`)
   }
 }
 
 // ——— Close / Close All / Exit (guard lives in App via ctx.confirmClose) ———
-export function closeActiveDocument(): void {
-  const id = activeDocId()
-  if (id === 0) return
-  closeDoc(id)
-  bus.emit('activeDoc:changed', { docId: activeDocId() })
+/**
+ * H02 §12 `app.tab.close` — close ONE specific document by its STABLE id
+ * (never the active-by-inference, never a tab index).
+ *
+ * Event contract (H02 §14): `openSet:changed{removed}` is emitted FIRST. The
+ * `activeDoc:changed` event follows ONLY when the closed document WAS active
+ * (ST4: `{next}`, ST6: `{null}`); closing an inactive document emits
+ * `openSet:changed` alone (ST5) — the active document is untouched.
+ */
+export function closeDocumentById(id: number, notify: Notify): void {
+  if (!engineOk()) return notify('close: engine not attached')
+  const wasActive = activeDocId() === id
+  if (!closeDoc(id)) {
+    notify(`close: document ${id} is no longer open`)
+    return
+  }
+  docPaths.delete(id)
+  bus.emit('openSet:changed', { change: 'removed', docId: id })
+  if (wasActive) {
+    // The engine already selected the successor (or the no-document state).
+    bus.emit('activeDoc:changed', { docId: activeDocId() })
+  }
+  notify('document closed')
 }
 
-export function closeAllDocuments(): void {
-  for (const d of docList()) closeDoc(d.id)
-  bus.emit('activeDoc:changed', { docId: activeDocId() })
+export function closeActiveDocument(notify: Notify): void {
+  const id = activeDocId()
+  if (id === 0) return
+  closeDocumentById(id, notify)
+}
+
+export function closeAllDocuments(notify: Notify): void {
+  for (const d of docList()) closeDocumentById(d.id, notify)
+}
+
+// ——— Open-set reorder (H02 §12 `app.tab.reorder` — chrome view action) ———
+// The open-set ORDER is SESSION state (SYS-02/MOD-DOC owns it; the tab strip
+// is SYS-01's view). Reordering is view/session: NO document mutation, NO
+// dirty, NO undo entry, and the active document is UNCHANGED. It emits
+// `openSet:changed{reordered}` ONLY — never `activeDoc:changed` (H02 §14).
+export function reorderDocument(id: number, toIndex: number, notify: Notify): void {
+  if (!engineOk()) return notify('reorder: engine not attached')
+  const docs = docList()
+  if (!docs.some((d) => d.id === id)) {
+    notify(`reorder: document ${id} is no longer open`)
+    return
+  }
+  const from = docs.findIndex((d) => d.id === id)
+  const clamped = Math.max(0, Math.min(toIndex, docs.length - 1))
+  if (clamped === from) return // same slot — no-op, no event
+  if (reorderDoc(id, clamped)) {
+    bus.emit('openSet:changed', { change: 'reordered', docId: id })
+  } else {
+    notify(`reorder: document ${id} could not be moved`)
+  }
 }
 
 export function activeDocIsDirty(): boolean {
@@ -278,19 +360,23 @@ export function addRecent(title: string, json: string): void {
   }
 }
 
-/** Open a recent entry (same canonical load path as file.open). */
+/** Open a recent entry (H02 §3: same canonical load path as file.open —
+ *  ADDS a document to the open-set; never replaces the active one). */
 export function openRecent(title: string, notify: Notify): void {
+  if (!engineOk()) return notify('open recent: engine not attached')
   const entry = listRecent().find((r) => r.title === title)
   if (!entry || !entry.json) {
     notify(`recent "${title}" is stale or unavailable — use File ▸ Open to re-select it`)
     return
   }
-  const ok = loadProjectJson(entry.json, entry.title)
-  if (!ok) {
+  const id = openDocJson(entry.json, entry.title)
+  if (id === 0) {
     notify(`recent "${title}": invalid project data`)
     return
   }
-  bus.emit('activeDoc:changed', { docId: activeDocId() })
+  // H02 §14: open-set change FIRST, then the active pointer.
+  bus.emit('openSet:changed', { change: 'added', docId: id })
+  bus.emit('activeDoc:changed', { docId: id })
   notify(`opened "${entry.title}"`)
 }
 
@@ -355,6 +441,8 @@ export function createFromTemplate(name: string, notify: Notify): void {
   // the doc its OWN Untitled-N display title, never the template's name.
   const id = openDocJson(json, '')
   if (id === 0) return notify(`template "${name}": invalid template data`)
+  // H02 §14 (ST1 family — New-from-Template = New): open-set FIRST, then active.
+  bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
   notify(`created from template "${name}"`)
 }

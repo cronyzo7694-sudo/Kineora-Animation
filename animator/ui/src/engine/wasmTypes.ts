@@ -165,6 +165,9 @@ export interface KineoraWasm {
   kineora_active_doc_id?(): bigint
   kineora_set_active_doc?(id: bigint): boolean
   kineora_close_doc?(id: bigint): boolean
+  /** H02 app.tab.reorder — move an open document within the open-set (view/
+   *  session state; the active document is unchanged). toIndex = u32 → number. */
+  kineora_reorder?(id: bigint, toIndex: number): boolean
   kineora_set_doc_title?(id: bigint, title: string): boolean
   /** Open a JSON document as a NEW tab (template seeding). Returns id. */
   kineora_open_json?(json: string, title: string): bigint

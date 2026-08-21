@@ -24,6 +24,7 @@ import { setPlayhead, statusJson } from './engine/client'
 import {
   closeActiveDocument,
   closeAllDocuments,
+  closeDocumentById,
   createDocument,
   createFromTemplate,
   exportHandoff,
@@ -35,6 +36,7 @@ import {
   publishHandoff,
   saveDocument,
   saveTemplate,
+  switchActiveDocument,
   type NewDocSettings,
 } from './file'
 import type { StatusJson } from './engine/wasmTypes'
@@ -94,8 +96,9 @@ export interface CommandContext {
   /** Canonical unsaved-changes guard: run `proceed` now (clean) or after the
    *  Close-Confirmation Save/Discard resolves (dirty). Cancel → not run.
    *  scope 'active' = guard the ACTIVE document (Close/Open); 'all' = guard
-   *  every dirty document (Close All / Exit). */
-  confirmClose: (proceed: () => void, scope?: 'active' | 'all') => void
+   *  every dirty document (Close All / Exit); a NUMBER = guard that specific
+   *  document by stable id (H02 per-tab close of a non-active document). */
+  confirmClose: (proceed: () => void, scope?: 'active' | 'all' | number) => void
   openNewDialog: () => void
   openTemplateGallery: () => void
   openSaveTemplate: () => void
@@ -309,7 +312,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save)',
     enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
     whyDisabled: () => 'no document open',
-    run: (c) => c.confirmClose(() => closeActiveDocument()),
+    run: (c) => c.confirmClose(() => closeActiveDocument(c.notify)),
   },
   {
     id: 'file.closeAll',
@@ -319,7 +322,42 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save, per-doc guard)',
     enabled: (c) => (c.getStatus()?.doc_count ?? 0) > 0,
     whyDisabled: () => 'no documents open',
-    run: (c) => c.confirmClose(() => closeAllDocuments(), 'all'),
+    run: (c) => c.confirmClose(() => closeAllDocuments(c.notify), 'all'),
+  },
+  // ——— H02 document tabs (SYS-02 owns the open-set; the SYS-01 strip is the
+  // view that invokes these canonical commands — one id per control, no
+  // duplicate aliases; the tab × NEVER infers its target from the active
+  // pointer: input = the clicked document's stable id). ———
+  {
+    id: 'tab.activate',
+    label: 'Activate Document Tab',
+    category: 'app',
+    status: 'FUNCTIONAL',
+    source: '[H02 §12] app.tab.activate → activateDocument (VIEW/SESSION — no document mutation, no undo)',
+    enabled: (c) => (c.getStatus()?.doc_count ?? 0) > 0,
+    whyDisabled: () => 'no document open',
+    // input = docId (the tab strip always passes the clicked/focused tab's
+    // stable id); no input → the already-active document (idempotent no-op).
+    run: (c, input) => {
+      const id = typeof input === 'number' && input > 0 ? input : (c.getStatus()?.doc_id ?? 0)
+      switchActiveDocument(id, c.notify)
+    },
+  },
+  {
+    id: 'tab.close',
+    label: 'Close Document Tab',
+    category: 'app',
+    status: 'FUNCTIONAL',
+    source: '[H02 §12] app.tab.close → H07 guard → H02 open-set/active update (target = stable doc id)',
+    enabled: (c) => (c.getStatus()?.doc_count ?? 0) > 0,
+    whyDisabled: () => 'no document open',
+    // input = the clicked tab's docId. The canonical dirty guard (H07
+    // boundary — App's confirmClose) decides Save/Discard/Cancel; H02 then
+    // updates the open-set + active pointer with the §14 event ordering.
+    run: (c, input) => {
+      const id = typeof input === 'number' && input > 0 ? input : (c.getStatus()?.doc_id ?? 0)
+      c.confirmClose(() => closeDocumentById(id, c.notify), id)
+    },
   },
   {
     id: 'file.save',

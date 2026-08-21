@@ -126,6 +126,7 @@ fn document_settings_survive_save_load() {
         height: Some(720.0),
         fps: Some(30),
         background: Some("#123456".into()),
+        background_alpha: None,
     });
     s.save(&path).unwrap();
 
@@ -192,7 +193,9 @@ fn background_alpha_patch_clamps_to_0_1() {
 #[test]
 fn legacy_settings_json_without_alpha_deserializes_with_default_1() {
     // Pre-H01 files carried `background` (not backgroundColor) and no alpha.
-    let legacy = r#"{"width":800.0,"height":600.0,"fps":30,"background":"#000000"}"#;
+    // r##"…": the JSON contains `"#` (background color) which would
+    // prematurely terminate a single-# raw string.
+    let legacy = r##"{"width":800.0,"height":600.0,"fps":30,"background":"#000000"}"##;
     let s: animator_core::Settings = serde_json::from_str(legacy).expect("legacy parses");
     assert_eq!(s.background, "#000000");
     assert_eq!(s.background_alpha, 1.0, "legacy α defaults to 1 (opaque)");
@@ -204,16 +207,24 @@ fn legacy_settings_json_without_alpha_deserializes_with_default_1() {
 fn settings_serialize_with_part33_key_names() {
     let s = Settings::default();
     let json = serde_json::to_string(&s).unwrap();
-    assert!(json.contains("\"backgroundColor\":\"#ffffff\""), "Part 33 key");
+    assert!(
+        json.contains("\"backgroundColor\":\"#ffffff\""),
+        "Part 33 key"
+    );
     assert!(json.contains("\"backgroundAlpha\":1"), "Part 33 key (α)");
     assert!(!json.contains("\"background\":"), "legacy key renamed");
 }
 
 #[test]
 fn legacy_document_json_without_meta_deserializes_with_default_meta() {
-    let legacy = r#"{"settings":{"width":1920.0,"height":1080.0,"fps":24,"background":"#ffffff","units":"px","platform":"HTML5 Canvas"},"scenes":[],"nodes":{},"library":[],"next_id":1}"#;
+    // r##"…": the JSON contains `"#` (background color) which would
+    // prematurely terminate a single-# raw string.
+    let legacy = r##"{"settings":{"width":1920.0,"height":1080.0,"fps":24,"background":"#ffffff","units":"px","platform":"HTML5 Canvas"},"scenes":[],"nodes":{},"library":[],"next_id":1}"##;
     let d: animator_core::Document = serde_json::from_str(legacy).expect("legacy doc parses");
-    assert_eq!(d.meta.created_at, 0, "unknown creation time for legacy files");
+    assert_eq!(
+        d.meta.created_at, 0,
+        "unknown creation time for legacy files"
+    );
     assert_eq!(d.meta.title, None);
     assert_eq!(d.meta.modified_at, None);
 }
@@ -223,7 +234,10 @@ fn meta_created_at_roundtrips_through_json() {
     let mut d = animator_core::Document::new(Settings::default());
     d.meta.created_at = 1_755_800_000;
     let json = serde_json::to_string(&d).unwrap();
-    assert!(json.contains("\"createdAt\":1755800000"), "camelCase wire key");
+    assert!(
+        json.contains("\"createdAt\":1755800000"),
+        "camelCase wire key"
+    );
     let back: animator_core::Document = serde_json::from_str(&json).unwrap();
     assert_eq!(back.meta.created_at, 1_755_800_000);
 }
@@ -232,14 +246,17 @@ fn meta_created_at_roundtrips_through_json() {
 fn export_background_rect_carries_fill_opacity_only_when_alpha_below_1() {
     let mut s = session();
     let opaque = s.export_svg(1);
-    assert!(!opaque.contains("fill-opacity"), "opaque stage: no fill-opacity attr");
+    assert!(
+        !opaque.contains("fill-opacity"),
+        "opaque stage: no fill-opacity attr"
+    );
     s.set_document_settings(SettingsPatch {
         background_alpha: Some(0.5),
         ..Default::default()
     });
     let translucent = s.export_svg(1);
     assert!(
-        translucent.contains(r#"fill-opacity="0.5""),
+        translucent.contains("fill-opacity=\"0.5\""),
         "α<1 exports fill-opacity (Part 33 §33.1)"
     );
 }

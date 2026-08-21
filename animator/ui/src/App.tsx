@@ -240,10 +240,20 @@ export default function App() {
   }
 
   // ——— SYS-02 canonical unsaved-changes guard (DIRTY only, never identity) ———
-  const confirmClose = (proceed: () => void, scope: 'active' | 'all' = 'active') => {
+  // H02: scope may also be a STABLE document id (per-tab close of a
+  // non-active document — the guard targets THAT document, never the
+  // active-by-inference). Guard internals (Save/Discard/Cancel) = H07's.
+  const confirmClose = (proceed: () => void, scope: 'active' | 'all' | number = 'active') => {
     const allDirty = docList().filter((d) => d.dirty).map((d) => d.id)
-    const activeId = statusJson()?.doc_id ?? 0
-    const dirtyIds = scope === 'all' ? allDirty : allDirty.includes(activeId) ? [activeId] : []
+    let dirtyIds: number[]
+    if (typeof scope === 'number') {
+      dirtyIds = allDirty.filter((id) => id === scope)
+    } else if (scope === 'all') {
+      dirtyIds = allDirty
+    } else {
+      const activeId = statusJson()?.doc_id ?? 0
+      dirtyIds = allDirty.includes(activeId) ? [activeId] : []
+    }
     if (dirtyIds.length === 0) {
       proceed()
       return
@@ -466,7 +476,7 @@ export default function App() {
         </button>
       </div>
       {/* Document tabs (SYS-02 multi-document) */}
-      <DocumentTabs ctx={ctx} docs={status?.docs ?? []} activeId={status?.doc_id ?? 0} />
+      <DocumentTabs ctx={ctx} />
       {/* Edit bar (breadcrumb) — above the stage */}
       <EditBar ctx={ctx} scene={status?.scene ?? 'Scene 1'} />
       {/* Tools toolbar (Window ▸ Tools) */}

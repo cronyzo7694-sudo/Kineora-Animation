@@ -52,7 +52,7 @@ function withBigintParams<F extends (...args: never[]) => unknown>(fn: F, ...par
     }
     return fn(...(args as never[]))
   }
-  return wrapped as F
+  return wrapped as unknown as F
 }
 
 /** Wire-faithful module: u64 params REQUIRE bigint; u64 returns ARE bigint. */

@@ -328,6 +328,14 @@ pub fn kineora_close_doc(id: u64) -> bool {
     DOCS.with(|d| d.borrow_mut().close(id))
 }
 
+/// Reorder the open-set by stable document id (H02 `app.tab.reorder`).
+/// View/SESSION state: the active document is NEVER changed by a reorder, and
+/// no document content/History/dirty is touched. False when `id` is not open.
+#[wasm_bindgen]
+pub fn kineora_reorder(id: u64, to_index: u32) -> bool {
+    DOCS.with(|d| d.borrow_mut().reorder(id, to_index as usize))
+}
+
 /// Set a document's display title (Save As naming / Open filename).
 #[wasm_bindgen]
 pub fn kineora_set_doc_title(id: u64, title: String) -> bool {

@@ -9,6 +9,7 @@ vi.mock('./engine/client', async (importOriginal) => {
     ...actual,
     statusJson: vi.fn(),
     getEngineStatus: () => ({ kind: 'ok' as const, detail: 'attached' }),
+    getEngine: () => ({}),
     loadEngine: async () => ({ kind: 'ok' as const, detail: 'attached' }),
     docList: vi.fn(() => []),
     setActiveDoc: vi.fn(() => true),

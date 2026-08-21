@@ -84,7 +84,12 @@ impl DocManager {
     /// push_new + a stamped creation timestamp (H01 meta ownership: the New
     /// command sets `meta.created_at`; wasm has no wall clock, so the caller
     /// supplies epoch-seconds — 0 = unknown). Still starts CLEAN (T1).
-    pub fn push_new_with_meta(&mut self, settings: Settings, title: String, created_at: u64) -> u64 {
+    pub fn push_new_with_meta(
+        &mut self,
+        settings: Settings,
+        title: String,
+        created_at: u64,
+    ) -> u64 {
         let mut doc = Document::new(settings);
         doc.meta.created_at = created_at;
         self.push_session(Session::from_document(doc), title)
@@ -99,8 +104,18 @@ impl DocManager {
     }
 
     pub fn next_untitled(&mut self) -> String {
-        self.untitled_counter += 1;
-        format!("Untitled-{}", self.untitled_counter)
+        // Collision-aware: an existing document may already DISPLAY an
+        // Untitled-N name (push_new with an explicit title), so skip used
+        // numbers — every Untitled-N in the open-set stays distinct.
+        let mut n = self.untitled_counter;
+        loop {
+            n += 1;
+            let candidate = format!("Untitled-{}", n);
+            if !self.docs.iter().any(|d| d.title == candidate) {
+                self.untitled_counter = n;
+                return candidate;
+            }
+        }
     }
 
     /// Append an already-loaded document (Open-as-new-tab / New-from-template
@@ -173,6 +188,46 @@ impl DocManager {
             return false;
         };
         self.active = idx;
+        true
+    }
+
+    /// Reorder the open-set (H02 `app.tab.reorder` — view/SESSION state).
+    ///
+    /// Moves the document with stable id `id` to position `to_index` (clamped
+    /// to the valid range). The ACTIVE DOCUMENT is never changed by a reorder:
+    /// when the active document itself moves, the active index follows it;
+    /// when another document crosses the active one, the index is adjusted so
+    /// the SAME document remains active. No content mutation, no History
+    /// entry, no dirty change — open-set order is SESSION state (H02 §17),
+    /// never a document mutation.
+    pub fn reorder(&mut self, id: u64, to_index: usize) -> bool {
+        let len = self.docs.len();
+        if len == 0 {
+            return false;
+        }
+        let from = match self.docs.iter().position(|d| d.id == id) {
+            Some(i) => i,
+            None => return false,
+        };
+        let to = to_index.min(len - 1);
+        if from == to {
+            return true;
+        }
+        let was_active = self.active == from;
+        let doc = self.docs.remove(from);
+        let mut act = self.active;
+        if was_active {
+            act = to;
+        } else {
+            if from < act {
+                act -= 1;
+            }
+            if to <= act {
+                act += 1;
+            }
+        }
+        self.docs.insert(to, doc);
+        self.active = act;
         true
     }
 }

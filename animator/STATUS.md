@@ -544,3 +544,40 @@ Formal spec `H01_NEW_DOCUMENT_TEMPLATES.md` (v2) audited against the build; gaps
 - **AMB-H01-003 (PROVISIONAL = UNTITLED):** template seeds get engine-assigned `Untitled-N` via `push_seed` (empty title = seed path in `kineora_open_json`). ⚠ BOTH PROVISIONAL decisions await the user's call — flagged, never silent.
 - Native tests +6 (document: α default/clamp/legacy·rename serde/meta roundtrip/export fill-opacity · doc_manager: meta stamp/untitled seeds/CLEAN). UI tests: NewDocumentDialog rewritten (+initial-focus/+clamp/+alpha/+range-hints), h01 seed/payload assertions updated, NEW TemplateGalleryDialog + SaveTemplateDialog suites (12 tests).
 - **Gates: NOT run in sandbox (user constraint).** Dev PC: `bash scripts/test.sh` then the H01 manual matrix.
+
+## SYS-02 H02 — Multi-Document + Tabs + Active Document (H02-RELEASE spec)
+- **P0 fix (audit failure #8):** the per-tab × now targets the CLICKED document's stable id (`tab.close(docId)`), never the active-by-inference. App's `confirmClose` accepts a doc-id scope, so a DIRTY INACTIVE document also gets the canonical Save/Discard/Cancel guard (proven by an App-level test: A clean active + B dirty inactive → × on B opens the dialog; previously the guard keyed off the active doc).
+- **`openSet:changed` (D-AMB-004, approved):** locked event `{ change: 'added'|'removed'|'reordered', docId? }` added to the bus contract. Semantic separation enforced: `activeDoc:changed` = active pointer ONLY; `openSet:changed` = open-set ONLY. When both change, `openSet:changed` is emitted FIRST, then `activeDoc:changed` (H02 §14). Close-inactive and reorder emit `openSet:changed` alone (ST5/ST7); close-active emits both (ST4); close-last emits `openSet:changed{removed}` → `activeDoc:changed{0}` (ST6); New/Open/New-from-Template emit added → active (ST1/ST2).
+- **Open = ADD (ST2):** `file.open` / `openRecent` now load via `kineora_open_json` (new tab) — the previously-open document is never replaced. `kineora_load_json`/`replace_active` remain in the core for future H06/H05 use.
+- **Duplicate-open (D-AMB-001, approved):** the SYS-02 session path map (`docPaths`) is consulted on Open: an already-open saved path → activate the existing document (ST2b: `activeDoc:changed` only), NO second document, NO second tab, NO disk reload; session/dirty/selection/playhead/History preserved. Browser (pathless) is honestly out of scope of the path rule.
+- **Reorder (app.tab.reorder):** engine `DocManager::reorder(id, to_index)` + `kineora_reorder` facade — moves the doc within the open-set, the ACTIVE DOCUMENT is never changed (index mechanics natively tested both directions). UI: HTML5 drag on tabs → `reorderDocument()` (view/session — no command by design, H02 §12) → `openSet:changed{reordered}` only; no dirty, no undo.
+- **Commands:** canonical `tab.activate(docId)` + `tab.close(docId)` added to the registry (INV-CMD; exactly two `tab.*` ids, no aliases). The strip's click / Enter / Space / × all resolve to them.
+- **Accessibility (H02 §19, D-AMB-003):** `role="tablist"` container, `role="tab"` + `aria-selected` + `tabIndex=0` per tab, Enter/Space activate, **the activated tab receives focus after activation**, dirty ● inside an always-present `aria-live="polite"` region, tab naming = title + " — unsaved" via aria-label, colors on SYS-01 design tokens (no hard-coded hex in the strip).
+- **Switch failure (edge 26):** activating an unavailable document → honest toast ("switch failed: document N is not available"), stays on the current document, no event, no corruption.
+- **Strip = pure view (H02 §8):** `DocumentTabs` reads `docList()` + `activeDocId()` from the engine (single source of truth) and self-updates on BOTH events — `openSet:changed` re-renders the STRIP ONLY (document-bound panels do not rebind on it); `activeDoc:changed` rebinds panels via the existing App tick.
+- **Pre-existing breakage found by actually running the gates (97efc32/1f9224c shipped without sandbox gates) — fixed:** 3 unterminated raw strings in tests/document.rs (`"#` in color hex terminated `r#"…`), 2 `SettingsPatch` initializers missing `background_alpha`, `next_untitled()` collision-aware (a doc titled "Untitled-1" no longer causes a seed to take the same title — pre-existing push_seed test now passes), tsc: `newDefaultDocument()` missing the `created_at` wire arg + one cast in client.u64.test.ts, file.test.ts updated to the H01-v2/H02 contracts.
+- **Tests:** Rust +25 native (h02_* in doc_manager.rs: reorder order/active-follows/active-kept-both-directions/unknown-id/view-state-no-dirty-no-undo, close-active-successor, close-inactive-keeps-active, dup-id, per-doc playhead/selection/undo isolation; plus the pre-existing fixes). UI: NEW `h02.test.tsx` (32 tests, stateful wire-faithful fake engine — the full T-tab-* matrix incl. the mandatory P0 scenario "A active, B inactive → click B's × → B closes, A remains active", ST1–ST8 event-ordering assertions, duplicate-open, reorder, focus, dup-title, switch-fail, idempotency). file.test.ts / h01.test.tsx / sys02.test.tsx updated for the new contract.
+- **Gates RUN in sandbox (first full gate run since H01-v2):** `cargo fmt` ✓ · `cargo clippy --all-targets` 0 ✓ · `cargo test` **255/255** ✓ · `tsc --noEmit` ✓ · `vitest run` **475/475 (35 files)** ✓ · `npm run build` (tsc+vite) ✓ · `cargo build --target wasm32-unknown-unknown --release` ✓. NOT run here: `wasm-pack` glue build (binary unavailable in this sandbox) + full `tauri build` (no webkit2gtk) — dev PC: `bash scripts/test.sh` then the matrix below.
+- **Manual acceptance: PENDING** (user's Linux desktop — matrix below).
+
+### Manual acceptance matrix — H02 (test on your Linux desktop, report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | create A | tab A active |
+| 2 | create B | tab B active, A still open |
+| 3 | activate A / B / A | panels rebind instantly each switch |
+| 4 | modify A (draw a rect) | A's tab shows ● |
+| 5 | switch to B | A's ● stays on A; B clean |
+| 6 | verify A dirty preserved | switch back to A — rect + ● intact |
+| 7 | click B's × while A active | B closes (dirty guard if B dirty) |
+| 8 | verify A remains active | A untouched, still active |
+| 9 | reorder tabs (drag) | strip reorders; active doc unchanged |
+| 10 | verify active unchanged | panels still show the same doc |
+| 11 | open a new file while another doc is open | old doc remains as a tab (Open ADDS) |
+| 12 | verify old doc intact | old doc's content/dirty preserved |
+| 13 | open the SAME file again | no duplicate tab |
+| 14 | verify no duplicate | exactly one tab for that file; it gets activated |
+| 15 | activate a tab via keyboard (Tab to focus, Enter) | doc activates |
+| 16 | verify focus | focus lands on the activated tab |
+| 17 | close the last tab | honest no-document state (empty stage + New/Open) |
+| 18 | check for stale state | no stale Stage/Timeline/Layers/Properties/Library content from another doc anywhere |

@@ -21,6 +21,7 @@ const clientMock = vi.hoisted(() => ({
   openDocJson: vi.fn(() => 8),
   projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
   setDocTitle: vi.fn(() => true),
+  reorderDoc: vi.fn(() => true),
 }))
 vi.mock('./engine/client', () => clientMock)
 
@@ -56,20 +57,29 @@ describe('SYS-02 file — identity + New', () => {
     expect(isTitled('my-project')).toBe(true)
   })
 
-  it('createDocument creates a doc and emits activeDoc:changed', () => {
-    const seen: number[] = []
-    bus.on('activeDoc:changed', (p) => seen.push(p.docId))
-    createDocument({ platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px' }, vi.fn())
-    expect(clientMock.newDocFull).toHaveBeenCalledWith({
+  it('createDocument creates a doc and emits openSet{added} → activeDoc (H02 §14 ST1 order)', () => {
+    const seen: Array<{ name: string; payload: unknown }> = []
+    const off1 = bus.on('openSet:changed', (p) => seen.push({ name: 'openSet', payload: p }))
+    const off2 = bus.on('activeDoc:changed', (p) => seen.push({ name: 'activeDoc', payload: p }))
+    createDocument({ platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', backgroundAlpha: 1, units: 'px' }, vi.fn())
+    off1()
+    off2()
+    const payload = (clientMock.newDocFull as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
+    expect(payload).toMatchObject({
       platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px',
+      backgroundAlpha: 1, // H01 §8 default fill
     })
-    expect(seen).toEqual([7])
+    expect(typeof payload.createdAt).toBe('number') // H01 §7 meta stamp
+    expect(seen).toEqual([
+      { name: 'openSet', payload: { change: 'added', docId: 7 } },
+      { name: 'activeDoc', payload: { docId: 7 } },
+    ])
   })
 
   it('createDocument reports honestly when the engine is absent', () => {
     ;(clientMock.getEngineStatus as ReturnType<typeof vi.fn>).mockReturnValue({ kind: 'error', detail: 'x' })
     const notify = vi.fn()
-    createDocument({ platform: 'HTML5 Canvas', width: 1, height: 1, fps: 24, background: '#fff', units: 'px' }, notify)
+    createDocument({ platform: 'HTML5 Canvas', width: 1, height: 1, fps: 24, background: '#fff', backgroundAlpha: 1, units: 'px' }, notify)
     expect(notify).toHaveBeenCalledWith('new: engine not attached')
     ;(clientMock.getEngineStatus as ReturnType<typeof vi.fn>).mockReturnValue({ kind: 'ok', detail: 'attached' })
   })
@@ -127,11 +137,18 @@ describe('SYS-02 file — templates (preset-JSON mechanism)', () => {
     expect(listTemplates()).toEqual([])
   })
 
-  it('createFromTemplate seeds a new document from the stored JSON', () => {
+  it('createFromTemplate seeds a NEW independent document (H01 §7 meta, AMB-H01-003 untitled title)', () => {
     saveTemplate('Banner', vi.fn())
     const notify = vi.fn()
     createFromTemplate('Banner', notify)
-    expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{"width":1920.0}}', 'Banner')
+    const [json, title] = (clientMock.openDocJson as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string]
+    expect(title).toBe('')
+    const parsed = JSON.parse(json) as { settings: { width: number }; meta: { createdAt: number; modifiedAt: null; title: null; author: null } }
+    expect(parsed.settings.width).toBe(1920.0)
+    expect(typeof parsed.meta.createdAt).toBe('number')
+    expect(parsed.meta.modifiedAt).toBeNull()
+    expect(parsed.meta.title).toBeNull()
+    expect(parsed.meta.author).toBeNull()
     expect(notify.mock.calls.some((c) => String(c[0]).includes('created from template'))).toBe(true)
   })
 
@@ -156,11 +173,20 @@ describe('SYS-02 file — recent files (unbounded, most-recent-first)', () => {
     expect(listRecent().find((r) => r.title === 'proj')).toBeTruthy()
   })
 
-  it('openRecent loads the stored snapshot via the canonical load path', () => {
+  it('openRecent ADDS a document to the open-set (H02 §3) with the locked event order', () => {
     addRecent('proj', '{"settings":{}}')
-    const notify = vi.fn()
-    openRecent('proj', notify)
-    expect(clientMock.loadProjectJson).toHaveBeenCalledWith('{"settings":{}}', 'proj')
+    const seen: Array<{ name: string; payload: unknown }> = []
+    const off1 = bus.on('openSet:changed', (p) => seen.push({ name: 'openSet', payload: p }))
+    const off2 = bus.on('activeDoc:changed', (p) => seen.push({ name: 'activeDoc', payload: p }))
+    openRecent('proj', vi.fn())
+    off1()
+    off2()
+    expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{}}', 'proj')
+    expect(clientMock.loadProjectJson).not.toHaveBeenCalled() // Open never replaces the active doc (H02 §3)
+    expect(seen).toEqual([
+      { name: 'openSet', payload: { change: 'added', docId: 8 } },
+      { name: 'activeDoc', payload: { docId: 8 } },
+    ])
   })
 
   it('openRecent reports a stale/missing entry honestly', () => {

@@ -219,6 +219,7 @@ fn set_document_settings_undo_redo_exact() {
         height: Some(720.0),
         fps: Some(30),
         background: Some("#202020".into()),
+        background_alpha: None,
     }));
     assert_eq!(s.doc.settings.width, 1280.0);
     assert_eq!(s.doc.settings.height, 720.0);

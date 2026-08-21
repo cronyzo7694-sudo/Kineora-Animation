@@ -581,3 +581,52 @@ Formal spec `H01_NEW_DOCUMENT_TEMPLATES.md` (v2) audited against the build; gaps
 | 16 | verify focus | focus lands on the activated tab |
 | 17 | close the last tab | honest no-document state (empty stage + New/Open) |
 | 18 | check for stale state | no stale Stage/Timeline/Layers/Properties/Library content from another doc anywhere |
+
+## SYS-02 H03 — Tab Interaction + Context Menu + Destructive Safety (H03-RELEASE spec)
+- **Tab context menu (L4 overlay):** right-click a document tab → menu with **EXACTLY ONE item: "Close"** (`ctx-tab.close`) — Close Others is Adobe-only and EXCLUDED (H03 §6.2 / F-01), no invented items. Menu = `role="menu"`, item = `role="menuitem"` + `aria-label="Close <title>"`, takes focus on open, focus returns to the target tab on dismiss (SYS-01 C-07, H03 §16).
+- **Non-destructive open (INV-DSTR-1/2):** opening the menu never closes/mutates/ACTIVATES anything and emits NO events. Right-click is a distinct handler from left-click activation. The target is the right-clicked document's **stable ID captured at right-click time** — never the active pointer, never a DOM index, never a stale closure.
+- **Close item → `tab.close(targetDocId)`** — the SAME canonical commandId as the tab × (H02 §12, no drift) → H04/H07 guard flow → H02 open-set/active update. Dirty target → guard; Cancel leaves everything unchanged.
+- **Lifecycle:** Esc / outside-click → CANCEL (no mutation); target doc removed while open → DISMISS (safe invalidation); a doc added/removed (lifecycle transition) while open → DISMISS; a REORDER while open keeps the menu valid (target by ID). Rapid right-clicks re-target a single menu (no stacking, no double-mutation).
+- **Tests:** NEW `h03.test.tsx` (24 tests — the full T-ctx-* matrix incl. the critical scenario "A active, B inactive → right-click B → Close → B closes, A remains active, B was never activated", dismiss-on-removed, dismiss-on-busy, stale-target, seq closes, focus return).
+- **Manual acceptance: PENDING** (user's Linux desktop — matrix below).
+
+## SYS-02 H04 — Dirty State + Unsaved Changes (H04-RELEASE v2 spec)
+- **Authoritative semantic already in the engine (5e9a219, verified against H04 §6.0):** `DIRTY ⇔ current document state ≠ saved snapshot` (History stores the saved snapshot; `is_dirty` compares). "Has undo entries" is NOT the definition — undo/redo are only EXAMPLES of snapshot-reaching mutations (INV-DIRTY-2 v2). New native H04 tests: a FRESH (non-undo) mutation returning to the snapshot → CLEAN without a write; view ops (selection/playhead/active-layer) never dirty; failed save preserves DIRTY + history; successful save flow (write + snapshot advance) → CLEAN with history preserved.
+- **`document:changed` now emitted (was the known forward gap):** H04 §10 / SYS-01 §27.1 — the engine client emits it post-do for every DOCUMENT mutation (draw/transform/move/patch/node-props/settings/frames/tweens/labels/symbols/layers + undo/redo) — 41 wrappers wired. VIEW/SESSION ops (selection, playhead, active layer) and FILE-SYSTEM ops (export, save) never emit it; no engine ⇒ no event. Proven against the REAL client (wire-faithful fake module) in `h04.test.ts`.
+- **Consumers:** App re-reads document-bound UI immediately on `document:changed` (no 120ms poll lag); the tab strip re-reads its dirty ● on the same event.
+- **`saving:changed` full transitions (H04 T2–T5):** save start → `{saving}`; success → `{saved}` + snapshot advance (CLEAN); write failure → `{error}` (stays DIRTY = SAVE_ERROR, last-good intact, `markClean` never reached); cancelled picker → `{idle}`; retry → `{saving}` → resolve.
+- **Dirty GUARD decision contract (H04 §8/§9 — decisions, NOT new commandIds):** Save reuses `file.save()` (H05); save-fail in the guard keeps DIRTY and BLOCKS the close (dialog stays open for retry/cancel); Discard = permanent (non-undoable) proceed; Cancel = abort, unchanged. The guard targets the DOCUMENT that triggered it (doc-id scope) — proven by the App-level test where a dirty INACTIVE doc triggers the dialog while the clean active doc does not.
+- **Dirty indicator a11y (H04 §13):** ● = `aria-label="unsaved changes"` inside an always-present `aria-live="polite"` region; tab naming includes "— unsaved".
+- **Tests:** NEW `h04.test.ts` (10 — emission contract vs the real client) + `h04-ui.test.tsx` (13 — indicator event-driven/aria/per-doc/no-doc, saving transitions, guard contract save/save-fail/discard/cancel, close-all mixed, exit) + 4 native Rust tests.
+- **Provisional decisions encountered:** AMB-H01-002/003 untouched (not H03/H04 scope).
+- **Manual acceptance: PENDING** (user's Linux desktop — matrix below).
+
+### Manual acceptance matrix — H03 (test on your Linux desktop, report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | right-click the ACTIVE tab | menu opens (one "Close" item); doc NOT activated, nothing closed, no toast |
+| 2 | right-click an INACTIVE tab | menu opens targeting THAT tab; active doc unchanged |
+| 3 | menu open → Esc | menu closes; nothing changed |
+| 4 | menu open → click outside | menu closes; nothing changed |
+| 5 | right-click inactive B → Close (B clean) | B closes; A stays active |
+| 6 | right-click inactive B → Close (B dirty) | Save/Discard/Cancel dialog for B |
+| 7 | … → Cancel | B still open, still dirty, A untouched |
+| 8 | … → Save (succeeds) | B saved (CLEAN) + closed; A remains active |
+| 9 | … → Save (fails, e.g. read-only path) | "Save error", B still dirty, close BLOCKED, dialog stays |
+| 10 | close B (× or menu) while the menu for B is open elsewhere | menu dismisses itself (no crash) |
+| 11 | reorder tabs while the menu is open | menu stays; Close still closes the right doc |
+| 12 | keyboard: focus a tab, Tab into menu, Enter | Close runs on the focused tab |
+
+### Manual acceptance matrix — H04 (test on your Linux desktop, report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | create doc, draw a rect | ● appears on the tab immediately (no delay/poll) |
+| 2 | switch to another doc and back | each doc's ● independent; no transfer |
+| 3 | undo until the doc matches its saved state | ● clears WITHOUT saving (snapshot match) |
+| 4 | redo away from the saved state | ● returns |
+| 5 | edit a value back to its saved value (no undo) | ● clears (mutation reached snapshot) |
+| 6 | Save (success) | "Saved hh:mm" status; ● clears; undo still works |
+| 7 | make a change, save to a read-only/bad path | "Save error"; ● STAYS; retry works |
+| 8 | change selection / scrub playhead / resize a panel on a dirty doc | ● stays (view/workspace never clears dirty) |
+| 9 | dirty doc → Close → dialog → Save fails → retry → succeeds | close proceeds only after success |
+| 10 | no-document state | no ● anywhere; New starts CLEAN |

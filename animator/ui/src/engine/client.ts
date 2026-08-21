@@ -20,6 +20,7 @@
 // "attached" state (no-fake-features rule).
 
 import type { EngineStatus } from '../commands'
+import { bus } from '../bus'
 import type {
   KineoraWasm,
   LibraryItemJson,
@@ -146,8 +147,20 @@ const asU64 = (id: number): bigint => BigInt(Math.trunc(id))
 const asNum = (v: bigint | number | undefined): number =>
   typeof v === 'bigint' ? Number(v) : v ?? 0
 
+/** H04 §10 / SYS-01 §27.1 — post-do event for DOCUMENT mutations only
+ *  (edit/import/undo/redo — anything that may change the dirty snapshot
+ *  relation). View/session/workspace/pref changes (selection, playhead,
+ *  active layer, tab ops) and FILE-SYSTEM ops (save/markClean) must NEVER
+ *  emit this. No engine attached => no event. Payload is advisory —
+ *  consumers re-read the engine (H00 §27.0 stale rule). */
+function docChanged(type: string): void {
+  if (mod) bus.emit('document:changed', { type, targets: [] })
+}
+
 export function drawRect(x: number, y: number, w: number, h: number, fill: string): number {
-  return asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
+  const id = asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
+  if (id > 0) docChanged('draw')
+  return id
 }
 
 export function evaluate(frame: number): RectItemJson[] {
@@ -177,121 +190,179 @@ export function exportSvgScaled(frame: number, scale: number): string {
 }
 
 export function undo(): boolean {
-  return mod?.kineora_undo() ?? false
+  const ok = mod?.kineora_undo() ?? false
+  if (ok) docChanged('undo')
+  return ok
 }
 
 export function redo(): boolean {
-  return mod?.kineora_redo() ?? false
+  const ok = mod?.kineora_redo() ?? false
+  if (ok) docChanged('redo')
+  return ok
 }
 
 export function insertKeyframe(frame: number): boolean {
-  return mod?.kineora_insert_keyframe(frame) ?? false
+  const ok = mod?.kineora_insert_keyframe(frame) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function insertBlankKeyframe(frame: number): boolean {
-  return mod?.kineora_insert_blank_keyframe(frame) ?? false
+  const ok = mod?.kineora_insert_blank_keyframe(frame) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function clearKeyframe(frame: number): boolean {
-  return mod?.kineora_clear_keyframe(frame) ?? false
+  const ok = mod?.kineora_clear_keyframe(frame) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function insertFrame(frame: number): boolean {
-  return mod?.kineora_insert_frame(frame) ?? false
+  const ok = mod?.kineora_insert_frame(frame) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function deleteFrame(frame: number): boolean {
-  return mod?.kineora_delete_frame(frame) ?? false
+  const ok = mod?.kineora_delete_frame(frame) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function moveKeyframe(layer: number, from: number, to: number): boolean {
-  return mod?.kineora_move_keyframe(layer, from, to) ?? false
+  const ok = mod?.kineora_move_keyframe(layer, from, to) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function duplicateKeyframe(layer: number, from: number, to: number): boolean {
-  return mod?.kineora_duplicate_keyframe(layer, from, to) ?? false
+  const ok = mod?.kineora_duplicate_keyframe(layer, from, to) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function copyFrames(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_copy_frames(layer, start, end) ?? false
+  const ok = mod?.kineora_copy_frames(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function cutFrames(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_cut_frames(layer, start, end) ?? false
+  const ok = mod?.kineora_cut_frames(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function pasteFrames(layer: number, at: number): boolean {
-  return mod?.kineora_paste_frames(layer, at) ?? false
+  const ok = mod?.kineora_paste_frames(layer, at) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function removeFrames(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_remove_frames(layer, start, end) ?? false
+  const ok = mod?.kineora_remove_frames(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function reverseFrames(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_reverse_frames(layer, start, end) ?? false
+  const ok = mod?.kineora_reverse_frames(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function setClassicTween(layer: number, start: number, end: number, ease: number): boolean {
-  return mod?.kineora_set_classic_tween(layer, start, end, ease) ?? false
+  const ok = mod?.kineora_set_classic_tween(layer, start, end, ease) ?? false
+  if (ok) docChanged('tween')
+  return ok
 }
 
 export function removeClassicTween(layer: number, start: number): boolean {
-  return mod?.kineora_remove_classic_tween(layer, start) ?? false
+  const ok = mod?.kineora_remove_classic_tween(layer, start) ?? false
+  if (ok) docChanged('tween')
+  return ok
 }
 
 export function moveKeyframeSequence(layer: number, from: number, to: number, overwrite: boolean): boolean {
-  return mod?.kineora_move_keyframe_sequence(layer, from, to, overwrite) ?? false
+  const ok = mod?.kineora_move_keyframe_sequence(layer, from, to, overwrite) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function resizeSpan(layer: number, anchor: number, delta: number): boolean {
-  return mod?.kineora_resize_span(layer, anchor, delta) ?? false
+  const ok = mod?.kineora_resize_span(layer, anchor, delta) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function duplicateFrames(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_duplicate_frames(layer, start, end) ?? false
+  const ok = mod?.kineora_duplicate_frames(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function convertToKeyframes(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_convert_to_keyframes(layer, start, end) ?? false
+  const ok = mod?.kineora_convert_to_keyframes(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function convertToBlankKeyframes(layer: number, start: number, end: number): boolean {
-  return mod?.kineora_convert_to_blank_keyframes(layer, start, end) ?? false
+  const ok = mod?.kineora_convert_to_blank_keyframes(layer, start, end) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 export function setFrameLabel(layer: number, frame: number, label: string): boolean {
-  return mod?.kineora_set_frame_label(layer, frame, label) ?? false
+  const ok = mod?.kineora_set_frame_label(layer, frame, label) ?? false
+  if (ok) docChanged('frame')
+  return ok
 }
 
 // ——— Symbols + Library (Part 11/12) ———
 
 export function convertToSymbol(name: string, symbolType: string, regGrid: number): number {
-  return asNum(mod?.kineora_convert_to_symbol(name, symbolType, regGrid))
+  const id = asNum(mod?.kineora_convert_to_symbol(name, symbolType, regGrid))
+  if (id > 0) docChanged('symbol')
+  return id
 }
 
 export function newSymbol(name: string, symbolType: string): number {
-  return asNum(mod?.kineora_new_symbol(name, symbolType))
+  const id = asNum(mod?.kineora_new_symbol(name, symbolType))
+  if (id > 0) docChanged('symbol')
+  return id
 }
 
 export function placeSymbol(symbolId: number, x: number, y: number): number {
-  return asNum(mod?.kineora_place_symbol(asU64(symbolId), x, y))
+  const id = asNum(mod?.kineora_place_symbol(asU64(symbolId), x, y))
+  if (id > 0) docChanged('symbol')
+  return id
 }
 
 export function renameSymbol(symbolId: number, name: string): boolean {
-  return mod?.kineora_rename_symbol(asU64(symbolId), name) ?? false
+  const ok = mod?.kineora_rename_symbol(asU64(symbolId), name) ?? false
+  if (ok) docChanged('symbol')
+  return ok
 }
 
 export function deleteSymbol(symbolId: number, breakApart: boolean): boolean {
-  return mod?.kineora_delete_symbol(asU64(symbolId), breakApart) ?? false
+  const ok = mod?.kineora_delete_symbol(asU64(symbolId), breakApart) ?? false
+  if (ok) docChanged('symbol')
+  return ok
 }
 
 export function swapInstance(instanceId: number, symbolId: number): boolean {
-  return mod?.kineora_swap_instance(asU64(instanceId), asU64(symbolId)) ?? false
+  const ok = mod?.kineora_swap_instance(asU64(instanceId), asU64(symbolId)) ?? false
+  if (ok) docChanged('symbol')
+  return ok
 }
 
 export function setInstanceLoop(instanceId: number, loopMode: string, firstFrame: number): boolean {
-  return mod?.kineora_set_instance_loop(asU64(instanceId), loopMode, firstFrame) ?? false
+  const ok = mod?.kineora_set_instance_loop(asU64(instanceId), loopMode, firstFrame) ?? false
+  if (ok) docChanged('symbol')
+  return ok
 }
 
 export function library(): LibraryItemJson[] {
@@ -343,11 +414,15 @@ export function selectInRect(x0: number, y0: number, x1: number, y1: number): vo
 }
 
 export function transformSelection(transforms: Array<Record<string, number>>): void {
-  mod?.kineora_transform_selection(JSON.stringify(transforms))
+  if (!mod) return
+  mod.kineora_transform_selection(JSON.stringify(transforms))
+  docChanged('transform')
 }
 
 export function moveSelection(dx: number, dy: number): void {
-  mod?.kineora_move_selection(dx, dy)
+  if (!mod) return
+  mod.kineora_move_selection(dx, dy)
+  docChanged('transform')
 }
 
 export function projectJson(): string {
@@ -427,41 +502,59 @@ export function setActiveLayer(index: number): boolean {
 /** Returns the new layer's index, or -1 if the engine is absent. */
 export function createLayer(): number {
   if (!mod) return -1
-  return mod.kineora_create_layer()
+  const idx = mod.kineora_create_layer()
+  docChanged('layer')
+  return idx
 }
 
 export function deleteLayer(index: number): boolean {
-  return mod?.kineora_delete_layer(index) ?? false
+  const ok = mod?.kineora_delete_layer(index) ?? false
+  if (ok) docChanged('layer')
+  return ok
 }
 
 export function renameLayer(index: number, name: string): boolean {
-  return mod?.kineora_rename_layer(index, name) ?? false
+  const ok = mod?.kineora_rename_layer(index, name) ?? false
+  if (ok) docChanged('layer')
+  return ok
 }
 
 export function setLayerVisible(index: number, visible: boolean): boolean {
-  return mod?.kineora_set_layer_visible(index, visible) ?? false
+  const ok = mod?.kineora_set_layer_visible(index, visible) ?? false
+  if (ok) docChanged('layer')
+  return ok
 }
 
 export function setLayerLocked(index: number, locked: boolean): boolean {
-  return mod?.kineora_set_layer_locked(index, locked) ?? false
+  const ok = mod?.kineora_set_layer_locked(index, locked) ?? false
+  if (ok) docChanged('layer')
+  return ok
 }
 
 export function moveLayer(from: number, to: number): boolean {
-  return mod?.kineora_move_layer(from, to) ?? false
+  const ok = mod?.kineora_move_layer(from, to) ?? false
+  if (ok) docChanged('layer')
+  return ok
 }
 
 // ——— Object / document properties (Part 26) ———
 
 /** Edit transform fields at the current playhead (one undoable command). */
 export function patchTransforms(patches: TransformPatchJson[]): void {
-  mod?.kineora_patch_transforms(JSON.stringify(patches))
+  if (!mod) return
+  mod.kineora_patch_transforms(JSON.stringify(patches))
+  docChanged('transform')
 }
 
 /** Edit base node properties (one undoable command across all patched nodes). */
 export function setNodeProps(patches: NodePropsPatchJson[]): void {
-  mod?.kineora_set_node_props(JSON.stringify(patches))
+  if (!mod) return
+  mod.kineora_set_node_props(JSON.stringify(patches))
+  docChanged('transform')
 }
 
 export function setDocumentSettings(patch: SettingsPatchJson): boolean {
-  return mod?.kineora_set_document_settings(JSON.stringify(patch)) ?? false
+  const ok = mod?.kineora_set_document_settings(JSON.stringify(patch)) ?? false
+  if (ok) docChanged('settings')
+  return ok
 }

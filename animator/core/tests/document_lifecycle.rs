@@ -1,6 +1,6 @@
 // SYS-02 document lifecycle — STM-DIRTY tracking + Settings fields +
 // Session::from_document reload contract (selection/playhead/history reset).
-use animator_core::{Document, Session, Settings};
+use animator_core::{Document, Session, Settings, SettingsPatch};
 
 #[test]
 fn settings_default_platform_and_units() {
@@ -157,4 +157,107 @@ fn from_document_resets_selection_playhead_and_history() {
     assert!(reloaded.selection.is_empty(), "selection reset on load");
     assert_eq!(reloaded.history.undo_len(), 0, "history reset on load");
     assert!(!reloaded.is_dirty(), "loaded document is clean");
+}
+
+// ————————————————————————————————————————————————————————————————
+// H04 — DIRTY STATE + UNSAVED CHANGES (snapshot-based, H04 §6.0/§7).
+// DIRTY ⇔ current state ≠ saved snapshot. "Has undo entries" is NOT the
+// dirty definition — undo/redo are only EXAMPLES of snapshot-reaching
+// mutations (INV-DIRTY-2 rewritten, H04 v2).
+// ————————————————————————————————————————————————————————————————
+
+#[test]
+fn h04_a_fresh_mutation_returning_to_the_snapshot_is_clean_not_undo() {
+    // T-dirty-mutation-snapshot (H04 §14 #26): fps 24 → 30 → 24 — a NON-undo
+    // mutation that returns the state to the exact saved snapshot clears DIRTY
+    // without any write.
+    let mut s = Session::new(Settings::default());
+    let path = std::env::temp_dir().join("h04-mutation-snapshot.json");
+    s.save(&path).unwrap();
+    assert!(!s.is_dirty());
+
+    assert!(s.set_document_settings(SettingsPatch {
+        fps: Some(30),
+        ..Default::default()
+    }));
+    assert!(s.is_dirty(), "fps 24→30 leaves the snapshot");
+
+    assert!(s.set_document_settings(SettingsPatch {
+        fps: Some(24),
+        ..Default::default()
+    }));
+    assert!(
+        !s.is_dirty(),
+        "fps 30→24 returns to the saved snapshot → CLEAN (no write)"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn h04_view_operations_never_dirty() {
+    // T-dirty-view-noclean (H04 §14 #24, INV-DIRTY-1): selection, playhead and
+    // other VIEW/SESSION operations must NEVER set or clear DIRTY.
+    let mut s = Session::new(Settings::default());
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
+    assert!(s.is_dirty(), "a document mutation dirties");
+
+    s.select_at(5.0, 5.0);
+    s.set_playhead(7);
+    s.set_active_layer(0);
+    assert!(s.is_dirty(), "view ops do not clear DIRTY");
+
+    // and on a clean document they do not set it either
+    let mut s = Session::new(Settings::default());
+    s.select_at(1.0, 1.0);
+    s.set_playhead(3);
+    s.set_active_layer(0);
+    assert!(!s.is_dirty(), "view ops never set DIRTY on a clean doc");
+}
+
+#[test]
+fn h04_failed_save_preserves_dirty_and_last_good() {
+    // T-dirty-save-fail (H04 §14 #8, INV-ERR-3): a failed write keeps the
+    // document DIRTY (SAVE_ERROR is a sub-state of DIRTY) and never clears
+    // the undo history.
+    let mut s = Session::new(Settings::default());
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
+    assert!(s.is_dirty());
+    let undo_before = s.history.undo_len();
+
+    // a path the filesystem will reject (directory does not exist)
+    let bad = std::env::temp_dir().join("h04-no-such-dir-xyz/save.json");
+    assert!(s.save(&bad).is_err(), "the write fails");
+    assert!(s.is_dirty(), "failed save preserves DIRTY (SAVE_ERROR)");
+    assert_eq!(
+        s.history.undo_len(),
+        undo_before,
+        "no undo entry from a failed save"
+    );
+}
+
+#[test]
+fn h04_save_success_clears_dirty_but_keeps_history() {
+    // T-dirty-save-ok (H04 §14 #10, INV-UNDO-1): a SUCCESSFUL save advances
+    // the snapshot to the current state → CLEAN; undo history is preserved.
+    // The save FLOW is two steps by design: the write (H05/SYS-28) and the
+    // snapshot advance (mark_clean) — only a successful write may advance it
+    // (INV-DIRTY-2 path (a)). The UI's file.save command orchestrates both
+    // (write → on success → markClean).
+    let mut s = Session::new(Settings::default());
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
+    assert!(s.is_dirty());
+    let path = std::env::temp_dir().join("h04-save-ok.json");
+    s.save(&path).unwrap();
+    s.history.mark_clean(&s.doc); // write succeeded → snapshot advances
+    assert!(!s.is_dirty(), "successful write → CLEAN");
+    assert!(
+        s.history.undo_len() >= 1,
+        "history preserved (save does NOT clear undo)"
+    );
+    s.undo();
+    assert!(
+        s.is_dirty(),
+        "undoing past the saved snapshot → DIRTY again"
+    );
+    std::fs::remove_file(&path).ok();
 }

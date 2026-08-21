@@ -195,14 +195,28 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   let title = st.doc_title ?? ''
   const knownPath = docPath(docId)
 
+  // H04 T2: save start → SAVING (transient sub-state of DIRTY — the document
+  // stays unsaved until the write succeeds).
+  bus.emit('saving:changed', { state: 'saving' })
+
+  const saveCancelled = () => {
+    // cancelled picker → save state returns to idle; document unchanged.
+    bus.emit('saving:changed', { state: 'idle' })
+  }
   const saveError = () => {
+    // H04 T4: write failed → SAVE_ERROR. The document STAYS DIRTY (markClean
+    // is never reached) and the last-good file is intact (atomic, SYS-28).
+    bus.emit('saving:changed', { state: 'error' })
     notify('Save error: could not write the file (document left dirty — retry)')
   }
 
   if (opts.saveAs || !isTitled(title)) {
     // Save As, or a first save of an untitled document → name/path prompt.
     const res = await platform.saveProjectAs(title, json)
-    if (res === 'cancelled') return false // cancelled → no change
+    if (res === 'cancelled') {
+      saveCancelled()
+      return false // cancelled → no change
+    }
     if (res === 'failed') {
       saveError()
       return false
@@ -218,7 +232,10 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   } else if (platform.isDesktop()) {
     // Titled in desktop but no known path (e.g. after reload) → Save As.
     const res = await platform.saveProjectAs(title, json)
-    if (res === 'cancelled') return false
+    if (res === 'cancelled') {
+      saveCancelled()
+      return false
+    }
     if (res === 'failed') {
       saveError()
       return false

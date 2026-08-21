@@ -10,43 +10,129 @@ interface Props {
   ctx: CommandContext
 }
 
+interface TabMenu {
+  /** The right-clicked document's STABLE id — captured at right-click time
+   *  (H03 §7: never a DOM index, never the active pointer, never a stale
+   *  closure over a tab element). */
+  docId: number
+  x: number
+  y: number
+}
+
 /**
  * Document tabs — the SYS-01 strip CHROME over the SYS-02 open-set (H02 §8:
  * ONE source of truth = the engine's DocManager; this component is a pure
  * VIEW of it and owns NO document state of its own — no competing registry).
  *
  * H02 approved contract:
- *  - left-click / Enter / Space → `tab.activate(docId)` (stable ID — never a
- *    tab index, never inferred from the active pointer)
+ *  - left-click / Enter / Space → `tab.activate(docId)` (stable ID)
  *  - the activated tab receives focus after activation (D-AMB-003)
  *  - per-tab × → `tab.close(docId)` → H07 guard → H02 open-set/active update
- *    (target = the clicked document, always)
- *  - drag → open-set reorder (view/SESSION; `openSet:changed{reordered}`
- *    only; the active document is unchanged; no dirty, no undo)
- *  - dirty ● announced accessibly (aria-live); tab naming = title + dirty
- *  - RIGHT-CLICK ≠ DESTRUCTIVE (H00 INV-DSTR-1/2, INV-013): suppressed; the
- *    context menu itself belongs to H03
+ *  - drag → open-set reorder (`openSet:changed{reordered}` only; the active
+ *    document is unchanged; no dirty, no undo)
  *  - Ctrl+Tab / Ctrl+Shift+Tab are NOT implemented (PROPOSED only, H02 §10)
- *  - colors = SYS-01 design tokens (no hard-coded colors, H02 §19)
+ *
+ * H03 approved contract (tab context menu + destructive safety):
+ *  - right-click → context menu with EXACTLY ONE item: "Close" (H03 §6.2 —
+ *    Close Others is an Adobe-only feature, EXCLUDED; no invented items)
+ *  - opening the menu is NON-DESTRUCTIVE: it never closes/discards/mutates/
+ *    ACTIVATES anything, and emits NO events (H03 §6.1/§14, INV-DSTR-1/2)
+ *  - the menu targets the right-clicked document by stable ID; right-click
+ *    does NOT activate the target (INV-DSTR-2)
+ *  - Close item → `tab.close(targetDocId)` — the SAME canonical commandId as
+ *    the tab × (H02 §12, no drift) → H04/H07 guard flow
+ *  - Esc / outside-click / focus-loss → CANCEL (no mutation); target doc
+ *    removed while open → DISMISS (safe invalidation, H03 §17)
+ *
+ * H04 approved contract (dirty indicator):
+ *  - the ● follows each DOCUMENT (per-doc dirty, never the active pointer);
+ *    it updates on `document:changed` (H04 §10) — not on polling
+ *  - aria-live="polite" + aria-label="unsaved changes" (H04 §13)
+ *
+ * Colors = SYS-01 design tokens (no hard-coded colors, H02 §19/H03 §16).
  */
 export function DocumentTabs({ ctx }: Props) {
   const [, force] = useReducer((x: number) => x + 1, 0)
   const tabRefs = useRef(new Map<number, HTMLDivElement>())
+  const menuRef = useRef<HTMLDivElement>(null)
+  const menuItemRef = useRef<HTMLDivElement>(null)
   const [dragId, setDragId] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const [menu, setMenu] = useState<TabMenu | null>(null)
 
-  // H02 §14/§9: `openSet:changed` updates the STRIP ONLY — document-bound
-  // content panels must NOT rebind on it. `activeDoc:changed` re-renders the
-  // strip as well (App rebinds the panels on that same event). Both events
-  // are consumed by re-reading the engine — never a stale reference.
+  // refs so the once-registered event handlers always see fresh values
+  const menuRef2 = useRef(menu)
+  menuRef2.current = menu
+
+  const focusAfterMenu = (docId: number) => {
+    // H03 §16: focus returns to the target tab on dismiss. When the target
+    // itself is gone (DISMISS), fall back to the active tab — never a crash.
+    tabRefs.current.get(docId)?.focus()
+    if (!tabRefs.current.get(docId)) tabRefs.current.get(activeDocId())?.focus()
+  }
+  const focusAfterMenuRef = useRef(focusAfterMenu)
+  focusAfterMenuRef.current = focusAfterMenu
+
+  // H02 §14/§9: `openSet:changed` re-renders the STRIP ONLY (document-bound
+  // panels do NOT rebind on it). H03 §17: a lifecycle transition (doc added
+  // or removed) while the menu is open → DISMISS; a reorder keeps the menu
+  // valid (the target is a stable ID). H04 §10: `document:changed` (any
+  // document mutation) re-reads the engine so each tab's dirty ● is
+  // immediate — never poll-driven.
   useEffect(() => {
-    const offSet = bus.on('openSet:changed', () => force())
+    const offSet = bus.on('openSet:changed', (p) => {
+      force()
+      const m = menuRef2.current
+      if (m && p.change !== 'reordered') {
+        const docId = m.docId
+        setMenu(null)
+        focusAfterMenuRef.current(docId)
+      }
+    })
     const offActive = bus.on('activeDoc:changed', () => force())
+    const offDoc = bus.on('document:changed', () => force())
     return () => {
       offSet()
       offActive()
+      offDoc()
     }
   }, [])
+
+  // H03 §17 DISMISS: the target document was removed (closed elsewhere)
+  // while the menu is open → the Close item's target no longer exists.
+  useEffect(() => {
+    if (menu && !docList().some((d) => d.id === menu.docId)) {
+      const docId = menu.docId
+      setMenu(null)
+      focusAfterMenu(docId)
+    }
+  }, [menu])
+
+  // H03 §16/§17: the menu takes focus on open; Esc = CANCEL, outside-click =
+  // CANCEL (no mutation on either path).
+  useEffect(() => {
+    if (!menu) return
+    const docId = menu.docId
+    menuItemRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setMenu(null)
+        focusAfterMenuRef.current(docId)
+      }
+    }
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && e.target instanceof Node && menuRef.current.contains(e.target)) return
+      setMenu(null)
+      focusAfterMenuRef.current(docId)
+    }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('mousedown', onDown)
+    }
+  }, [menu])
 
   // The engine is the single source of truth — re-read it on every render.
   const docs: DocJson[] = docList()
@@ -75,6 +161,8 @@ export function DocumentTabs({ ctx }: Props) {
     // D-AMB-003: the activated tab receives focus after activation.
     tabRefs.current.get(id)?.focus()
   }
+
+  const menuDoc = menu ? docs.find((d) => d.id === menu.docId) : undefined
 
   return (
     <div
@@ -143,10 +231,12 @@ export function DocumentTabs({ ctx }: Props) {
               }
             }}
             onContextMenu={(e) => {
-              // H00 INV-DSTR-1: a right-click must NEVER be destructive.
-              // Suppress the native menu; the H03 context menu comes later.
+              // H03 §6.1/§7/§8: right-click opens the context menu — it
+              // NEVER activates, NEVER closes, NEVER emits (INV-DSTR-1/2).
+              // The target is this tab's stable Document ID, captured now.
               e.preventDefault()
               e.stopPropagation()
+              setMenu({ docId: d.id, x: e.clientX, y: e.clientY })
             }}
             style={{
               display: 'flex',
@@ -166,13 +256,14 @@ export function DocumentTabs({ ctx }: Props) {
             }}
           >
             <span data-testid={`doc-tab-title-${d.id}`}>{d.title}</span>
-            {/* aria-live region is ALWAYS present (a live region must exist
-                before the change to be announced); the ● glyph mounts when
-                the document becomes dirty. */}
+            {/* H04 §13: aria-live region is ALWAYS present (a live region
+                must exist before the change to be announced); the ● glyph
+                mounts when the document becomes dirty. */}
             <span aria-live="polite">
               {d.dirty && (
                 <span
                   data-testid={`doc-tab-dirty-${d.id}`}
+                  aria-label="unsaved changes"
                   title="unsaved changes"
                   style={{ color: 'var(--kineora-warning)' }}
                 >
@@ -208,6 +299,67 @@ export function DocumentTabs({ ctx }: Props) {
           </div>
         )
       })}
+
+      {/* H03 tab context menu (L4 overlay, SYS-01 C-07). EXACTLY ONE item —
+          "Close" — targeting the right-clicked document's stable id. */}
+      {menu && menuDoc && (
+        <div
+          ref={menuRef}
+          data-testid="ctx-tab-menu"
+          role="menu"
+          aria-label="Tab menu"
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: menu.y,
+            left: menu.x,
+            zIndex: 94,
+            minWidth: 140,
+            padding: '4px 0',
+            background: 'var(--kineora-dropdown)',
+            border: '1px solid var(--kineora-border-2)',
+            borderRadius: 4,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <div
+            ref={menuItemRef}
+            data-testid="ctx-tab-close"
+            role="menuitem"
+            tabIndex={0}
+            aria-label={`Close ${menuDoc.title}`}
+            onClick={() => {
+              const target = menu.docId
+              setMenu(null)
+              // H03 §6.3: the SAME canonical commandId as the tab × (H02 §12
+              // — no drift). Dirty target → H04/H07 guard flow; cancel leaves
+              // everything unchanged.
+              getCommand('tab.close')?.run(ctx, target)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const target = menu.docId
+                setMenu(null)
+                getCommand('tab.close')?.run(ctx, target)
+              }
+            }}
+            style={{
+              padding: '6px 14px',
+              fontSize: 13,
+              color: 'var(--kineora-text)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Close
+          </div>
+        </div>
+      )}
     </div>
   )
 }

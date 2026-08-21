@@ -25,6 +25,12 @@ export interface BusEvents {
   'playback:stopped': Record<string, never>
   'playhead:moved': { frame: number }
   'saving:changed': { state: 'idle' | 'saving' | 'saved' | 'error'; time?: string }
+  /** H04 §10 / SYS-01 §27.1: a DOCUMENT mutation happened (edit/import/
+   *  undo/redo — anything that may change the dirty snapshot relation).
+   *  Producer: the engine client, post-mutation. Payload is advisory
+   *  (consumers re-read the engine); `targets` = affected node ids when
+   *  known, else []. Never emitted for view/session/workspace/pref changes. */
+  'document:changed': { type: string; targets: number[] }
   'export:done': { format: string }
   'mode:changed': { modeId: string; active: boolean }
   'snap:changed': { mode: string }

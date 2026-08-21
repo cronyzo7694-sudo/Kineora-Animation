@@ -167,6 +167,15 @@ export default function App() {
     return bus.on('activeDoc:changed', () => setTick((t) => t + 1))
   }, [])
 
+  // H04 §10 / SYS-01 §27.1: on document:changed (any DOCUMENT mutation —
+  // edit/import/undo/redo), document-bound UI re-reads the engine
+  // immediately — the dirty ● / title / status update without waiting for
+  // the 120ms poll. This event means "document state changed", not
+  // "active document changed" — panels re-read, they do not rebind.
+  useEffect(() => {
+    return bus.on('document:changed', () => setTick((t) => t + 1))
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])

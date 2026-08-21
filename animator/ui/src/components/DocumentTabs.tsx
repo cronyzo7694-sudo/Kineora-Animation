@@ -10,11 +10,14 @@ interface Props {
 }
 
 /**
- * Document tabs (SYS-02 §12 multi-document): click = activate (tab.activate →
- * activeDoc:changed), per-tab × = file.close (same canonical command as
- * File ▸ Close), dirty ● per document. Right-click on a tab = the ONE
- * Blueprint context item: Close. "Close Others" is deliberately absent
- * (Adobe-only, excluded §23).
+ * Document tabs (SYS-02 §12 multi-document): left-click = activate
+ * (tab.activate → activeDoc:changed), per-tab × = file.close (same canonical
+ * command as File ▸ Close), dirty ● per document.
+ *
+ * H00 §10 (INV-DSTR-1/2, INV-013 — P0): RIGHT-CLICK ≠ DESTRUCTIVE ACTION.
+ * A right-click here only suppresses the native menu and does NOTHING — it can
+ * never close/delete/discard a document. The context menu itself (and its
+ * guarded Close item) belongs to H03, not here.
  */
 export function DocumentTabs({ ctx, docs, activeId }: Props) {
   if (docs.length === 0) {
@@ -43,8 +46,11 @@ export function DocumentTabs({ ctx, docs, activeId }: Props) {
               if (setActiveDoc(d.id)) ctx.notify(`switched to "${d.title}"`)
             }}
             onContextMenu={(e) => {
+              // H00 INV-DSTR-1: invoking the right-click surface must NEVER
+              // perform a destructive action. Suppress the native menu; the
+              // H03 context menu will be attached here later.
               e.preventDefault()
-              closeCmd?.run(ctx)
+              e.stopPropagation()
             }}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12,

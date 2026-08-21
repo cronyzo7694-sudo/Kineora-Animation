@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
+import { getCommand } from './commands'
 import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
@@ -157,6 +158,13 @@ export default function App() {
       window.clearInterval(id)
       stopPlayback()
     }
+  }, [])
+
+  // H00 §12: on activeDoc:changed, force an IMMEDIATE re-render so every
+  // document-bound panel (Stage/Timeline/Layers/Properties/Library/title/
+  // dirty ●) rebinds to the new active document without waiting for the poll.
+  useEffect(() => {
+    return bus.on('activeDoc:changed', () => setTick((t) => t + 1))
   }, [])
 
   const notify = (msg: string) => {
@@ -576,9 +584,12 @@ export default function App() {
         current={status?.playhead ?? 1}
         duration={status?.duration ?? 1}
       />
-      <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} notify={notify} />
-      <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} notify={notify} />
-      <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} notify={notify} />
+      {/* H01 dialogs: Create/select/save re-invoke the canonical commands
+          (file.new / file.newFromTemplate / file.saveAsTemplate) — single
+          commandId per action, no direct engine writes from the dialog. */}
+      <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} onCreate={(s) => getCommand('file.new')?.run(ctx, s)} />
+      <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
+      <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
       <CloseConfirmationDialog request={closeReq} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
       {/* No-document empty state (C-02): engine attached but all documents closed */}
       {engine.kind === 'ok' && !status && !exited && (

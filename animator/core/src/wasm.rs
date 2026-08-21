@@ -15,95 +15,14 @@ use std::cell::RefCell;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use crate::doc_manager::DocManager;
 use crate::id::{NodeId, SymbolId};
 use crate::model::{Document, LoopMode, SymbolType};
 use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
 use crate::{Session, Settings};
 
-/// One open document: a stable tab id, a display title, and its own Session
-/// (own document, undo history, selection, playhead, library).
-struct ManagedDoc {
-    id: u64,
-    title: String,
-    session: Session,
-}
-
-/// The document manager (SYS-02 document lifecycle). Owns the open-set and the
-/// active document; `dirty` lives inside each doc's `Session.history`.
-struct DocManager {
-    docs: Vec<ManagedDoc>,
-    active: usize,
-    next_id: u64,
-    untitled_counter: u64,
-}
-
-impl DocManager {
-    fn active_mut(&mut self) -> Option<&mut ManagedDoc> {
-        self.docs.get_mut(self.active)
-    }
-
-    /// Append a freshly-created document and make it active. Returns its id.
-    fn push_new(&mut self, settings: Settings, title: String) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.docs.push(ManagedDoc {
-            id,
-            title,
-            session: Session::new(settings),
-        });
-        self.active = self.docs.len() - 1;
-        id
-    }
-
-    fn next_untitled(&mut self) -> String {
-        self.untitled_counter += 1;
-        format!("Untitled-{}", self.untitled_counter)
-    }
-
-    /// Replace the active document's content in place (Open semantics —
-    /// SYS-02 §13.3 "replaces active doc"), keeping the same tab id + slot.
-    fn replace_active(&mut self, doc: Document, title: String) -> bool {
-        let Some(slot) = self.docs.get_mut(self.active) else {
-            return false;
-        };
-        slot.session = Session::from_document(doc);
-        slot.title = title;
-        true
-    }
-
-    fn close(&mut self, id: u64) -> bool {
-        let Some(idx) = self.docs.iter().position(|d| d.id == id) else {
-            return false;
-        };
-        self.docs.remove(idx);
-        if self.docs.is_empty() {
-            self.active = 0;
-        } else if idx < self.active {
-            self.active -= 1;
-        } else if self.active >= self.docs.len() {
-            self.active = self.docs.len() - 1;
-        }
-        true
-    }
-
-    fn set_active(&mut self, id: u64) -> bool {
-        let Some(idx) = self.docs.iter().position(|d| d.id == id) else {
-            return false;
-        };
-        self.active = idx;
-        true
-    }
-}
-
 thread_local! {
-    static DOCS: RefCell<DocManager> = const {
-        RefCell::new(DocManager {
-            docs: Vec::new(),
-            active: 0,
-            next_id: 1,
-            untitled_counter: 0,
-        })
-    };
+    static DOCS: RefCell<DocManager> = const { RefCell::new(DocManager::new()) };
 }
 
 /// Run `f` against the ACTIVE document's session (all edit/eval facades).
@@ -349,7 +268,7 @@ pub fn kineora_new_default() -> bool {
 /// Number of open documents.
 #[wasm_bindgen]
 pub fn kineora_doc_count() -> u32 {
-    DOCS.with(|d| d.borrow().docs.len() as u32)
+    DOCS.with(|d| d.borrow().len() as u32)
 }
 
 /// JSON array of open documents `[{id,title,dirty}, …]` for the tab strip.
@@ -358,7 +277,7 @@ pub fn kineora_doc_list() -> String {
     DOCS.with(|d| {
         let m = d.borrow();
         let out: Vec<DocOut> = m
-            .docs
+            .docs()
             .iter()
             .map(|doc| DocOut {
                 id: doc.id,
@@ -373,10 +292,7 @@ pub fn kineora_doc_list() -> String {
 /// The active document's stable tab id (0 when no document is open).
 #[wasm_bindgen]
 pub fn kineora_active_doc_id() -> u64 {
-    DOCS.with(|d| {
-        let m = d.borrow();
-        m.docs.get(m.active).map(|d| d.id).unwrap_or(0)
-    })
+    DOCS.with(|d| d.borrow().active_id())
 }
 
 /// Switch the active document (SYS-02 tab activation → activeDoc:changed).
@@ -395,14 +311,7 @@ pub fn kineora_close_doc(id: u64) -> bool {
 /// Set a document's display title (Save As naming / Open filename).
 #[wasm_bindgen]
 pub fn kineora_set_doc_title(id: u64, title: String) -> bool {
-    DOCS.with(|d| {
-        let mut m = d.borrow_mut();
-        let Some(doc) = m.docs.iter_mut().find(|x| x.id == id) else {
-            return false;
-        };
-        doc.title = title;
-        true
-    })
+    DOCS.with(|d| d.borrow_mut().set_title(id, title))
 }
 
 /// Open a document from JSON as a NEW tab (New-from-template seeding). Returns
@@ -412,18 +321,7 @@ pub fn kineora_open_json(json: String, title: String) -> u64 {
     let Ok(doc) = serde_json::from_str::<Document>(&json) else {
         return 0;
     };
-    DOCS.with(|d| {
-        let mut m = d.borrow_mut();
-        let id = m.next_id;
-        m.next_id += 1;
-        m.docs.push(ManagedDoc {
-            id,
-            title,
-            session: Session::from_document(doc),
-        });
-        m.active = m.docs.len() - 1;
-        id
-    })
+    DOCS.with(|d| d.borrow_mut().push_opened(doc, title))
 }
 
 /// Mark the ACTIVE document clean (Save success → STM-DIRTY CLEAN).
@@ -795,10 +693,7 @@ pub fn kineora_load(path: String) -> bool {
                     doc.session = session;
                     doc.title = title;
                 } else {
-                    let id = m.next_id;
-                    m.next_id += 1;
-                    m.docs.push(ManagedDoc { id, title, session });
-                    m.active = m.docs.len() - 1;
+                    m.push_session(session, title);
                 }
             });
             true
@@ -940,9 +835,9 @@ pub fn kineora_status() -> String {
         let mut m = d.borrow_mut();
         // Doc-meta first (immutable borrows), so the mutable session borrow
         // below can span the whole status body without aliasing `m`.
-        let doc_count = m.docs.len() as u32;
+        let doc_count = m.len() as u32;
         let docs: Vec<DocOut> = m
-            .docs
+            .docs()
             .iter()
             .map(|x| DocOut {
                 id: x.id,

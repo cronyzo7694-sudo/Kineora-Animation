@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
-import { saveTemplate } from '../file'
 
 interface Props {
   open: boolean
   onClose: () => void
-  notify: (msg: string) => void
+  /** Wired by App to the canonical `file.saveAsTemplate` command. */
+  onSave: (name: string) => void
 }
 
 /**
- * Save as Template (SYS-02 §6.2): a required name → serialize the current
- * document as a reusable preset-JSON template (usable by New from Template).
- * Enter = confirm, Esc = cancel, empty name → inline error.
+ * Save as Template (H01): a required name → serialize the current document as
+ * a reusable preset-JSON template. Enter = confirm, Esc = cancel, empty name →
+ * inline error. NON-DOCUMENT write (H00 §13: no document undo entry).
  */
-export function SaveTemplateDialog({ open, onClose, notify }: Props) {
+export function SaveTemplateDialog({ open, onClose, onSave }: Props) {
   const [name, setName] = useState('')
 
   useEffect(() => {
@@ -35,15 +35,19 @@ export function SaveTemplateDialog({ open, onClose, notify }: Props) {
 
   const confirm = () => {
     if (!name.trim()) return
-    saveTemplate(name, notify)
+    onSave(name.trim())
     onClose()
   }
 
   return (
     <div data-testid="save-template-dialog" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Save as template" style={{ width: 320, background: '#1d1d1d', border: '1px solid #3a3a3a', borderRadius: 8, padding: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.6)' }}>
-        <h3 style={{ margin: '0 0 12px', color: '#eee', fontSize: 15 }}>Save as Template</h3>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#bbb' }}>
+      <div
+        role="dialog"
+        aria-label="Save as template"
+        style={{ width: 320, maxWidth: '92vw', background: 'var(--kineora-surface)', color: 'var(--kineora-text)', border: '1px solid var(--kineora-border-2)', borderRadius: 8, padding: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.6)', colorScheme: 'dark' }}
+      >
+        <h3 style={{ margin: '0 0 12px', color: 'var(--kineora-text-bright)', fontSize: 15 }}>Save as Template</h3>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--kineora-text)' }}>
           <span>Template name</span>
           <input
             data-testid="dlg-template-name"
@@ -53,15 +57,15 @@ export function SaveTemplateDialog({ open, onClose, notify }: Props) {
             onKeyDown={(e) => {
               if (e.key === 'Enter') confirm()
             }}
-            style={{ background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 4, padding: '6px 8px', fontSize: 13 }}
+            style={{ background: 'var(--kineora-input-bg)', color: 'var(--kineora-text-bright)', border: '1px solid var(--kineora-input-border)', borderRadius: 4, padding: '6px 8px', fontSize: 13 }}
           />
-          {name.trim() === '' && <span data-testid="dlg-template-name-error" style={{ color: '#e66', fontSize: 10 }}>a name is required</span>}
+          {name.trim() === '' && <span data-testid="dlg-template-name-error" style={{ color: 'var(--kineora-danger)', fontSize: 10 }}>a name is required</span>}
         </label>
         <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button data-testid="dlg-template-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
+          <button data-testid="dlg-template-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid var(--kineora-btn-border)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-text)', cursor: 'pointer', fontSize: 13 }}>
             Cancel
           </button>
-          <button data-testid="dlg-template-confirm" disabled={name.trim() === ''} onClick={confirm} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: name.trim() ? '#fff' : '#777', cursor: name.trim() ? 'pointer' : 'not-allowed', fontSize: 13 }}>
+          <button data-testid="dlg-template-confirm" disabled={name.trim() === ''} onClick={confirm} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: name.trim() ? '#fff' : 'var(--kineora-disabled-text)', cursor: name.trim() ? 'pointer' : 'not-allowed', fontSize: 13 }}>
             Save Template
           </button>
         </div>

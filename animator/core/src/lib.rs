@@ -6,6 +6,7 @@
 //! MOD-COMMAND / MOD-PERSIST / MOD-EXPORT (SVG subset).
 
 pub mod command;
+pub mod doc_manager;
 pub mod easing;
 pub mod eval;
 pub mod export;
@@ -17,6 +18,7 @@ pub mod session;
 pub mod wasm;
 
 pub use command::{Command, History};
+pub use doc_manager::{DocManager, ManagedDoc};
 pub use easing::{ease_classic, ease_penner, EaseFn, EaseMode};
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId, SymbolId};

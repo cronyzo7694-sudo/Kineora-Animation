@@ -15,14 +15,31 @@
         --kineora-panel-2: #161616;
         --kineora-chrome: #2a2a2a;
         --kineora-dropdown: #232323;
+        --kineora-surface: #1d1d1d;      /* dialog / elevated surface */
+        --kineora-input-bg: #111111;
+        --kineora-input-border: #444444;
+        --kineora-btn-bg: #2a2a2a;
+        --kineora-btn-border: #555555;
+        --kineora-btn-primary-bg: #0a3f7f;
+        --kineora-btn-primary-border: #0a7cff;
         --kineora-text: #ddd;
+        --kineora-text-bright: #eeeeee;
         --kineora-muted: #888;
+        --kineora-disabled-text: #777;
         --kineora-accent: #0a7cff;
         --kineora-accent-text: #8ec8ff;
+        --kineora-focus-ring: #8ec8ff;
         --kineora-border: #333;
         --kineora-border-2: #3a3a3a;
         --kineora-danger: #e66;
         --kineora-ok: #4a4;
+        --kineora-warning: #eec13b;
+      }
+      /* Keyboard focus visibility (INV-VIS-4): a visible ring on every
+         interactive control — no focus means no keyboard access. */
+      :focus-visible {
+        outline: 2px solid var(--kineora-focus-ring);
+        outline-offset: 1px;
       }
       /* Kill the browser's default page margin (the white gap around the app). */
       html, body, #root {

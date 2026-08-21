@@ -24,6 +24,8 @@ import { setPlayhead, statusJson } from './engine/client'
 import {
   closeActiveDocument,
   closeAllDocuments,
+  createDocument,
+  createFromTemplate,
   exportHandoff,
   importHandoff,
   listRecent,
@@ -32,6 +34,8 @@ import {
   openRecent,
   publishHandoff,
   saveDocument,
+  saveTemplate,
+  type NewDocSettings,
 } from './file'
 import type { StatusJson } from './engine/wasmTypes'
 
@@ -228,20 +232,36 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Ctrl+N',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (H00 T1: New → ACTIVE(UNTITLED, CLEAN))',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => c.openNewDialog(),
+    // input = NewDocSettings → create the document (single commandId, INV-CMD-3);
+    // no input (menu/shortcut/palette) → open the New dialog, whose Create
+    // button re-invokes THIS command with the settings.
+    run: (c, input) => {
+      if (input && typeof input === 'object') {
+        createDocument(input as NewDocSettings, c.notify)
+      } else {
+        c.openNewDialog()
+      }
+    },
   },
   {
     id: 'file.newFromTemplate',
     label: 'New from Template…',
     category: 'file',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (template = preset JSON seed)',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => c.openTemplateGallery(),
+    // input = template name → seed a NEW independent document; no input → gallery.
+    run: (c, input) => {
+      if (typeof input === 'string' && input) {
+        createFromTemplate(input, c.notify)
+      } else {
+        c.openTemplateGallery()
+      }
+    },
   },
   {
     id: 'file.open',
@@ -329,10 +349,17 @@ export const commands: Command[] = [
     label: 'Save as Template…',
     category: 'file',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (preset-JSON template)',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (preset-JSON template; NON-DOCUMENT write)',
     enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
     whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
-    run: (c) => c.openSaveTemplate(),
+    // input = template name → save; no input → name dialog.
+    run: (c, input) => {
+      if (typeof input === 'string' && input) {
+        saveTemplate(input, c.notify)
+      } else {
+        c.openSaveTemplate()
+      }
+    },
   },
   {
     id: 'file.importStage',

@@ -29,7 +29,7 @@ export interface BusEvents {
   'mode:changed': { modeId: string; active: boolean }
   'snap:changed': { mode: string }
   'recording:changed': { active: boolean }
-  'activeDoc:changed': { docId: string }
+  'activeDoc:changed': { docId: number }
 }
 
 export type BusEventName = keyof BusEvents

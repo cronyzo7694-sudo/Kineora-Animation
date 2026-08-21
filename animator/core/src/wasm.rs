@@ -2,6 +2,11 @@
 //! Only compiled for `wasm32-unknown-unknown`; native `cargo test` ignores it.
 //! Single-threaded pattern: thread_local RefCell (wasm has one JS thread for
 //! synchronous engine calls; heavy jobs go through Tauri native commands later).
+//!
+//! Multi-document (SYS-02 §12): a `DocManager` holds the open documents; every
+//! existing `kineora_*` edit/eval facade operates on the ACTIVE document, so
+//! multi-doc is real (per-doc Session = per-doc undo history, selection,
+//! playhead, library) — never a title-only fake.
 
 #![cfg(target_arch = "wasm32")]
 
@@ -10,24 +15,114 @@ use std::cell::RefCell;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::command::History;
 use crate::id::{NodeId, SymbolId};
 use crate::model::{Document, LoopMode, SymbolType};
 use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
 use crate::{Session, Settings};
 
-thread_local! {
-    static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
+/// One open document: a stable tab id, a display title, and its own Session
+/// (own document, undo history, selection, playhead, library).
+struct ManagedDoc {
+    id: u64,
+    title: String,
+    session: Session,
 }
 
+/// The document manager (SYS-02 document lifecycle). Owns the open-set and the
+/// active document; `dirty` lives inside each doc's `Session.history`.
+struct DocManager {
+    docs: Vec<ManagedDoc>,
+    active: usize,
+    next_id: u64,
+    untitled_counter: u64,
+}
+
+impl DocManager {
+    fn active_mut(&mut self) -> Option<&mut ManagedDoc> {
+        self.docs.get_mut(self.active)
+    }
+
+    /// Append a freshly-created document and make it active. Returns its id.
+    fn push_new(&mut self, settings: Settings, title: String) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.docs.push(ManagedDoc {
+            id,
+            title,
+            session: Session::new(settings),
+        });
+        self.active = self.docs.len() - 1;
+        id
+    }
+
+    fn next_untitled(&mut self) -> String {
+        self.untitled_counter += 1;
+        format!("Untitled-{}", self.untitled_counter)
+    }
+
+    /// Replace the active document's content in place (Open semantics —
+    /// SYS-02 §13.3 "replaces active doc"), keeping the same tab id + slot.
+    fn replace_active(&mut self, doc: Document, title: String) -> bool {
+        let Some(slot) = self.docs.get_mut(self.active) else {
+            return false;
+        };
+        slot.session = Session::from_document(doc);
+        slot.title = title;
+        true
+    }
+
+    fn close(&mut self, id: u64) -> bool {
+        let Some(idx) = self.docs.iter().position(|d| d.id == id) else {
+            return false;
+        };
+        self.docs.remove(idx);
+        if self.docs.is_empty() {
+            self.active = 0;
+        } else if idx < self.active {
+            self.active -= 1;
+        } else if self.active >= self.docs.len() {
+            self.active = self.docs.len() - 1;
+        }
+        true
+    }
+
+    fn set_active(&mut self, id: u64) -> bool {
+        let Some(idx) = self.docs.iter().position(|d| d.id == id) else {
+            return false;
+        };
+        self.active = idx;
+        true
+    }
+}
+
+thread_local! {
+    static DOCS: RefCell<DocManager> = const {
+        RefCell::new(DocManager {
+            docs: Vec::new(),
+            active: 0,
+            next_id: 1,
+            untitled_counter: 0,
+        })
+    };
+}
+
+/// Run `f` against the ACTIVE document's session (all edit/eval facades).
 fn with_session<T>(f: impl FnOnce(&mut Session) -> T) -> Result<T, JsValue> {
-    SESSION.with(|s| {
-        let mut b = s.borrow_mut();
-        let session = b
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("session not initialized — call kineora_new first"))?;
-        Ok(f(session))
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let doc = m
+            .active_mut()
+            .ok_or_else(|| JsValue::from_str("no document open — call kineora_new first"))?;
+        Ok(f(&mut doc.session))
     })
+}
+
+/// Per-document entry for the tab strip (SYS-01 app.tab chrome).
+#[derive(Serialize)]
+struct DocOut {
+    id: u64,
+    title: String,
+    dirty: bool,
 }
 
 #[derive(Serialize)]
@@ -187,9 +282,24 @@ struct StatusOut {
     /// number of records in the frame clipboard (session state, F-07-12)
     clipboard_len: usize,
     event_log: Vec<String>,
+    // ——— SYS-02 document lifecycle ———
+    /// Active document tab id (0 = no document open).
+    doc_id: u64,
+    /// Active document display title ("Untitled-1" | file name).
+    doc_title: String,
+    /// STM-DIRTY: active document has unsaved edits.
+    dirty: bool,
+    /// Number of open documents.
+    doc_count: u32,
+    /// Open-document list for the tab strip.
+    docs: Vec<DocOut>,
+    /// Document settings: ruler units + platform (Part 01 §1.7).
+    units: String,
+    platform: String,
 }
 
-/// Create a fresh document.
+/// Create a fresh document with the given core settings (legacy 4-arg form —
+/// units/platform default). Returns true on success.
 #[wasm_bindgen]
 pub fn kineora_new(width: f64, height: f64, fps: u32, background: String) -> bool {
     let settings = Settings {
@@ -197,18 +307,137 @@ pub fn kineora_new(width: f64, height: f64, fps: u32, background: String) -> boo
         height,
         fps,
         background,
+        ..Settings::default()
     };
-    SESSION.with(|s| *s.borrow_mut() = Some(Session::new(settings)));
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let title = m.next_untitled();
+        m.push_new(settings, title);
+    });
     true
 }
 
+/// Create a fresh document from a full Settings JSON (SYS-02 New dialog:
+/// platform/W/H/fps/background/units). Returns the new document's tab id.
+#[wasm_bindgen]
+pub fn kineora_new_full(settings_json: String) -> u64 {
+    let Ok(settings) = serde_json::from_str::<Settings>(&settings_json) else {
+        return 0;
+    };
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let title = m.next_untitled();
+        m.push_new(settings, title)
+    })
+}
+
 /// Create a fresh document with the canonical defaults (1920×1080 @ 24fps,
-/// #ffffff). Single source of truth for the default stage — the UI loader calls
-/// this so the size can never drift from the Rust default.
+/// #ffffff, HTML5 Canvas, px). Single source of truth for the default stage —
+/// the UI loader calls this so the size can never drift from the Rust default.
 #[wasm_bindgen]
 pub fn kineora_new_default() -> bool {
-    SESSION.with(|s| *s.borrow_mut() = Some(Session::new(Settings::default())));
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let title = m.next_untitled();
+        m.push_new(Settings::default(), title);
+    });
     true
+}
+
+// ——— Multi-document manager facade (SYS-02 §12) ———
+
+/// Number of open documents.
+#[wasm_bindgen]
+pub fn kineora_doc_count() -> u32 {
+    DOCS.with(|d| d.borrow().docs.len() as u32)
+}
+
+/// JSON array of open documents `[{id,title,dirty}, …]` for the tab strip.
+#[wasm_bindgen]
+pub fn kineora_doc_list() -> String {
+    DOCS.with(|d| {
+        let m = d.borrow();
+        let out: Vec<DocOut> = m
+            .docs
+            .iter()
+            .map(|doc| DocOut {
+                id: doc.id,
+                title: doc.title.clone(),
+                dirty: doc.session.is_dirty(),
+            })
+            .collect();
+        serde_json::to_string(&out).unwrap_or_else(|_| "[]".into())
+    })
+}
+
+/// The active document's stable tab id (0 when no document is open).
+#[wasm_bindgen]
+pub fn kineora_active_doc_id() -> u64 {
+    DOCS.with(|d| {
+        let m = d.borrow();
+        m.docs.get(m.active).map(|d| d.id).unwrap_or(0)
+    })
+}
+
+/// Switch the active document (SYS-02 tab activation → activeDoc:changed).
+#[wasm_bindgen]
+pub fn kineora_set_active_doc(id: u64) -> bool {
+    DOCS.with(|d| d.borrow_mut().set_active(id))
+}
+
+/// Close a document by tab id. If it was active, the neighbour becomes active;
+/// closing the last document leaves the no-document state.
+#[wasm_bindgen]
+pub fn kineora_close_doc(id: u64) -> bool {
+    DOCS.with(|d| d.borrow_mut().close(id))
+}
+
+/// Set a document's display title (Save As naming / Open filename).
+#[wasm_bindgen]
+pub fn kineora_set_doc_title(id: u64, title: String) -> bool {
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let Some(doc) = m.docs.iter_mut().find(|x| x.id == id) else {
+            return false;
+        };
+        doc.title = title;
+        true
+    })
+}
+
+/// Open a document from JSON as a NEW tab (New-from-template seeding). Returns
+/// the new tab id (0 = parse failure).
+#[wasm_bindgen]
+pub fn kineora_open_json(json: String, title: String) -> u64 {
+    let Ok(doc) = serde_json::from_str::<Document>(&json) else {
+        return 0;
+    };
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let id = m.next_id;
+        m.next_id += 1;
+        m.docs.push(ManagedDoc {
+            id,
+            title,
+            session: Session::from_document(doc),
+        });
+        m.active = m.docs.len() - 1;
+        id
+    })
+}
+
+/// Mark the ACTIVE document clean (Save success → STM-DIRTY CLEAN).
+#[wasm_bindgen]
+pub fn kineora_mark_clean() -> bool {
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        if let Some(doc) = m.active_mut() {
+            doc.session.mark_clean();
+            true
+        } else {
+            false
+        }
+    })
 }
 
 /// Draw a rectangle into the current frame/keyframe. Returns the new node id.
@@ -533,50 +762,65 @@ pub fn kineora_export_svg_scaled(frame: u32, scale: f64) -> String {
     with_session(|s| s.export_svg_scaled(frame, scale)).unwrap_or_default()
 }
 
-/// Save the document to the given absolute path (JSON).
+/// Save the ACTIVE document to the given absolute path (JSON) and mark clean.
 #[wasm_bindgen]
 pub fn kineora_save(path: String) -> bool {
-    with_session(|s| s.save(std::path::Path::new(&path)).is_ok()).unwrap_or(false)
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let Some(doc) = m.active_mut() else {
+            return false;
+        };
+        if doc.session.save(std::path::Path::new(&path)).is_ok() {
+            doc.session.mark_clean();
+            true
+        } else {
+            false
+        }
+    })
 }
 
-/// Load a document from the given absolute path.
+/// Load a document from the given absolute path, REPLACING the active document.
 #[wasm_bindgen]
 pub fn kineora_load(path: String) -> bool {
     match Session::load(std::path::Path::new(&path)) {
         Ok(session) => {
-            SESSION.with(|s| *s.borrow_mut() = Some(session));
+            DOCS.with(|d| {
+                let mut m = d.borrow_mut();
+                let title = path
+                    .rsplit('/')
+                    .next()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| m.next_untitled());
+                if let Some(doc) = m.active_mut() {
+                    doc.session = session;
+                    doc.title = title;
+                } else {
+                    let id = m.next_id;
+                    m.next_id += 1;
+                    m.docs.push(ManagedDoc { id, title, session });
+                    m.active = m.docs.len() - 1;
+                }
+            });
             true
         }
         Err(_) => false,
     }
 }
 
-/// Serialize the whole document to JSON (browser-friendly Save).
+/// Serialize the ACTIVE document to JSON (browser-friendly Save).
 #[wasm_bindgen]
 pub fn kineora_project_json() -> String {
     with_session(|s| serde_json::to_string(&s.doc).unwrap_or_else(|_| "{}".into()))
         .unwrap_or_else(|_| "{}".into())
 }
 
-/// Replace the document from a JSON string (browser-friendly Load).
+/// Replace the ACTIVE document from a JSON string (browser-friendly Open —
+/// SYS-02 §13.3 "replaces active doc", same tab slot). Returns false on parse
+/// failure (no state change).
 #[wasm_bindgen]
-pub fn kineora_load_json(json: String) -> bool {
+pub fn kineora_load_json(json: String, title: String) -> bool {
     match serde_json::from_str::<Document>(&json) {
-        Ok(doc) => {
-            SESSION.with(|s| {
-                *s.borrow_mut() = Some(Session {
-                    doc,
-                    history: History::new(),
-                    selection: Vec::new(),
-                    playhead: 1,
-                    active_scene: 0,
-                    active_layer: 0,
-                    event_log: vec!["session:loaded(json)".into()],
-                    frame_clipboard: Vec::new(),
-                })
-            });
-            true
-        }
+        Ok(doc) => DOCS.with(|d| d.borrow_mut().replace_active(doc, title)),
         Err(_) => false,
     }
 }
@@ -688,9 +932,29 @@ pub fn kineora_set_document_settings(json: String) -> bool {
 }
 
 /// Dev-mode observability: JSON status (Phase-4 manual-test requirement).
+/// Includes the SYS-02 document-lifecycle fields (doc_id/doc_title/dirty/
+/// doc_count/docs/units/platform) so the tab strip and dirty state stay live.
 #[wasm_bindgen]
 pub fn kineora_status() -> String {
-    with_session(|s| {
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        // Doc-meta first (immutable borrows), so the mutable session borrow
+        // below can span the whole status body without aliasing `m`.
+        let doc_count = m.docs.len() as u32;
+        let docs: Vec<DocOut> = m
+            .docs
+            .iter()
+            .map(|x| DocOut {
+                id: x.id,
+                title: x.title.clone(),
+                dirty: x.session.is_dirty(),
+            })
+            .collect();
+        let (doc_id, doc_title) = match m.active_mut() {
+            Some(doc) => (doc.id, doc.title.clone()),
+            None => return "{}".to_string(),
+        };
+        let s = &mut m.active_mut().expect("active doc exists").session;
         let scene = s
             .doc
             .scenes
@@ -904,8 +1168,14 @@ pub fn kineora_status() -> String {
             duration: s.timeline_duration(),
             clipboard_len: s.frame_clipboard.len(),
             event_log: s.event_log.clone(),
+            doc_id,
+            doc_title,
+            dirty: s.is_dirty(),
+            doc_count,
+            docs,
+            units: s.doc.settings.units.clone(),
+            platform: s.doc.settings.platform.clone(),
         };
         serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())
     })
-    .unwrap_or_else(|_| "{}".into())
 }

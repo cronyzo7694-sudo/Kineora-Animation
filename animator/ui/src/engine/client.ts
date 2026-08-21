@@ -336,8 +336,60 @@ export function projectJson(): string {
   return mod?.kineora_project_json?.() ?? ''
 }
 
-export function loadProjectJson(json: string): boolean {
-  return mod?.kineora_load_json?.(json) ?? false
+/** Open (replace the ACTIVE document) from JSON — SYS-02 Open semantics. */
+export function loadProjectJson(json: string, title: string): boolean {
+  return mod?.kineora_load_json?.(json, title) ?? false
+}
+
+// ——— SYS-02 document manager ———
+
+/** New document from full Settings (platform/units/W/H/fps/background). Returns id. */
+export function newDocFull(settings: { width: number; height: number; fps: number; background: string; units: string; platform: string }): number {
+  return mod?.kineora_new_full?.(JSON.stringify(settings)) ?? 0
+}
+
+export function docCount(): number {
+  return mod?.kineora_doc_count?.() ?? 0
+}
+
+export function docList(): import('./wasmTypes').DocJson[] {
+  if (!mod?.kineora_doc_list) return []
+  try {
+    return JSON.parse(mod.kineora_doc_list()) as import('./wasmTypes').DocJson[]
+  } catch {
+    return []
+  }
+}
+
+export function activeDocId(): number {
+  return mod?.kineora_active_doc_id?.() ?? 0
+}
+
+export function setActiveDoc(id: number): boolean {
+  return mod?.kineora_set_active_doc?.(id) ?? false
+}
+
+export function closeDoc(id: number): boolean {
+  return mod?.kineora_close_doc?.(id) ?? false
+}
+
+export function setDocTitle(id: number, title: string): boolean {
+  return mod?.kineora_set_doc_title?.(id, title) ?? false
+}
+
+/** Open a JSON document as a NEW tab (New-from-template seeding). */
+export function openDocJson(json: string, title: string): number {
+  return mod?.kineora_open_json?.(json, title) ?? 0
+}
+
+/** Mark the active document clean (Save success → STM-DIRTY CLEAN). */
+export function markClean(): boolean {
+  return mod?.kineora_mark_clean?.() ?? false
+}
+
+/** Whether the engine exposes the multi-document manager (build honesty). */
+export function hasDocManager(): boolean {
+  return !!mod && typeof mod.kineora_doc_list === 'function'
 }
 
 // ——— Layers (MOD-LAYER) ———

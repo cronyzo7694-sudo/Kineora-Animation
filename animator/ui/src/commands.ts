@@ -19,8 +19,20 @@
 //   [BLUEPRINT IMPLIED] / [OUR DESIGN DECISION] / [NOT IN BLUEPRINT]
 // ============================================================================
 
-import { performAction, stopPlayback, togglePlay, isLoopEnabled, newProject, openProjectFile } from './engine/actions'
+import { performAction, stopPlayback, togglePlay, isLoopEnabled } from './engine/actions'
 import { setPlayhead, statusJson } from './engine/client'
+import {
+  closeActiveDocument,
+  closeAllDocuments,
+  exportHandoff,
+  importHandoff,
+  listRecent,
+  openDocument,
+  openExternalLibraryHandoff,
+  openRecent,
+  publishHandoff,
+  saveDocument,
+} from './file'
 import type { StatusJson } from './engine/wasmTypes'
 
 export type CommandStatus = 'FUNCTIONAL' | 'DEFERRED' | 'UNAVAILABLE'
@@ -74,6 +86,17 @@ export interface CommandContext {
   exitEditOne: () => void
   exitEditRoot: () => void
   openGoToFrame: () => void
+  // ——— SYS-02 File ———
+  /** Canonical unsaved-changes guard: run `proceed` now (clean) or after the
+   *  Close-Confirmation Save/Discard resolves (dirty). Cancel → not run.
+   *  scope 'active' = guard the ACTIVE document (Close/Open); 'all' = guard
+   *  every dirty document (Close All / Exit). */
+  confirmClose: (proceed: () => void, scope?: 'active' | 'all') => void
+  openNewDialog: () => void
+  openTemplateGallery: () => void
+  openSaveTemplate: () => void
+  /** File ▸ Exit — application-level exit (dirty-guarded by the command). */
+  exitApp: () => void
 }
 
 export interface Command {
@@ -198,7 +221,7 @@ export const commands: Command[] = [
     toolbar: true,
   },
 
-  // ——— File (Part 01 §1.2.1 / C-03) ———
+  // ——— File (SYS-02 §6.1/§7: 10 REQUIRED + 8 HANDOFF; AIR/Print/Page-Setup = HIDDEN) ———
   {
     id: 'file.new',
     label: 'New…',
@@ -208,7 +231,17 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => newProject(c.notify),
+    run: (c) => c.openNewDialog(),
+  },
+  {
+    id: 'file.newFromTemplate',
+    label: 'New from Template…',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) => c.openTemplateGallery(),
   },
   {
     id: 'file.open',
@@ -219,35 +252,54 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => openProjectFile(c.notify),
+    run: (c) => c.confirmClose(() => openDocument(c.notify)),
   },
   {
     id: 'file.openRecent',
     label: 'Open Recent',
     category: 'file',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
-    reason: 'recent-file list is a future feature (P1)',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (recent list; entries reuse file.open)',
+    enabled: (c) => engineOk(c) && listRecent().length > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no recent files' : NOT_ATTACHED),
+    // input = recent title (menu rows pass it; palette runs the most recent)
+    run: (c, input) => {
+      const title = typeof input === 'string' && input ? input : listRecent()[0]?.title
+      if (!title) return
+      c.confirmClose(() => openRecent(title, c.notify))
+    },
   },
   {
-    id: 'file.newFromTemplate',
-    label: 'New from Template…',
+    id: 'file.openExternalLibrary',
+    label: 'Open from Libraries…',
     category: 'file',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
-    reason: 'templates are a future feature',
-    run: () => {},
+    shortcut: 'Ctrl+Shift+O',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 → handoff SYS-18',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) => openExternalLibraryHandoff(c.notify),
   },
   {
     id: 'file.close',
     label: 'Close',
     category: 'file',
     shortcut: 'Ctrl+W',
-    status: 'UNAVAILABLE',
-    source: '[ADOBE REFERENCE] Part 01 §1.2.1',
-    reason: 'web app — the browser tab manages documents',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save)',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
+    run: (c) => c.confirmClose(() => closeActiveDocument()),
+  },
+  {
+    id: 'file.closeAll',
+    label: 'Close All',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save, per-doc guard)',
+    enabled: (c) => (c.getStatus()?.doc_count ?? 0) > 0,
+    whyDisabled: () => 'no documents open',
+    run: (c) => c.confirmClose(() => closeAllDocuments(), 'all'),
   },
   {
     id: 'file.save',
@@ -255,10 +307,10 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Ctrl+S',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
-    enabled: engineOk,
-    whyDisabled: () => NOT_ATTACHED,
-    run: (c) => performAction('file.save', c.notify),
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (untitled → prompt; overwrite P-1)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => void saveDocument(c.notify),
     toolbar: true,
   },
   {
@@ -268,31 +320,41 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+S',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
-    enabled: engineOk,
-    whyDisabled: () => NOT_ATTACHED,
-    // [OUR DESIGN DECISION] web build: Save / Save As both download the
-    // project JSON (no native save-as dialog).
-    run: (c) => performAction('file.save', c.notify),
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => void saveDocument(c.notify, { saveAs: true }),
+  },
+  {
+    id: 'file.saveAsTemplate',
+    label: 'Save as Template…',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (preset-JSON template)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => c.openSaveTemplate(),
   },
   {
     id: 'file.importStage',
     label: 'Import to Stage…',
     category: 'file',
     shortcut: 'Ctrl+R',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 27',
-    reason: 'asset import is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 27 → handoff SYS-27',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => importHandoff('stage', c.notify),
   },
   {
     id: 'file.importLibrary',
     label: 'Import to Library…',
     category: 'file',
     shortcut: 'Ctrl+I',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 27',
-    reason: 'asset import is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 27 → handoff SYS-27',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => importHandoff('library', c.notify),
   },
   {
     id: 'file.export',
@@ -300,7 +362,9 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Ctrl+Shift+R',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 / C-31',
+    source: '[BLUEPRINT REQUIRED] Part 28 / C-31 (export image = working)',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
     run: (c) => c.openExport(),
     toolbar: true,
   },
@@ -308,68 +372,82 @@ export const commands: Command[] = [
     id: 'file.exportVideo',
     label: 'Export Video…',
     category: 'file',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 28',
-    reason: 'video export is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
+    run: (c) => exportHandoff('Video', c.notify),
   },
   {
     id: 'file.exportGif',
     label: 'Export Animated GIF…',
     category: 'file',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 28',
-    reason: 'animated GIF export is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
+    run: (c) => exportHandoff('Animated GIF', c.notify),
+  },
+  {
+    id: 'file.exportMovie',
+    label: 'Export Movie…',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
+    run: (c) => exportHandoff('Movie', c.notify),
   },
   {
     id: 'file.exportSequence',
     label: 'Export PNG Sequence…',
     category: 'file',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 28',
-    reason: 'image-sequence export is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open',
+    run: (c) => exportHandoff('PNG sequence', c.notify),
   },
   {
     id: 'file.publishSettings',
     label: 'Publish Settings…',
     category: 'file',
     shortcut: 'Ctrl+Shift+F12',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 28',
-    reason: 'publish pipeline is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => publishHandoff('settings', c.notify),
   },
   {
     id: 'file.publish',
     label: 'Publish',
     category: 'file',
     shortcut: 'Shift+Alt+F12',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 28',
-    reason: 'publish pipeline is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => publishHandoff('Publish', c.notify),
   },
   {
-    id: 'file.print',
-    label: 'Print…',
+    id: 'file.publishProfiles',
+    label: 'Publish Profiles…',
     category: 'file',
-    shortcut: 'Ctrl+P',
-    status: 'DEFERRED',
-    source: '[ADOBE REFERENCE] Part 01 §1.2.1',
-    reason: 'printing is a future feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => publishHandoff('profiles', c.notify),
   },
   {
     id: 'file.exit',
     label: 'Exit',
     category: 'file',
     shortcut: 'Ctrl+Q',
-    status: 'UNAVAILABLE',
-    source: '[ADOBE REFERENCE] Part 01 §1.2.1',
-    reason: 'web app — close the browser tab',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (quit, prompt save)',
+    run: (c) => c.confirmClose(() => c.exitApp(), 'all'),
   },
 
   // ——— Edit (Part 01 §1.2.2 / C-03) ———
@@ -1711,6 +1789,11 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     exitEditOne: () => {},
     exitEditRoot: () => {},
     openGoToFrame: () => {},
+    confirmClose: (proceed) => proceed(),
+    openNewDialog: () => {},
+    openTemplateGallery: () => {},
+    openSaveTemplate: () => {},
+    exitApp: () => {},
     ...partial,
   }
 }

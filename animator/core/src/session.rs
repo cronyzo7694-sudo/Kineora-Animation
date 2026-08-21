@@ -1348,6 +1348,11 @@ impl Session {
             background: patch
                 .background
                 .unwrap_or_else(|| before.background.clone()),
+            // units/platform are document-level settings (Part 01 §1.7); the
+            // current patch surface (SYS-17) edits width/height/fps/background
+            // only — preserve the rest.
+            units: before.units.clone(),
+            platform: before.platform.clone(),
         };
         if after == before {
             return false;
@@ -1428,6 +1433,16 @@ impl Session {
         ok
     }
 
+    /// STM-DIRTY: has the document unsaved edits since the last save/load/new?
+    pub fn is_dirty(&self) -> bool {
+        self.history.is_dirty()
+    }
+
+    /// Mark the document clean (Save / Load / New).
+    pub fn mark_clean(&mut self) {
+        self.history.mark_clean();
+    }
+
     pub fn redo(&mut self) -> bool {
         let ok = self.history.redo(&mut self.doc);
         self.log(if ok { "redo" } else { "redo:(empty)" });
@@ -1461,7 +1476,14 @@ impl Session {
 
     pub fn load(path: &Path) -> Result<Self, String> {
         let doc = persist::load(path)?;
-        Ok(Self {
+        Ok(Self::from_document(doc))
+    }
+
+    /// Wrap an existing document in a fresh session (selection empty, playhead
+    /// 1, clean history) — the Open/New-from-template reload contract (SYS-02
+    /// §16: selection reset, playhead reset, history reset).
+    pub fn from_document(doc: Document) -> Self {
+        Self {
             doc,
             history: History::new(),
             selection: Vec::new(),
@@ -1470,7 +1492,7 @@ impl Session {
             active_layer: 0,
             event_log: vec!["session:loaded".into()],
             frame_clipboard: Vec::new(),
-        })
+        }
     }
 }
 

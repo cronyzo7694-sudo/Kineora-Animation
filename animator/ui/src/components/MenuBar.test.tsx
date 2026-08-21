@@ -65,13 +65,12 @@ describe('MenuBar — open/close', () => {
 
 describe('MenuBar — command dispatch + honest states', () => {
   it('a functional menu item runs its command (ctx-driven)', () => {
-    const openExport = vi.fn()
-    const c = ctx({ openExport })
+    const openNewDialog = vi.fn()
+    const c = ctx({ openNewDialog })
     render(<MenuBar ctx={c} />)
     fireEvent.click(screen.getByTestId('menu.file'))
-    fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Export'))
-    fireEvent.click(screen.getByTestId('menu-item-file.export'))
-    expect(openExport).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTestId('menu-item-file.new'))
+    expect(openNewDialog).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId('menu.file-dropdown')).not.toBeInTheDocument() // closed
   })
 

@@ -47,6 +47,11 @@ pub trait Command {
 pub struct History {
     undo: Vec<Box<dyn Command>>,
     redo: Vec<Box<dyn Command>>,
+    /// STM-DIRTY (engineering 04): has the document been mutated since the
+    /// last save/load/new? Every mutation flows through execute/undo/redo, so
+    /// the history is the single authoritative dirty source — no per-command
+    /// bookkeeping. `mark_clean` is called by Save/Load/New.
+    dirty: bool,
 }
 
 impl History {
@@ -58,6 +63,7 @@ impl History {
         cmd.apply(doc);
         self.undo.push(cmd);
         self.redo.clear(); // redo invalidation (Phase-3 Part 12)
+        self.dirty = true;
     }
 
     pub fn undo(&mut self, doc: &mut Document) -> bool {
@@ -66,6 +72,7 @@ impl History {
         };
         c.revert(doc);
         self.redo.push(c);
+        self.dirty = true;
         true
     }
 
@@ -75,7 +82,20 @@ impl History {
         };
         c.apply(doc);
         self.undo.push(c);
+        self.dirty = true;
         true
+    }
+
+    /// Whether the document has unsaved edits (STM-DIRTY). Save/Load/New reset
+    /// it; undo/redo/execute set it (undo/redo are themselves document
+    /// mutations — the document content changes relative to the saved state).
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Called by Save / Load / New — the document is now persisted (or fresh).
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
     }
 
     pub fn undo_len(&self) -> usize {

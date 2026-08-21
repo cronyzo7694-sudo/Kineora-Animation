@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { controls, validateRegistry, type AppContext, type EngineStatus } from './controlRegistry'
 import { useShortcutScope } from './shortcuts'
-import { getEngineStatus, loadEngine, statusJson } from './engine/client'
+import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
+import { openDocument, saveDocument } from './file'
 import { bus } from './bus'
 import {
   DEBUG_PANE,
@@ -48,6 +49,11 @@ import { DocumentSettingsDialog } from './components/DocumentSettingsDialog'
 import { GoToFrameDialog } from './components/GoToFrameDialog'
 import { EditBar } from './components/EditBar'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
+import { DocumentTabs } from './components/DocumentTabs'
+import { NewDocumentDialog } from './components/NewDocumentDialog'
+import { TemplateGalleryDialog } from './components/TemplateGalleryDialog'
+import { SaveTemplateDialog } from './components/SaveTemplateDialog'
+import { CloseConfirmationDialog, type CloseConfirmationRequest } from './components/CloseConfirmationDialog'
 import type { ColorPreview } from './render/canvasRenderer'
 
 const VERSION = '0.2'
@@ -77,6 +83,12 @@ export default function App() {
   // edit depth (0 = document root). SYS-19 (symbol edit modes) will drive this;
   // until then it is always 0 → nav.back/nav.root are hidden, never dead.
   const [editDepth, setEditDepth] = useState(0)
+  // ——— SYS-02 File dialogs + lifecycle ———
+  const [newOpen, setNewOpen] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
+  const [closeReq, setCloseReq] = useState<(CloseConfirmationRequest & { proceed: () => void; dirtyIds: number[] }) | null>(null)
+  const [exited, setExited] = useState(false)
   const layoutRef = useRef(layout)
   const originRef = useRef<PanelLayout>(layout)
   const colRef = useRef<HTMLDivElement | null>(null)
@@ -215,6 +227,45 @@ export default function App() {
     }
   }
 
+  // ——— SYS-02 canonical unsaved-changes guard (DIRTY only, never identity) ———
+  const confirmClose = (proceed: () => void, scope: 'active' | 'all' = 'active') => {
+    const allDirty = docList().filter((d) => d.dirty).map((d) => d.id)
+    const activeId = statusJson()?.doc_id ?? 0
+    const dirtyIds = scope === 'all' ? allDirty : allDirty.includes(activeId) ? [activeId] : []
+    if (dirtyIds.length === 0) {
+      proceed()
+      return
+    }
+    setCloseReq({
+      what: scope === 'all' && dirtyIds.length > 1 ? 'all documents' : 'this document',
+      dirtyCount: dirtyIds.length,
+      dirtyIds,
+      proceed,
+    })
+  }
+
+  const onCloseSave = async () => {
+    const req = closeReq
+    if (!req) return
+    for (const id of req.dirtyIds) {
+      setActiveDoc(id)
+      const ok = await saveDocument(notify)
+      if (!ok) return // save cancelled/failed → stay DIRTY, keep dialog open
+    }
+    setCloseReq(null)
+    req.proceed()
+  }
+
+  const onCloseDiscard = () => {
+    const req = closeReq
+    setCloseReq(null)
+    req?.proceed()
+  }
+
+  const exitApp = () => {
+    setExited(true)
+  }
+
   const ctx: AppContext = {
     engine,
     notify,
@@ -239,6 +290,11 @@ export default function App() {
     exitEditOne,
     exitEditRoot,
     openGoToFrame: () => setGotoOpen(true),
+    confirmClose,
+    openNewDialog: () => setNewOpen(true),
+    openTemplateGallery: () => setTemplateOpen(true),
+    openSaveTemplate: () => setSaveTemplateOpen(true),
+    exitApp,
   }
 
   // One scoped shortcut listener for global commands (undo/redo/save/open/new/
@@ -268,6 +324,20 @@ export default function App() {
       'palette.open',
       'help.shortcuts',
       'control.gotoFrame',
+      // SYS-02 File
+      'file.new',
+      'file.open',
+      'file.close',
+      'file.closeAll',
+      'file.save',
+      'file.saveAs',
+      'file.importStage',
+      'file.importLibrary',
+      'file.export',
+      'file.publishSettings',
+      'file.publish',
+      'file.exit',
+      'file.openExternalLibrary',
     ]),
     ctx,
   )
@@ -329,8 +399,14 @@ export default function App() {
           onSaveNew={() => saveWorkspace('')}
           onReset={resetWorkspace}
         />
-        <span style={{ color: '#8ef', fontSize: 14, fontWeight: 800, letterSpacing: 1, margin: '0 12px' }}>KINEORA ANIMATION</span>
-        <span style={{ color: '#666', fontSize: 11, marginRight: 12 }}>v{VERSION}</span>
+        <span style={{ color: '#8ef', fontSize: 14, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
+        <span style={{ color: '#666', fontSize: 11, margin: '0 12px' }}>v{VERSION}</span>
+        {status && (
+          <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {status.doc_title}
+            {status.dirty && <span data-testid="header-dirty-dot" style={{ color: '#eec13b' }}> ●</span>}
+          </span>
+        )}
         <button
           data-testid="reset-workspace"
           aria-label="Reset workspace layout"
@@ -341,6 +417,8 @@ export default function App() {
           ⟲ Reset Workspace
         </button>
       </div>
+      {/* Document tabs (SYS-02 multi-document) */}
+      <DocumentTabs ctx={ctx} docs={status?.docs ?? []} activeId={status?.doc_id ?? 0} />
       {/* Edit bar (breadcrumb) — above the stage */}
       <EditBar ctx={ctx} scene={status?.scene ?? 'Scene 1'} />
       {/* Tools toolbar (Window ▸ Tools) */}
@@ -456,6 +534,38 @@ export default function App() {
         current={status?.playhead ?? 1}
         duration={status?.duration ?? 1}
       />
+      <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} notify={notify} />
+      <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} notify={notify} />
+      <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} notify={notify} />
+      <CloseConfirmationDialog request={closeReq} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
+      {/* No-document empty state (C-02): engine attached but all documents closed */}
+      {engine.kind === 'ok' && !status && !exited && (
+        <div data-testid="no-doc-state" style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
+          <div style={{ background: '#1a1a1a', border: '1px solid #3a3a3a', borderRadius: 8, padding: '24px 32px', textAlign: 'center', pointerEvents: 'auto' }}>
+            <div style={{ color: '#8ef', fontSize: 18, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>KINEORA ANIMATION</div>
+            <div style={{ color: '#777', fontSize: 13, marginBottom: 16 }}>No document open</div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
+                New (Ctrl+N)
+              </button>
+              <button data-testid="no-doc-open" onClick={() => ctx.confirmClose(() => openDocument(notify))} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
+                Open (Ctrl+O)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* File ▸ Exit — honest application-level exit (browser can't kill the OS
+          process; Tauri native termination is a later integration) */}
+      {exited && (
+        <div data-testid="exit-screen" style={{ position: 'fixed', inset: 0, background: '#101010', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, zIndex: 200 }}>
+          <div style={{ color: '#8ef', fontSize: 22, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</div>
+          <div style={{ color: '#888', fontSize: 14 }}>The application has exited. You can close this tab or start a new session.</div>
+          <button data-testid="exit-restart" onClick={() => window.location.reload()} style={{ padding: '8px 20px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: 'pointer', fontSize: 14 }}>
+            Restart Kineora
+          </button>
+        </div>
+      )}
     </div>
   )
 }

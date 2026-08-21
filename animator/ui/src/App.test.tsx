@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 import { controls, validateRegistry } from './controlRegistry'
+import { getCommand, makeCommandContext } from './commands'
 
 describe('control registry (zero dead button)', () => {
   it('has no duplicate IDs, unbound FUNCTIONAL controls, or missing a11y labels', () => {
@@ -39,14 +40,16 @@ describe('app shell', () => {
     expect(screen.getByTestId('dead-button-count')).toHaveTextContent('0 dead buttons')
   })
 
-  it('engine-gated buttons are disabled with an honest reason; UI-only controls stay enabled', () => {
+  it('engine/doc-gated buttons are disabled with an honest reason; UI-only controls stay enabled', () => {
     render(<App />)
     // engine absent → Undo is disabled (state-aware), and the tooltip names why.
     expect(screen.getByTestId('edit.undo')).toBeDisabled()
     expect(screen.getByTestId('edit.undo')).toHaveAttribute('data-disabled', 'true')
     expect(screen.getByTestId('edit.undo')).toHaveAttribute('title', expect.stringContaining('engine not attached'))
-    // UI-only controls remain enabled (they do not need the engine).
-    expect(screen.getByTestId('file.export')).toBeEnabled()
+    // Export requires a document (SYS-02 §7 "enabled: doc open") → disabled with reason.
+    expect(screen.getByTestId('file.export')).toBeDisabled()
+    expect(screen.getByTestId('file.export')).toHaveAttribute('title', expect.stringContaining('no document open'))
+    // UI-only controls remain enabled (they do not need the engine or a doc).
     expect(screen.getByTestId('panel.layers')).toBeEnabled()
     expect(screen.getByTestId('tool.select')).toBeEnabled()
   })
@@ -196,13 +199,15 @@ describe('symbol dialogs + library panel wiring (Part 11/12)', () => {
 })
 
 describe('export dialog wiring', () => {
-  it('the Export toolbar control opens the export dialog (C-31 exp.image)', () => {
+  it('Export is doc-gated (SYS-02 §7): disabled with no document, wired to the dialog via the registry', () => {
     render(<App />)
-    expect(screen.queryByTestId('export-dialog')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('file.export'))
-    expect(screen.getByTestId('export-dialog')).toBeInTheDocument()
-    // engine not attached in jsdom → honest disabled export
-    expect(screen.getByTestId('export-not-attached')).toBeInTheDocument()
-    expect(screen.getByTestId('export-confirm')).toBeDisabled()
+    // No document in jsdom → the Export command is disabled-by-context (honest).
+    expect(screen.getByTestId('file.export')).toBeDisabled()
+    // The command itself is still wired to the export dialog (single commandId).
+    const cmd = getCommand('file.export')
+    expect(cmd?.status).toBe('FUNCTIONAL')
+    const openExport = vi.fn()
+    cmd?.run({ ...makeCommandContext({ notify: vi.fn() }), openExport } as never)
+    expect(openExport).toHaveBeenCalledTimes(1)
   })
 })

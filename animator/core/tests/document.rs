@@ -28,6 +28,7 @@ fn custom_document_dimensions_are_supported() {
         height: 720.0,
         fps: 30,
         background: "#101010".into(),
+        ..Settings::default()
     });
     assert_eq!(s.doc.settings.width, 1280.0);
     assert_eq!(s.doc.settings.height, 720.0);

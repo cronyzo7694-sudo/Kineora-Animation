@@ -10,17 +10,33 @@ pub struct Settings {
     pub height: f64,
     pub fps: u32,
     pub background: String,
+    /// Ruler units (Part 01 §1.7): px | in | cm | mm. Default px (eng 03).
+    #[serde(default = "default_units")]
+    pub units: String,
+    /// Document platform/type (Part 01 §1.7): the Blueprint platform types.
+    /// Default = HTML5 Canvas (P-8 resolved — first/primary modern target).
+    #[serde(default = "default_platform")]
+    pub platform: String,
+}
+
+fn default_units() -> String {
+    "px".into()
+}
+fn default_platform() -> String {
+    "HTML5 Canvas".into()
 }
 
 impl Default for Settings {
     /// Canonical new-document defaults (Part 33 §33.1 / engineering 03):
-    /// 1920×1080 px @ 24 fps, white background.
+    /// 1920×1080 px @ 24 fps, white background, HTML5 Canvas.
     fn default() -> Self {
         Self {
             width: 1920.0,
             height: 1080.0,
             fps: 24,
             background: "#ffffff".into(),
+            units: default_units(),
+            platform: default_platform(),
         }
     }
 }

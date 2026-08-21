@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCommand, type CommandContext } from '../commands'
+import { listRecent } from '../file'
 import { menus, type MenuDef, type MenuEntry } from '../menus'
 
 // ——— style tokens (Kineora identity: dark slate + cyan accents) ———
@@ -190,6 +191,9 @@ function Entries({
         if (e.type === 'workspaceList') {
           return <WorkspaceListRows key={`ws-${menuId}`} onRun={onRun} ctx={ctx} />
         }
+        if (e.type === 'recentList') {
+          return <RecentListRows key={`recent-${menuId}`} onRun={onRun} ctx={ctx} />
+        }
         if (e.type === 'submenu') {
           const key = `${menuId}>${e.label}`
           const expanded = openSub === key
@@ -264,6 +268,40 @@ function WorkspaceListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandCont
           </button>
         )
       })}
+    </>
+  )
+}
+
+/** Dynamic File ▸ Open Recent list — each entry runs file.open (guarded). */
+function RecentListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandContext }) {
+  const cmd = getCommand('file.openRecent')
+  const entries = listRecent()
+  if (!cmd) return null
+  if (entries.length === 0) {
+    return <div style={{ padding: '5px 12px', fontSize: 12, color: dim }}>No recent files</div>
+  }
+  return (
+    <>
+      {entries.map((r) => (
+        <button
+          key={r.title}
+          data-testid={`menu-item-recent-${r.title}`}
+          role="menuitem"
+          onClick={() => {
+            onRun()
+            cmd.run(ctx, r.title)
+          }}
+          onMouseEnter={(e) => {
+            ;(e.currentTarget as HTMLButtonElement).style.background = hoverBg
+          }}
+          onMouseLeave={(e) => {
+            ;(e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', padding: '5px 12px', fontSize: 13, background: 'transparent', color: text, border: 'none', cursor: 'pointer' }}
+        >
+          <span style={{ flex: 1 }}>{r.title}</span>
+        </button>
+      ))}
     </>
   )
 }

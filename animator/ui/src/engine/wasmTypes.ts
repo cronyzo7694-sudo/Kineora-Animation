@@ -82,6 +82,13 @@ export interface LayerJson {
   tweens: TweenJson[]
 }
 
+/** One open document in the tab strip (SYS-02 multi-document). */
+export interface DocJson {
+  id: number
+  title: string
+  dirty: boolean
+}
+
 export interface StatusJson {
   playhead: number
   selection: number[]
@@ -100,6 +107,14 @@ export interface StatusJson {
   duration: number
   clipboard_len: number
   event_log: string[]
+  /** SYS-02 document lifecycle (optional for legacy test fixtures) */
+  doc_id?: number
+  doc_title?: string
+  dirty?: boolean
+  doc_count?: number
+  docs?: DocJson[]
+  units?: string
+  platform?: string
 }
 
 /** Partial transform field edit (absent field = leave unchanged). */
@@ -134,6 +149,19 @@ export interface SettingsPatchJson {
 export interface KineoraWasm {
   kineora_new(width: number, height: number, fps: number, background: string): boolean
   kineora_new_default(): boolean
+  /** SYS-02 New dialog: full Settings JSON → new tab id. */
+  kineora_new_full?(settingsJson: string): number
+  /** Multi-document manager */
+  kineora_doc_count?(): number
+  kineora_doc_list?(): string
+  kineora_active_doc_id?(): number
+  kineora_set_active_doc?(id: number): boolean
+  kineora_close_doc?(id: number): boolean
+  kineora_set_doc_title?(id: number, title: string): boolean
+  /** Open a JSON document as a NEW tab (template seeding). Returns id. */
+  kineora_open_json?(json: string, title: string): number
+  /** Mark the active document clean (Save success). */
+  kineora_mark_clean?(): boolean
   kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): number
   kineora_select_at(x: number, y: number): boolean
   kineora_select_toggle_at(x: number, y: number): boolean
@@ -180,7 +208,7 @@ export interface KineoraWasm {
   kineora_load(path: string): boolean
   kineora_status(): string
   kineora_project_json?(): string
-  kineora_load_json?(json: string): boolean
+  kineora_load_json?(json: string, title: string): boolean
   kineora_set_active_layer(index: number): boolean
   kineora_create_layer(): number
   kineora_delete_layer(index: number): boolean

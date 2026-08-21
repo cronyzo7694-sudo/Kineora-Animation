@@ -12,6 +12,8 @@ export type MenuEntry =
   | { type: 'separator' }
   /** Dynamic list of saved workspaces (each runs workspace.load with its name). */
   | { type: 'workspaceList' }
+  /** Dynamic list of recent files (each runs file.open with its title). */
+  | { type: 'recentList' }
 
 export interface MenuDef {
   id: string
@@ -29,14 +31,25 @@ export const menus: MenuDef[] = [
       { type: 'command', id: 'file.new' },
       { type: 'command', id: 'file.newFromTemplate' },
       { type: 'command', id: 'file.open' },
-      { type: 'command', id: 'file.openRecent' },
+      { type: 'submenu', label: 'Open Recent', items: [{ type: 'recentList' }] },
+      { type: 'command', id: 'file.openExternalLibrary' },
       sep,
       { type: 'command', id: 'file.close' },
+      { type: 'command', id: 'file.closeAll' },
       sep,
       { type: 'command', id: 'file.save' },
       { type: 'command', id: 'file.saveAs' },
+      { type: 'command', id: 'file.saveAsTemplate' },
       sep,
-      { type: 'submenu', label: 'Import', items: [{ type: 'command', id: 'file.importStage' }, { type: 'command', id: 'file.importLibrary' }] },
+      {
+        type: 'submenu',
+        label: 'Import',
+        items: [
+          { type: 'command', id: 'file.importStage' },
+          { type: 'command', id: 'file.importLibrary' },
+          { type: 'command', id: 'file.openExternalLibrary' },
+        ],
+      },
       {
         type: 'submenu',
         label: 'Export',
@@ -44,16 +57,19 @@ export const menus: MenuDef[] = [
           { type: 'command', id: 'file.export' },
           { type: 'command', id: 'file.exportVideo' },
           { type: 'command', id: 'file.exportGif' },
+          { type: 'command', id: 'file.exportMovie' },
           { type: 'command', id: 'file.exportSequence' },
         ],
       },
       {
         type: 'submenu',
         label: 'Publish',
-        items: [{ type: 'command', id: 'file.publishSettings' }, { type: 'command', id: 'file.publish' }],
+        items: [
+          { type: 'command', id: 'file.publishSettings' },
+          { type: 'command', id: 'file.publish' },
+          { type: 'command', id: 'file.publishProfiles' },
+        ],
       },
-      sep,
-      { type: 'command', id: 'file.print' },
       sep,
       { type: 'command', id: 'file.exit' },
     ],

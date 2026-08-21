@@ -1,0 +1,172 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Mock the engine client (file.ts is the unit under test — the engine bridge
+// is the seam; these tests verify SYS-02 lifecycle logic, not the WASM core).
+const clientMock = vi.hoisted(() => ({
+  getEngine: vi.fn(() => ({})),
+  getEngineStatus: vi.fn(() => ({ kind: 'ok' as const, detail: 'attached' })),
+  statusJson: vi.fn(() => ({
+    doc_id: 1,
+    doc_title: 'Untitled-1',
+    dirty: false,
+    doc_count: 1,
+    playhead: 1,
+  })),
+  activeDocId: vi.fn(() => 1),
+  closeDoc: vi.fn(() => true),
+  docList: vi.fn(() => []),
+  loadProjectJson: vi.fn(() => true),
+  markClean: vi.fn(() => true),
+  newDocFull: vi.fn(() => 7),
+  openDocJson: vi.fn(() => 8),
+  projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
+  setDocTitle: vi.fn(() => true),
+}))
+vi.mock('./engine/client', () => clientMock)
+
+// file.ts calls downloadBlob from actions — stub it (no real download in jsdom)
+vi.mock('./engine/actions', () => ({ downloadBlob: vi.fn() }))
+
+import { bus } from './bus'
+import {
+  addRecent,
+  createDocument,
+  createFromTemplate,
+  isTitled,
+  listRecent,
+  listTemplates,
+  openRecent,
+  saveDocument,
+  saveTemplate,
+} from './file'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  try {
+    localStorage.removeItem('kineora.recentFiles')
+    localStorage.removeItem('kineora.templates')
+  } catch {
+    /* ignore */
+  }
+})
+
+describe('SYS-02 file — identity + New', () => {
+  it('isTitled distinguishes Untitled-N from a real name', () => {
+    expect(isTitled('Untitled-1')).toBe(false)
+    expect(isTitled('my-project')).toBe(true)
+  })
+
+  it('createDocument creates a doc and emits activeDoc:changed', () => {
+    const seen: number[] = []
+    bus.on('activeDoc:changed', (p) => seen.push(p.docId))
+    createDocument({ platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px' }, vi.fn())
+    expect(clientMock.newDocFull).toHaveBeenCalledWith({
+      platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px',
+    })
+    expect(seen).toEqual([7])
+  })
+
+  it('createDocument reports honestly when the engine is absent', () => {
+    ;(clientMock.getEngineStatus as ReturnType<typeof vi.fn>).mockReturnValue({ kind: 'error', detail: 'x' })
+    const notify = vi.fn()
+    createDocument({ platform: 'HTML5 Canvas', width: 1, height: 1, fps: 24, background: '#fff', units: 'px' }, notify)
+    expect(notify).toHaveBeenCalledWith('new: engine not attached')
+    ;(clientMock.getEngineStatus as ReturnType<typeof vi.fn>).mockReturnValue({ kind: 'ok', detail: 'attached' })
+  })
+})
+
+describe('SYS-02 file — Save / Save As', () => {
+  it('untitled Save routes to a name prompt and marks clean on success', async () => {
+    window.prompt = () => 'my-project'
+    const notify = vi.fn()
+    const ok = await saveDocument(notify)
+    expect(ok).toBe(true)
+    expect(clientMock.setDocTitle).toHaveBeenCalledWith(1, 'my-project')
+    expect(clientMock.markClean).toHaveBeenCalled()
+    expect(notify.mock.calls.some((c) => String(c[0]).includes('saved'))).toBe(true)
+  })
+
+  it('Save cancelled → no state change (no clean, no title)', async () => {
+    window.prompt = () => null
+    const notify = vi.fn()
+    const ok = await saveDocument(notify)
+    expect(ok).toBe(false)
+    expect(clientMock.markClean).not.toHaveBeenCalled()
+    expect(clientMock.setDocTitle).not.toHaveBeenCalled()
+  })
+
+  it('titled Save overwrites without prompting (P-1)', async () => {
+    ;(clientMock.statusJson as ReturnType<typeof vi.fn>).mockReturnValue({ doc_id: 1, doc_title: 'scene1', dirty: true, doc_count: 1, playhead: 1 })
+    const promptSpy = vi.spyOn(window, 'prompt')
+    const ok = await saveDocument(vi.fn())
+    expect(ok).toBe(true)
+    expect(promptSpy).not.toHaveBeenCalled()
+    expect(clientMock.markClean).toHaveBeenCalled()
+  })
+
+  it('Save As with no native picker prompts for a name', async () => {
+    window.prompt = () => 'copy'
+    const ok = await saveDocument(vi.fn(), { saveAs: true })
+    expect(ok).toBe(true)
+    expect(clientMock.setDocTitle).toHaveBeenCalledWith(1, 'copy')
+  })
+})
+
+describe('SYS-02 file — templates (preset-JSON mechanism)', () => {
+  it('saveTemplate persists and lists a template', () => {
+    const notify = vi.fn()
+    saveTemplate('Character Rig', notify)
+    expect(listTemplates().map((t) => t.name)).toEqual(['Character Rig'])
+    expect(notify).toHaveBeenCalledWith('template "Character Rig" saved')
+  })
+
+  it('saveTemplate rejects an empty name', () => {
+    const notify = vi.fn()
+    saveTemplate('   ', notify)
+    expect(notify).toHaveBeenCalledWith('save template: a name is required')
+    expect(listTemplates()).toEqual([])
+  })
+
+  it('createFromTemplate seeds a new document from the stored JSON', () => {
+    saveTemplate('Banner', vi.fn())
+    const notify = vi.fn()
+    createFromTemplate('Banner', notify)
+    expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{"width":1920.0}}', 'Banner')
+    expect(notify.mock.calls.some((c) => String(c[0]).includes('created from template'))).toBe(true)
+  })
+
+  it('createFromTemplate reports a missing template', () => {
+    const notify = vi.fn()
+    createFromTemplate('Nope', notify)
+    expect(notify).toHaveBeenCalledWith('template "Nope" not found')
+  })
+})
+
+describe('SYS-02 file — recent files (unbounded, most-recent-first)', () => {
+  it('addRecent pushes most-recent-first and dedupes by title', () => {
+    addRecent('a', '{}')
+    addRecent('b', '{}')
+    addRecent('a', '{}')
+    expect(listRecent().map((r) => r.title)).toEqual(['a', 'b'])
+  })
+
+  it('recent list survives reload (localStorage)', () => {
+    addRecent('proj', '{}')
+    // simulate a fresh read (module state is already localStorage-backed)
+    expect(listRecent().find((r) => r.title === 'proj')).toBeTruthy()
+  })
+
+  it('openRecent loads the stored snapshot via the canonical load path', () => {
+    addRecent('proj', '{"settings":{}}')
+    const notify = vi.fn()
+    openRecent('proj', notify)
+    expect(clientMock.loadProjectJson).toHaveBeenCalledWith('{"settings":{}}', 'proj')
+  })
+
+  it('openRecent reports a stale/missing entry honestly', () => {
+    const notify = vi.fn()
+    openRecent('ghost', notify)
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('stale or unavailable'))
+    expect(clientMock.loadProjectJson).not.toHaveBeenCalled()
+  })
+})

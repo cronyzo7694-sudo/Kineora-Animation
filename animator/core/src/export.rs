@@ -35,10 +35,19 @@ pub fn export_svg_scaled(doc: &Document, scene: usize, frame: u32, scale: f64) -
     s.push_str(&format!(
         r#"<defs><clipPath id="kineora-stage"><rect width="{w}" height="{h}"/></clipPath></defs><g clip-path="url(#kineora-stage)">"#
     ));
-    s.push_str(&format!(
-        r#"<rect width="{w}" height="{h}" fill="{}"/>"#,
-        doc.settings.background
-    ));
+    // fill-opacity only when α < 1 (Part 33 §33.1 backgroundAlpha) — keeps
+    // the emitted SVG byte-identical for the canonical opaque stage.
+    if doc.settings.background_alpha < 1.0 {
+        s.push_str(&format!(
+            r#"<rect width="{w}" height="{h}" fill="{}" fill-opacity="{}"/>"#,
+            doc.settings.background, doc.settings.background_alpha
+        ));
+    } else {
+        s.push_str(&format!(
+            r#"<rect width="{w}" height="{h}" fill="{}"/>"#,
+            doc.settings.background
+        ));
+    }
     for it in items {
         // Rotation is around the rect CENTER (pivot=center, matches renderer).
         if it.rotation == 0.0 {

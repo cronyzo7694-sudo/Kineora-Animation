@@ -9,8 +9,8 @@ function renderDialog(onCreate = vi.fn(), onClose = vi.fn()) {
   return { onCreate, onClose }
 }
 
-describe('NewDocumentDialog (H01 §6.2)', () => {
-  it('renders the six fields with canonical defaults', () => {
+describe('NewDocumentDialog (H01 v2 §5.2)', () => {
+  it('renders all seven fields with canonical defaults (1920×1080/24/#ffffff α1/px/HTML5 Canvas)', () => {
     renderDialog()
     expect(screen.getByTestId('dlg-new-platform')).toHaveValue('HTML5 Canvas')
     expect(screen.getByTestId('dlg-new-units')).toHaveValue('px')
@@ -18,6 +18,19 @@ describe('NewDocumentDialog (H01 §6.2)', () => {
     expect(screen.getByTestId('dlg-new-height')).toHaveValue('1080')
     expect(screen.getByTestId('dlg-new-fps')).toHaveValue('24')
     expect(screen.getByTestId('dlg-new-background')).toBeInTheDocument()
+    expect(screen.getByTestId('dlg-new-background-alpha')).toHaveValue('1')
+  })
+
+  it('initial focus = the platform field (first field, §5.2 dialog contract)', () => {
+    renderDialog()
+    expect(screen.getByTestId('dlg-new-platform')).toHaveFocus()
+  })
+
+  it('numeric fields announce their range (a11y §9)', () => {
+    renderDialog()
+    expect(screen.getByTestId('dlg-new-width-hint')).toHaveTextContent('minimum 2')
+    expect(screen.getByTestId('dlg-new-fps-hint')).toHaveTextContent('1–120')
+    expect(screen.getByTestId('dlg-new-background-alpha-hint')).toHaveTextContent('0–1')
   })
 
   it('invalid width (below 2) → inline error + Create disabled, no create', () => {
@@ -28,20 +41,54 @@ describe('NewDocumentDialog (H01 §6.2)', () => {
     expect(onCreate).not.toHaveBeenCalled()
   })
 
-  it('fps outside 1–120 → inline error', () => {
+  it('empty width → invalid (Create disabled)', () => {
     renderDialog()
-    fireEvent.change(screen.getByTestId('dlg-new-fps'), { target: { value: '200' } })
-    expect(screen.getByTestId('dlg-new-fps-error')).toHaveTextContent('fps must be 1–120')
+    fireEvent.change(screen.getByTestId('dlg-new-width'), { target: { value: '' } })
+    expect(screen.getByTestId('dlg-new-width-error')).toBeInTheDocument()
+    expect((screen.getByTestId('dlg-new-create') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('valid Create passes the chosen settings to the onCreate callback', () => {
+  // ——— fps rule (v2 reconciled §5.2): EMPTY = invalid; typed out-of-range = CLAMP on commit ———
+  it('fps EMPTY → inline error + Create disabled', () => {
+    renderDialog()
+    fireEvent.change(screen.getByTestId('dlg-new-fps'), { target: { value: '' } })
+    expect(screen.getByTestId('dlg-new-fps-error')).toHaveTextContent('fps must be 1–120')
+    expect((screen.getByTestId('dlg-new-create') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('fps 999 is NOT an error — it clamps to 120 on commit', () => {
+    const { onCreate } = renderDialog()
+    fireEvent.change(screen.getByTestId('dlg-new-fps'), { target: { value: '999' } })
+    expect(screen.queryByTestId('dlg-new-fps-error')).toBeNull()
+    expect((screen.getByTestId('dlg-new-create') as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByTestId('dlg-new-create'))
+    expect(onCreate.mock.calls[0][0].fps).toBe(120)
+  })
+
+  it('fps 0 clamps up to 1 on commit', () => {
+    const { onCreate } = renderDialog()
+    fireEvent.change(screen.getByTestId('dlg-new-fps'), { target: { value: '0' } })
+    fireEvent.click(screen.getByTestId('dlg-new-create'))
+    expect(onCreate.mock.calls[0][0].fps).toBe(1)
+  })
+
+  it('background alpha outside 0–1 → inline error + Create disabled', () => {
+    renderDialog()
+    fireEvent.change(screen.getByTestId('dlg-new-background-alpha'), { target: { value: '1.5' } })
+    expect(screen.getByTestId('dlg-new-background-alpha-error')).toHaveTextContent('alpha must be 0–1')
+    expect((screen.getByTestId('dlg-new-create') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('valid Create passes the chosen settings (incl. alpha) to onCreate', () => {
     const { onCreate } = renderDialog()
     fireEvent.change(screen.getByTestId('dlg-new-width'), { target: { value: '1280' } })
     fireEvent.change(screen.getByTestId('dlg-new-height'), { target: { value: '720' } })
     fireEvent.change(screen.getByTestId('dlg-new-fps'), { target: { value: '30' } })
+    fireEvent.change(screen.getByTestId('dlg-new-background-alpha'), { target: { value: '0.5' } })
     fireEvent.click(screen.getByTestId('dlg-new-create'))
     expect(onCreate).toHaveBeenCalledWith({
-      platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px',
+      platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30,
+      background: '#ffffff', backgroundAlpha: 0.5, units: 'px',
     })
   })
 
@@ -67,6 +114,13 @@ describe('NewDocumentDialog (H01 §6.2)', () => {
   it('Esc closes without creating', () => {
     const { onCreate, onClose } = renderDialog()
     fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onCreate).not.toHaveBeenCalled()
+  })
+
+  it('outside-click (overlay) = Cancel — no state change', () => {
+    const { onCreate, onClose } = renderDialog()
+    fireEvent.mouseDown(screen.getByTestId('dlg-new'))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(onCreate).not.toHaveBeenCalled()
   })

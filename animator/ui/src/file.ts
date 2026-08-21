@@ -36,6 +36,8 @@ export interface NewDocSettings {
   height: number
   fps: number
   background: string
+  /** Stage background opacity 0..=1 (H01 §5.2/§8; Part 33 §33.1). */
+  backgroundAlpha: number
   units: string
 }
 
@@ -45,8 +47,12 @@ export const DEFAULT_NEW_SETTINGS: NewDocSettings = {
   height: 1080,
   fps: 24,
   background: '#ffffff',
+  backgroundAlpha: 1,
   units: 'px',
 }
+
+/** Epoch seconds — meta.createdAt stamp (wasm has no wall clock). */
+const nowSec = (): number => Math.floor(Date.now() / 1000)
 
 export const PLATFORM_OPTIONS = ['HTML5 Canvas', 'WebGL', 'Video-only']
 export const UNIT_OPTIONS = ['px', 'in', 'cm', 'mm']
@@ -76,7 +82,23 @@ export function isDocumentDirty(): boolean {
 // ——— New ———
 export function createDocument(settings: NewDocSettings, notify: Notify): void {
   if (!engineOk()) return notify('new: engine not attached')
-  const id = newDocFull({ ...settings })
+  // H01 §5.2 contract enforcement at the command layer too (palette/script
+  // callers bypass the dialog): W/H must be finite and ≥ 2 (P-2, no upper
+  // bound) or nothing is created; fps out-of-range CLAMPS to 1–120 on
+  // commit (v2 reconciliation — empty/non-numeric fps never reaches here as
+  // a number; NaN = the dialog's "empty" case → refuse); backgroundAlpha
+  // clamps to 0..=1.
+  const { width: w, height: h, fps: f, backgroundAlpha: a } = settings
+  if (!Number.isFinite(w) || w < 2) return notify('new: width must be ≥ 2')
+  if (!Number.isFinite(h) || h < 2) return notify('new: height must be ≥ 2')
+  if (!Number.isFinite(f)) return notify('new: frame rate must be 1–120')
+  const id = newDocFull({
+    ...settings,
+    fps: Math.min(120, Math.max(1, Math.round(f))),
+    backgroundAlpha: Math.min(1, Math.max(0, Number.isFinite(a) ? a : 1)),
+    // H01 §7 meta ownership: the New command stamps createdAt.
+    createdAt: nowSec(),
+  })
   if (id === 0) return notify('new: failed to create document')
   bus.emit('activeDoc:changed', { docId: id })
   notify('new document created')
@@ -314,10 +336,50 @@ export function createFromTemplate(name: string, notify: Notify): void {
   if (!engineOk()) return notify('new from template: engine not attached')
   const tpl = listTemplates().find((t) => t.name === name)
   if (!tpl) return notify(`template "${name}" not found`)
-  const id = openDocJson(tpl.json, tpl.name)
+  // H01 §7 meta ownership: a seeded document is a NEW creation — refresh
+  // createdAt (now), clear modifiedAt (H05 sets it at first Save) and clear
+  // title/author (SYS-06/SYS-17 set those on the new doc, never inherited).
+  let json = tpl.json
+  try {
+    const parsed = JSON.parse(tpl.json) as Record<string, unknown>
+    const prevMeta =
+      typeof parsed.meta === 'object' && parsed.meta !== null
+        ? (parsed.meta as Record<string, unknown>)
+        : {}
+    parsed.meta = { ...prevMeta, title: null, author: null, createdAt: nowSec(), modifiedAt: null }
+    json = JSON.stringify(parsed)
+  } catch {
+    // fall through — the engine parse below reports invalid data honestly
+  }
+  // AMB-H01-003 (provisional = UNTITLED): empty title → the engine assigns
+  // the doc its OWN Untitled-N display title, never the template's name.
+  const id = openDocJson(json, '')
   if (id === 0) return notify(`template "${name}": invalid template data`)
   bus.emit('activeDoc:changed', { docId: id })
   notify(`created from template "${name}"`)
+}
+
+/** Gallery row preview (H01 §5.3 tpl-new.list): platform/W/H/fps read from
+ *  the stored preset JSON; null when the JSON can't be read. */
+export interface TemplatePreview {
+  platform: string
+  width: number
+  height: number
+  fps: number
+}
+export function templatePreview(tpl: TemplateRecord): TemplatePreview | null {
+  try {
+    const s = (JSON.parse(tpl.json) as { settings?: Record<string, unknown> }).settings
+    if (!s) return null
+    return {
+      platform: typeof s.platform === 'string' ? s.platform : 'HTML5 Canvas',
+      width: Number(s.width) || 0,
+      height: Number(s.height) || 0,
+      fps: Number(s.fps) || 0,
+    }
+  } catch {
+    return null
+  }
 }
 
 // ——— Handoff boundary (SYS-27 import/export/publish · SYS-18 ext library) ———

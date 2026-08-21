@@ -81,6 +81,23 @@ impl DocManager {
         id
     }
 
+    /// push_new + a stamped creation timestamp (H01 meta ownership: the New
+    /// command sets `meta.created_at`; wasm has no wall clock, so the caller
+    /// supplies epoch-seconds — 0 = unknown). Still starts CLEAN (T1).
+    pub fn push_new_with_meta(&mut self, settings: Settings, title: String, created_at: u64) -> u64 {
+        let mut doc = Document::new(settings);
+        doc.meta.created_at = created_at;
+        self.push_session(Session::from_document(doc), title)
+    }
+
+    /// New-from-Template seeding (H01; AMB-H01-003 provisional = UNTITLED):
+    /// a seeded document gets its OWN `Untitled-N` display title — never the
+    /// template's name — and starts CLEAN (Session::from_document).
+    pub fn push_seed(&mut self, doc: Document) -> u64 {
+        let title = self.next_untitled();
+        self.push_opened(doc, title)
+    }
+
     pub fn next_untitled(&mut self) -> String {
         self.untitled_counter += 1;
         format!("Untitled-{}", self.untitled_counter)

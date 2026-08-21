@@ -50,6 +50,8 @@ pub struct SettingsPatch {
     pub height: Option<f64>,
     pub fps: Option<u32>,
     pub background: Option<String>,
+    /// Background opacity 0..=1 (Part 33 §33.1 `backgroundAlpha`; H01 field).
+    pub background_alpha: Option<f64>,
 }
 
 /// Editor controller: owns the document + view state (selection/playhead) +
@@ -1349,6 +1351,10 @@ impl Session {
             background: patch
                 .background
                 .unwrap_or_else(|| before.background.clone()),
+            background_alpha: patch
+                .background_alpha
+                .unwrap_or(before.background_alpha)
+                .clamp(0.0, 1.0),
             // units/platform are document-level settings (Part 01 §1.7); the
             // current patch surface (SYS-17) edits width/height/fps/background
             // only — preserve the rest.

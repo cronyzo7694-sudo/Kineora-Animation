@@ -106,7 +106,9 @@ export async function loadEngine(deps: LoaderDeps = {}): Promise<EngineStatus> {
     // kineora_new_default keeps the canonical stage size (1920×1080) in ONE
     // place — the Rust Settings::default() — so it can never drift.
     if (typeof mod.kineora_new_default === 'function') {
-      mod.kineora_new_default()
+      // H01 meta ownership: the creation command stamps meta.createdAt;
+      // wasm has no wall clock, so the caller supplies epoch-seconds.
+      mod.kineora_new_default(Math.floor(Date.now() / 1000))
     } else if (typeof mod.kineora_new === 'function') {
       mod.kineora_new(1920, 1080, 24, '#ffffff')
     }
@@ -357,8 +359,9 @@ export function loadProjectJson(json: string, title: string): boolean {
 
 // ——— SYS-02 document manager ———
 
-/** New document from full Settings (platform/units/W/H/fps/background). Returns id. */
-export function newDocFull(settings: { width: number; height: number; fps: number; background: string; units: string; platform: string }): number {
+/** New document from full Settings (platform/units/W/H/fps/background + α).
+ *  `createdAt` = epoch-seconds stamp for meta (H01 ownership). Returns id. */
+export function newDocFull(settings: { width: number; height: number; fps: number; background: string; backgroundAlpha?: number; units: string; platform: string; createdAt?: number }): number {
   return asNum(mod?.kineora_new_full?.(JSON.stringify(settings)))
 }
 

@@ -9,7 +9,14 @@ pub struct Settings {
     pub width: f64,
     pub height: f64,
     pub fps: u32,
+    /// Stage background color (Part 33 §33.1 `backgroundColor`). The legacy
+    /// key `background` (pre-H01 files) still deserializes via the alias.
+    #[serde(rename = "backgroundColor", alias = "background")]
     pub background: String,
+    /// Stage background opacity 0..=1 (Part 33 §33.1 `backgroundAlpha`;
+    /// H01 §5.2/§8 — New dialog field, default 1).
+    #[serde(rename = "backgroundAlpha", default = "default_background_alpha")]
+    pub background_alpha: f64,
     /// Ruler units (Part 01 §1.7): px | in | cm | mm. Default px (eng 03).
     #[serde(default = "default_units")]
     pub units: String,
@@ -25,16 +32,20 @@ fn default_units() -> String {
 fn default_platform() -> String {
     "HTML5 Canvas".into()
 }
+fn default_background_alpha() -> f64 {
+    1.0
+}
 
 impl Default for Settings {
     /// Canonical new-document defaults (Part 33 §33.1 / engineering 03):
-    /// 1920×1080 px @ 24 fps, white background, HTML5 Canvas.
+    /// 1920×1080 px @ 24 fps, white background (α=1), HTML5 Canvas.
     fn default() -> Self {
         Self {
             width: 1920.0,
             height: 1080.0,
             fps: 24,
             background: "#ffffff".into(),
+            background_alpha: 1.0,
             units: default_units(),
             platform: default_platform(),
         }
@@ -248,6 +259,22 @@ pub struct Scene {
     pub layers: Vec<Layer>, // bottom → top
 }
 
+/// Document metadata (Part 33 §33.1 `meta`). Field ownership is FIXED:
+/// `created_at` = New / New-from-Template (SYS-02 H01 — the creation command
+/// stamps it; 0 = unknown/legacy) · `modified_at` = Save (SYS-02 H05) ·
+/// `title`/`author` = Document Properties (SYS-06/SYS-17), set AFTER creation.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Meta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, rename = "createdAt")]
+    pub created_at: u64,
+    #[serde(default, rename = "modifiedAt", skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<u64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Document {
     pub settings: Settings,
@@ -256,6 +283,9 @@ pub struct Document {
     /// Library of symbol definitions (Part 12 — one per document).
     #[serde(default)]
     pub library: Vec<Symbol>,
+    /// Part 33 §33.1 metadata block (default = legacy files without one).
+    #[serde(default)]
+    pub meta: Meta,
     pub next_id: u64,
 }
 
@@ -279,6 +309,7 @@ impl Document {
             scenes: vec![scene],
             nodes: BTreeMap::new(),
             library: Vec::new(),
+            meta: Meta::default(),
             next_id: 1,
         }
     }

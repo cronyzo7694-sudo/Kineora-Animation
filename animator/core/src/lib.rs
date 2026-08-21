@@ -23,7 +23,7 @@ pub use easing::{ease_classic, ease_penner, EaseFn, EaseMode};
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId, SymbolId};
 pub use model::{
-    ClassicTween, Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, SymbolType,
-    Transform,
+    ClassicTween, Document, Frame, Layer, LoopMode, Meta, Node, Scene, Settings, Symbol,
+    SymbolType, Transform,
 };
 pub use session::{NodePropsPatch, Session, SettingsPatch, TransformPatch};

@@ -353,6 +353,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
 
     const state: RenderState = {
       background: status.background ?? '#ffffff',
+      backgroundAlpha: status.background_alpha ?? 1,
       stageW: status.doc_width ?? 1920,
       stageH: status.doc_height ?? 1080,
       items: displayItems,

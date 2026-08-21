@@ -112,6 +112,7 @@ impl History {
                     || doc.scenes != snap.scenes
                     || doc.nodes != snap.nodes
                     || doc.library != snap.library
+                    || doc.meta != snap.meta
             }
             None => false,
         }

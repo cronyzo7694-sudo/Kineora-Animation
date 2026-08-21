@@ -1,7 +1,7 @@
 // SYS-02 H01/H00 — document identity + lifecycle invariants (native).
 // Proves: unique Document IDs, exactly-one-active, New→CLEAN, per-doc
 // independence, replace_active keeps identity, close never mutates others.
-use animator_core::{DocManager, Settings};
+use animator_core::{DocManager, Document, Settings};
 
 fn dm() -> DocManager {
     DocManager::new()
@@ -149,4 +149,48 @@ fn untitled_titles_are_monotonic() {
     assert_eq!(m.next_untitled(), "Untitled-1");
     assert_eq!(m.next_untitled(), "Untitled-2");
     assert_eq!(m.next_untitled(), "Untitled-3");
+}
+
+// ——— H01 meta + seeding (createdAt ownership · AMB-H01-003 = UNTITLED seed) ———
+
+#[test]
+fn push_new_with_meta_stamps_created_at_and_starts_clean() {
+    let mut m = dm();
+    let id = m.push_new_with_meta(Settings::default(), "Untitled-1".into(), 1_755_800_000);
+    let doc = m.active().expect("active");
+    assert_eq!(doc.id, id);
+    assert_eq!(doc.session.doc.meta.created_at, 1_755_800_000, "H01: New stamps createdAt");
+    assert!(!doc.session.is_dirty(), "still CLEAN — meta stamping is part of creation (T1)");
+}
+
+#[test]
+fn push_new_with_meta_zero_means_unknown_created_at() {
+    let mut m = dm();
+    m.push_new_with_meta(Settings::default(), "Untitled-1".into(), 0);
+    assert_eq!(m.active().unwrap().session.doc.meta.created_at, 0);
+}
+
+#[test]
+fn push_seed_assigns_its_own_untitled_title_never_the_template_name() {
+    // AMB-H01-003 (provisional = UNTITLED): a seeded document is ACTIVE(
+    // UNTITLED, CLEAN) with its own Untitled-N display title.
+    let mut m = dm();
+    m.push_new(Settings::default(), "Untitled-1".into());
+    let seed = Document::new(Settings::default());
+    let id = m.push_seed(seed);
+    let doc = m.active().expect("active");
+    assert_eq!(doc.id, id);
+    assert_eq!(doc.title, "Untitled-2", "own Untitled-N title, not the template name");
+    assert!(!doc.session.is_dirty(), "seeded doc starts CLEAN");
+    assert!(doc.session.selection.is_empty() && doc.session.playhead == 1, "fresh session");
+}
+
+#[test]
+fn push_seed_keeps_independent_document_identity() {
+    let mut m = dm();
+    let a = m.push_seed(Document::new(Settings::default()));
+    let b = m.push_seed(Document::new(Settings::default()));
+    assert_ne!(a, b, "each seed = its own document identity");
+    let titles: Vec<_> = m.docs().iter().map(|d| d.title.clone()).collect();
+    assert_eq!(titles, vec!["Untitled-1".to_string(), "Untitled-2".to_string()]);
 }

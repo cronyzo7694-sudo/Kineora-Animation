@@ -104,6 +104,8 @@ export interface StatusJson {
   doc_width: number
   doc_height: number
   background: string
+  /** Stage background opacity 0..=1 (H01). Optional for legacy test fixtures. */
+  background_alpha?: number
   duration: number
   clipboard_len: number
   event_log: string[]
@@ -148,7 +150,8 @@ export interface SettingsPatchJson {
 
 export interface KineoraWasm {
   kineora_new(width: number, height: number, fps: number, background: string): boolean
-  kineora_new_default(): boolean
+  /** createdAt = epoch-seconds (caller's clock; wasm has none). */
+  kineora_new_default(createdAt: number): boolean
   // u64 BRIDGE (wasm-bindgen): every Rust `u64` crosses the wire as a JS
   // `bigint` — params REQUIRE bigint (a plain number throws TypeError at the
   // boundary) and returns ARRIVE as bigint. These members are typed at the

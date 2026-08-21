@@ -91,7 +91,10 @@ describe('H01 — New document lifecycle (T1 → activeDoc:changed → CLEAN)', 
     const settings = { platform: 'HTML5 Canvas', width: 1280, height: 720, fps: 30, background: '#ffffff', units: 'px' }
     getCommand('file.new')!.run(ctx(), settings)
 
-    expect(newDocFullMock).toHaveBeenCalledWith({ ...settings })
+    expect(newDocFullMock).toHaveBeenCalledTimes(1)
+    const payload = newDocFullMock.mock.calls[0][0] as unknown as Record<string, unknown>
+    expect(payload).toMatchObject({ ...settings, backgroundAlpha: 1 }) // alpha default-fill (H01 §8)
+    expect(typeof payload.createdAt).toBe('number') // H01 §7: New stamps meta.createdAt
     expect(events).toEqual([{ docId: 7 }])
     expect(client.markClean).not.toHaveBeenCalled() // New is already CLEAN — no save needed
   })
@@ -137,8 +140,19 @@ describe('H01 — templates (independent seed, never the source instance)', () =
     getCommand('file.newFromTemplate')!.run(ctx(), 'Banner')
 
     expect(openDocJsonMock).toHaveBeenCalledTimes(2)
-    // same source JSON both times, but two DISTINCT document ids
-    expect(openDocJsonMock.mock.calls[0][0]).toBe(openDocJsonMock.mock.calls[1][0])
+    // both seeds carry the SAME source content (settings identical), but two
+    // DISTINCT document ids — never the same instance
+    const j0 = JSON.parse(openDocJsonMock.mock.calls[0][0]) as { settings: unknown; meta: { createdAt: unknown; modifiedAt: unknown; title: unknown; author: unknown } }
+    const j1 = JSON.parse(openDocJsonMock.mock.calls[1][0]) as { settings: unknown }
+    expect(j0.settings).toEqual(j1.settings)
+    // H01 §7 meta ownership: fresh createdAt, cleared modifiedAt/title/author
+    expect(typeof j0.meta.createdAt).toBe('number')
+    expect(j0.meta.createdAt).toBeGreaterThan(0)
+    expect(j0.meta.modifiedAt).toBeNull()
+    expect(j0.meta.title).toBeNull()
+    expect(j0.meta.author).toBeNull()
+    // AMB-H01-003 (provisional = UNTITLED): empty title → engine assigns Untitled-N
+    expect(openDocJsonMock.mock.calls[0][1]).toBe('')
     expect(events).toHaveLength(2)
     expect(events[0]).not.toBe(events[1])
   })

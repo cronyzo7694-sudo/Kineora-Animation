@@ -176,8 +176,10 @@ struct SettingsIn {
     height: Option<f64>,
     #[serde(default)]
     fps: Option<u32>,
-    #[serde(default)]
+    #[serde(default, alias = "backgroundColor")]
     background: Option<String>,
+    #[serde(default, rename = "backgroundAlpha", alias = "background_alpha")]
+    background_alpha: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -196,6 +198,8 @@ struct StatusOut {
     doc_width: f64,
     doc_height: f64,
     background: String,
+    /// Stage background opacity 0..=1 (Part 33 §33.1; H01).
+    background_alpha: f64,
     /// derived timeline duration (max keyframe frame, min 1) — Part 07 §7.0
     duration: u32,
     /// number of records in the frame clipboard (session state, F-07-12)
@@ -237,28 +241,44 @@ pub fn kineora_new(width: f64, height: f64, fps: u32, background: String) -> boo
 }
 
 /// Create a fresh document from a full Settings JSON (SYS-02 New dialog:
-/// platform/W/H/fps/background/units). Returns the new document's tab id.
+/// platform/W/H/fps/background/backgroundAlpha/units). The JSON may carry a
+/// `createdAt` (epoch-seconds, stamped by the New command — H01 meta
+/// ownership; wasm has no wall clock). Returns the new document's tab id.
 #[wasm_bindgen]
 pub fn kineora_new_full(settings_json: String) -> u64 {
-    let Ok(settings) = serde_json::from_str::<Settings>(&settings_json) else {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&settings_json) else {
+        return 0;
+    };
+    let created_at = value
+        .get("createdAt")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let Ok(settings) = serde_json::from_value::<Settings>(value) else {
         return 0;
     };
     DOCS.with(|d| {
         let mut m = d.borrow_mut();
         let title = m.next_untitled();
-        m.push_new(settings, title)
+        m.push_new_with_meta(settings, title, created_at)
     })
 }
 
 /// Create a fresh document with the canonical defaults (1920×1080 @ 24fps,
-/// #ffffff, HTML5 Canvas, px). Single source of truth for the default stage —
-/// the UI loader calls this so the size can never drift from the Rust default.
+/// #ffffff α=1, HTML5 Canvas, px). Single source of truth for the default
+/// stage — the UI loader calls this so the size can never drift from the
+/// Rust default. `created_at` = epoch-seconds from the caller (wasm has no
+/// wall clock; non-finite/negative → 0 = unknown).
 #[wasm_bindgen]
-pub fn kineora_new_default() -> bool {
+pub fn kineora_new_default(created_at: f64) -> bool {
     DOCS.with(|d| {
         let mut m = d.borrow_mut();
         let title = m.next_untitled();
-        m.push_new(Settings::default(), title);
+        let stamp = if created_at.is_finite() && created_at >= 0.0 {
+            created_at as u64
+        } else {
+            0
+        };
+        m.push_new_with_meta(Settings::default(), title, stamp);
     });
     true
 }
@@ -315,13 +335,22 @@ pub fn kineora_set_doc_title(id: u64, title: String) -> bool {
 }
 
 /// Open a document from JSON as a NEW tab (New-from-template seeding). Returns
-/// the new tab id (0 = parse failure).
+/// the new tab id (0 = parse failure). An EMPTY title means New-from-Template
+/// seeding: the document gets its OWN Untitled-N title (H01; AMB-H01-003
+/// provisional = UNTITLED — never the template's name).
 #[wasm_bindgen]
 pub fn kineora_open_json(json: String, title: String) -> u64 {
     let Ok(doc) = serde_json::from_str::<Document>(&json) else {
         return 0;
     };
-    DOCS.with(|d| d.borrow_mut().push_opened(doc, title))
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        if title.is_empty() {
+            m.push_seed(doc)
+        } else {
+            m.push_opened(doc, title)
+        }
+    })
 }
 
 /// Mark the ACTIVE document clean (Save success → STM-DIRTY CLEAN).
@@ -821,6 +850,7 @@ pub fn kineora_set_document_settings(json: String) -> bool {
             height: p.height,
             fps: p.fps,
             background: p.background,
+            background_alpha: p.background_alpha,
         })
     })
     .unwrap_or(false)
@@ -1060,6 +1090,7 @@ pub fn kineora_status() -> String {
             doc_width: s.doc.settings.width,
             doc_height: s.doc.settings.height,
             background: s.doc.settings.background.clone(),
+            background_alpha: s.doc.settings.background_alpha,
             duration: s.timeline_duration(),
             clipboard_len: s.frame_clipboard.len(),
             event_log: s.event_log.clone(),

@@ -525,11 +525,9 @@ export default function App() {
       'modify.document',
       'modify.convertSymbol',
       'insert.newSymbol',
-      'panel.tools',
-      'panel.timeline',
-      'panel.library',
-      'panel.properties',
-      // SYS-11 F4 = Hide/Show All Panels (restore is per-panel, view state only)
+      'panel.show',
+      'panel.hide',
+      // SYS-11 Hide/Show All Panels — command stays; F4 is SYS-01 Properties (C-09).
       'window.hideAllPanels',
       'timeline.play',
       'palette.open',
@@ -662,7 +660,7 @@ export default function App() {
             notify={notify}
             collapsed={collapsed.layers}
             onToggleCollapse={() => toggleCollapse('layers')}
-            onClose={() => togglePanel('layers')}
+            onClose={() => getCommand('panel.hide')?.run(ctx, 'layers')}
           />
         )}
         {panels.layers && (
@@ -699,7 +697,7 @@ export default function App() {
                   onPreview={setColorPreview}
                   collapsed={collapsed.properties}
                   onToggleCollapse={() => toggleCollapse('properties')}
-                  onClose={() => togglePanel('properties')}
+                  onClose={() => getCommand('panel.hide')?.run(ctx, 'properties')}
                 />
               </div>
             )}
@@ -713,7 +711,7 @@ export default function App() {
                   onNewSymbol={() => setSymbolDialog({ open: true, mode: 'new' })}
                   collapsed={collapsed.library}
                   onToggleCollapse={() => toggleCollapse('library')}
-                  onClose={() => togglePanel('library')}
+                  onClose={() => getCommand('panel.hide')?.run(ctx, 'library')}
                 />
               </div>
             )}

@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-22 — AI-A: SYS-01 C-3 — panel.show/hide + F4 + honest st.snap
+
+- Human DEEP COMPLETION ORDER (implementation). BLK-AIA-001 posture: `d4b1861`/`bc12025` stay as evidence.
+- **CommandIds:** Window panels use locked `panel.show(id)` / `panel.hide(id)` (INV-CMD-4). Removed `panel.layers` / `panel.properties` / `panel.library` / `panel.timeline` / `panel.tools`. `panel.debug` untouched (SYS-10 / AI-B). Toolbar `panel.*` ids remain VIEW testids.
+- **F4:** C-09 “F4 toggle (ours)” — alias `f4` → `panel.show('properties')`; dispatcher toggles. Adobe Ctrl+F3 loses. Ctrl+L / Ctrl+Alt+T / Ctrl+F2 likewise toggle via the same commandId. Rebase onto AI-B `7ebc3cc`: SYS-11 `window.hideAllPanels` kept (menu); **F4 not given to Hide All** (INT-AIA-002).
+- **st.snap:** no longer a fake `"snap off"`. Honest `"snap —"`; projects existing `snap:changed{mode}` (SYS-04 SnapEngine still DEFERRED / AMB-S04-004 — no invented flags).
+- Panel × on layers/properties/library now runs `panel.hide(id)`.
+- Tests: F4, Ctrl+L, commandId absence, snap projection, Open Recent hover-clear. UI suite **718/718** after rebase onto AI-B/C/D (SYS-10/11 + folders + SYS-27), `tsc` PASS. Native/Tauri/Rust **NOT TESTED**. SYS-01 = AUTOMATED TESTED / PARTIAL — **not COMPLETE**.
+
 ## 2026-08-22 — AI-B session 3: SYS-10 Debug Output console + SYS-11 Window F4 Hide/Show All (`7ebc3cc`)
 
 - Audit-first: SYS-10 already had the Dev panel; SYS-11 already had panel toggles + workspaces. No rebuild; extended only identified gaps (deep-completion order).

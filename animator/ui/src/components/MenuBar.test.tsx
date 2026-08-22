@@ -110,8 +110,24 @@ describe('MenuBar — command dispatch + honest states', () => {
     const c = ctx({ panels: { tools: true, layers: true, properties: true, library: true, timeline: true, debug: false } })
     render(<MenuBar ctx={c} />)
     fireEvent.click(screen.getByTestId('menu.window'))
-    expect(screen.getByTestId('menu-item-panel.timeline')).toHaveTextContent('✓')
+    expect(screen.getByTestId('menu-item-panel.show-timeline')).toHaveTextContent('✓')
     expect(screen.getByTestId('menu-item-panel.debug')).not.toHaveTextContent('✓')
+  })
+
+  it('Open Recent hover highlight clears on mouseleave (FINAL_GATE §3 #7)', () => {
+    const now = Date.now()
+    localStorage.setItem(
+      'kineora.recentFiles',
+      JSON.stringify([{ title: 'scene-a', name: 'scene-a.json', savedAt: now, json: '{}' }]),
+    )
+    render(<MenuBar ctx={ctx()} />)
+    fireEvent.click(screen.getByTestId('menu.file'))
+    fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Open Recent'))
+    const row = screen.getByTestId('menu-item-recent-scene-a')
+    fireEvent.mouseEnter(row)
+    expect((row as HTMLButtonElement).style.background).not.toBe('transparent')
+    fireEvent.mouseLeave(row)
+    expect((row as HTMLButtonElement).style.background).toBe('transparent')
   })
 
   it('a disabled-by-context command (frame copy with no selection) is disabled with a reason', () => {

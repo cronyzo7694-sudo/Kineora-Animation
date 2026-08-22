@@ -7,7 +7,7 @@
 // engine/client): `controls`, `validateRegistry`, `Control`, `ControlState`,
 // `Visibility`, `AppContext`, `EngineStatus`.
 
-import { commands, validateCommands, type Command, type CommandContext, type EngineStatus } from './commands'
+import { commands, runPanelToggle, validateCommands, type Command, type CommandContext, type EngineStatus } from './commands'
 
 export type { EngineStatus }
 export type AppContext = CommandContext
@@ -51,7 +51,29 @@ function toControl(c: Command): Control {
   }
 }
 
-export const controls: Control[] = commands.filter((c) => c.toolbar).map(toControl)
+/** Toolbar projections of panel.show/hide (SYS-01 §30). Control id
+ *  `panel.layers` is a VIEW testid, not a commandId. */
+const PANEL_TOOLBAR: { id: string; label: string; shortcut?: string }[] = [
+  { id: 'layers', label: 'Layers' },
+  { id: 'properties', label: 'Properties', shortcut: 'F4' },
+  { id: 'library', label: 'Library', shortcut: 'Ctrl+L' },
+  { id: 'timeline', label: 'Timeline', shortcut: 'Ctrl+Alt+T' },
+]
+
+export const controls: Control[] = [
+  ...commands.filter((c) => c.toolbar).map(toControl),
+  ...PANEL_TOOLBAR.map((p) => ({
+    id: `panel.${p.id}`,
+    label: p.label,
+    a11y: p.label,
+    tooltip: p.shortcut ? `${p.label} (${p.shortcut})` : p.label,
+    state: 'FUNCTIONAL' as ControlState,
+    visibility: 'ALWAYS' as Visibility,
+    shortcut: p.shortcut,
+    action: (ctx: AppContext) => runPanelToggle(ctx, p.id),
+  })),
+]
+
 
 // Build-time / test-time validation: duplicate IDs, unbound FUNCTIONAL controls,
 // missing a11y labels, shortcut conflicts. A functional-looking button must

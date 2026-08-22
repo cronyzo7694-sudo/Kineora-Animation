@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
+import { bus } from './bus'
 
 beforeEach(() => {
   try {
@@ -19,7 +20,7 @@ describe('SYS-01 panel chrome — close × + collapse (T-panel-hide / T-panel-co
     expect(screen.queryByTestId('library-panel')).not.toBeInTheDocument()
     // reopen via the Window menu (same panel.show command)
     fireEvent.click(screen.getByTestId('menu.window'))
-    fireEvent.click(screen.getByTestId('menu-item-panel.library'))
+    fireEvent.click(screen.getByTestId('menu-item-panel.show-library'))
     expect(screen.getByTestId('library-panel')).toBeInTheDocument()
   })
 
@@ -151,6 +152,39 @@ describe('SYS-01 edit bar / breadcrumb + nav (T-nav-*)', () => {
     render(<App />)
     expect(screen.queryByTestId('nav-back')).not.toBeInTheDocument()
     expect(screen.queryByTestId('nav-root')).not.toBeInTheDocument()
+  })
+
+  it('st.snap is an honest projection of snap:changed (never a fake static "snap off")', () => {
+    render(<App />)
+    expect(screen.getByTestId('st-snap')).toHaveTextContent('snap —')
+    expect(screen.getByTestId('st-snap')).not.toHaveTextContent('snap off')
+    // SYS-04 SnapEngine is absent — we only project the locked event payload.
+    act(() => {
+      bus.emit('snap:changed', { mode: 'grid' })
+    })
+    expect(screen.getByTestId('st-snap')).toHaveTextContent('snap grid')
+    act(() => {
+      bus.emit('snap:changed', { mode: '' })
+    })
+    expect(screen.getByTestId('st-snap')).toHaveTextContent('snap —')
+  })
+
+  it('F4 toggles the Properties panel (C-09 / SYS-01 §9 — not Adobe Ctrl+F3)', () => {
+    render(<App />)
+    expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'F4' })
+    expect(screen.queryByTestId('properties-panel')).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'F4' })
+    expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
+  })
+
+  it('Ctrl+L toggles the Library panel (SYS-01 §7 Window / §9)', () => {
+    render(<App />)
+    expect(screen.getByTestId('library-panel')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'l', ctrlKey: true })
+    expect(screen.queryByTestId('library-panel')).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'l', ctrlKey: true })
+    expect(screen.getByTestId('library-panel')).toBeInTheDocument()
   })
 
   it('edit.exitOneLevel / exitRoot are registered commands (palette-visible, disabled at root)', () => {

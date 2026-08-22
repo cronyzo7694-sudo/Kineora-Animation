@@ -7,7 +7,7 @@
 
 | SYS | Name | Owner | SPEC | IMPL | AUDIT | BLOCKERS | Dependencies | Last verified | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| 01 | Application/Workspace | AI-A | **LOCKED (v5)** | partial | PASSED | (known stale notes: §30 close mapping, §8 Close-Others) | — | 2026-08-22 | controlled revision later |
+| 01 | Application/Workspace | AI-A | **LOCKED (v5)** | **partial (C-3 landed: panel.show/hide + F4 + st.snap projection)** | PASSED | (known stale notes: §30 File▸Close mapping, §8 Close-Others; scene tabs / dock-float / responsive still SPEC-ONLY) | — | 2026-08-22 | remaining SYS-01 leftovers, then C-2 if authorized. **Not COMPLETE.** Native QA PENDING |
 | 02 | File | AI-A | H00–H14 | gap (single-Session) | PASSED (H00–H14 reconciled) | **AMB-H01-002/003 (H01), AMB-H07-001 (H07)** | SYS-01, 28, 27, 18, 03, 08 | 2026-08-22 | resolve 3 product decisions |
 | 03 | Edit | AI-A | 00+H00–H07 | partial (History, frame_clipboard) | PASSED (H00–H07) | **AMB-S03-003 (H02 format list)** | SYS-01, 02, 14, 15, 19, 20 | 2026-08-22 | resolve 1 product decision |
 | 04 | View | AI-A | QUEUED | — | — | — | SYS-01, 14 | 2026-08-22 | await naming |

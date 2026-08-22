@@ -260,3 +260,79 @@ Also still OPEN (not re-litigated): AMB-H01-002/003, AMB-H07-001, AMB-S03-003, A
 
 Docs-only session. No `cargo` / `vitest` required for this increment.  
 Commit + push to `main` after rebase-check. Never force-push.
+
+---
+
+# SESSION 2 — DEEP COMPLETION (SYS-01 C-3) — 2026-08-22
+
+**Worker:** AI-A  
+**Human order:** DEEP COMPLETION ORDER (implementation; quality > speed). Overrides older `LEADER_ORDERS.md` “AI-A must not modify `animator/`” for this session only.  
+**HEAD seen at check-in:** `da36772` (AI-01 INTEGRATED_AUDIT). Origin later moved to AI-C `0be97e5` (SYS-16 folders) — rebase before push.  
+**BLK-AIA-001 posture:** Leader INTEGRATED_AUDIT §9 — `d4b1861` / `bc12025` **STAY as evidence**. Not reverted.
+
+## S2.0 What this increment is
+
+INTEGRATED_AUDIT **C-3** (owner SYS-01, MEDIUM):
+
+> SYS-01 commandId drift — `panel.layers` / `panel.properties` / … instead of locked `panel.show(id)` / `panel.hide(id)`; F4 shortcut bound to Ctrl+F3; `st.snap` is a fake static string, not a projection of snap state.
+
+**Not started this increment (intentionally):** SYS-02/03/04–07 implementation, C-2 `prevSelection`, SYS-05 spec, C-1 `formatVersion`. No invented AMBs.
+
+## S2.1 Authority used
+
+- FL-0001..0034 re-read (`AI01_FORENSIC_LESSONS.md`).
+- SYS-01 v5 §7 / §9 / §15 / §27.1 / §30 (LOCKED).
+- Phase 2.5 **C-09**: “F4 toggle (ours)”. Adobe Ctrl+F3 **loses**.
+- C-06: Cmd+L Library · F4 toggle Properties.
+- INV-CMD-4: one commandId, parameterized (same pattern as `edit.paste` / `file.import`).
+- `snap:changed{mode}` already locked in SYS-01 §27.1 / `bus.ts`. SYS-04 SnapEngine = AMB-S04-004 **OPEN** — do not invent snap flags.
+
+## S2.2 Implementation (evidence)
+
+| Concern | Before | After |
+|---|---|---|
+| Window panel commandIds | `panel.layers` / `panel.properties` / `panel.library` / `panel.timeline` / `panel.tools` | **`panel.show(id)` / `panel.hide(id)`** only. `panel.debug` left to SYS-10 / AI-B. |
+| F4 | bound to Ctrl+F3 on a per-panel command | alias `f4` → `panel.show` + input `properties`; dispatcher **toggles** |
+| Ctrl+L / Ctrl+Alt+T / Ctrl+F2 | per-panel command shortcuts | aliases → `panel.show` + library/timeline/tools; Window menu + these keys **toggle** |
+| Toolbar `panel.layers` etc. | were commandIds | **VIEW testids** projecting `runPanelToggle` (SYS-01 §30) |
+| `st.snap` | hardcoded `"snap off"` | `"snap —"` until `snap:changed{mode}` arrives; then `snap ${mode}` |
+| Panel × | `togglePanel(id)` | `panel.hide(id)` for layers/properties/library (spec §6.1 / §30). Debug × unchanged. |
+
+Files: `commands.ts`, `shortcuts.ts`, `menus.ts`, `MenuBar.tsx`, `StatusBar.tsx`, `controlRegistry.ts`, `App.tsx` + tests listed in S2.4.
+
+## S2.3 Honest leftovers (SYS-01 still PARTIAL)
+
+| Gap | Status |
+|---|---|
+| Scene tabs (`scn.tabs`) | SPEC-ONLY |
+| Dock / float / drag lifecycle | SPEC-ONLY (resize exists) |
+| Responsive / mobile sheets | SPEC-ONLY |
+| Toolbar overflow | SPEC-ONLY |
+| Palette discoverability of “Layers” / “Toggle Properties” | weaker — palette lists `Show Panel` / `Hide Panel` (one commandId). Searching “Layers” no longer hits a dedicated command. Not a second commandId (INV-CMD-4). |
+| Native / Tauri / Rust | **NOT TESTED — TOOLCHAIN/ENVIRONMENT BLOCKER** (no rustc/cargo/wasm-pack/tauri this session). BLK-008 still OPEN. |
+| C-2 `prevSelection` | OPEN — SYS-03 / foundation. Not started. |
+| C-1 `formatVersion` in Rust `Document` | SYS-28 + foundation. Not absorbed. |
+
+**SYS-01 status language:** **AUTOMATED TESTED / PARTIAL**. **Not COMPLETE.** Manual QA PENDING (FL-0018/0019).
+
+## S2.4 Tests run this increment
+
+- Focused C-3 files: **99/99** PASS. Full UI suite: **51 files, 698/698** PASS (was 697 + Ctrl+L toggle).
+- New / updated assertions: F4 toggles Properties; Ctrl+L toggles Library; no `panel.layers` command; `st.snap` default `"snap —"` and projects `snap:changed{mode:'grid'}`; Open Recent hover-clear (FINAL_GATE §3 #7); Window menu testids `menu-item-panel.show-*`.
+- `tsc --noEmit` **PASS**.
+- **Native desktop / cargo / wasm-pack / tauri:** **NOT TESTED — TOOLCHAIN/ENVIRONMENT BLOCKER**.
+
+## S2.5 Cross-SYS
+
+No new event. `st.snap` **consumes** existing `snap:changed{mode}` (SYS-01 §27.1). SYS-04 remains the producer when SnapEngine exists. `panel.debug` not absorbed.
+
+**INT-AIA-002:** while rebasing onto AI-B `7ebc3cc`, F4 was claimed by SYS-11 `window.hideAllPanels`. Authority: C-09/C-06/SYS-01 §9 lock F4 to Properties; Blueprint is silent. Hide All command + menu **kept**; F4 **not** moved. No invented replacement shortcut.
+
+## S2.6 Coordination files this increment
+
+- `ATTENDANCE.md` — session 2 row (already present).
+- `AI-A_REPORT.md` — this section (audit tables above preserved).
+- `CHANGELOG.md` — C-3 entry.
+- `PROJECT_BOARD.md` — SYS-01 IMPL note only.
+
+**Not modified:** `FOUNDATION_CONTRACT.md`, SYS-08..28 product code, other workers’ report bodies, SYS-01 LOCKED spec body.

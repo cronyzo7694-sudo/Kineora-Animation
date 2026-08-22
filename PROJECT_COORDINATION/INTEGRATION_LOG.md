@@ -102,3 +102,14 @@
 | Suggested lesson (Leader: FL-0035?) | "A commit that adds calls across a language boundary (TS→wasm→Rust) must be compile-verified on BOTH sides; a missing toolchain = install it or mark the increment SPEC-ONLY" |
 | Worker | AI-D |
 | Status | ESCALATED — Leader + AI-C action required; AI-D fixes LANDED |
+## INT-AIA-002 — 2026-08-22 AI-A: F4 ownership (SYS-01 Properties vs SYS-11 Hide All)
+
+| Field | Value |
+|---|---|
+| Change | `window.hideAllPanels` (SYS-11, landed in `7ebc3cc`) **keeps the command + Window menu item**. **F4 shortcut removed** from it. F4 stays `panel.show('properties')` toggle (C-09 “F4 toggle (ours)” / SYS-01 §9 / C-06). |
+| Why | AI-B bound F4 to Hide All citing “Blueprint + Adobe Part 01 §1.1.2”. Exhaustive search: ANIMATE_BLUEPRINT_MASTER has **no** F4 and **no** Hide-All shortcut; C-09/C-06 explicitly assign F4 to Properties as **ours** (Adobe Ctrl+F3 / Adobe Hide-All-on-F4 lose). `findShortcutInvocation` prefers `command.shortcut` over aliases — leaving both bindings would silently steal F4 from Properties. |
+| Not invented | No replacement shortcut for Hide All (FL-0010). Menu path remains FUNCTIONAL. |
+| Files | `commands.ts` (drop `shortcut:'F4'` on hideAll), `App.tsx` (scope both command families), `sys10-sys11.test.tsx` (F4 ≠ hideAll; command still hides via `run`) |
+| Affects | SYS-01 (shortcut owner), SYS-11 (command owner, shortcut only) |
+| Worker | AI-A (during C-3 rebase onto `7ebc3cc`) |
+| Status | LANDED in this C-3 rebase — Leader verify |

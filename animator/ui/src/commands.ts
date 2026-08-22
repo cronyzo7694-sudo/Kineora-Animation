@@ -226,6 +226,26 @@ function hopKeyframe(ctx: CommandContext, dir: 1 | -1): void {
   if (target !== undefined) seekPlayhead(target)
 }
 
+/** SYS-01 §15 locked commandIds: `panel.show(id)` / `panel.hide(id)`.
+ *  Window-menu rows and F4/Ctrl+L/Ctrl+Alt+T/Ctrl+F2 are THIS action with
+ *  a panel-id input — not per-panel commandIds (INV-CMD-4 / INTEGRATED_AUDIT C-3). */
+export const WINDOW_PANEL_IDS = ['tools', 'timeline', 'layers', 'properties', 'library'] as const
+export type WindowPanelId = (typeof WINDOW_PANEL_IDS)[number]
+
+function asPanelId(input: unknown): string | null {
+  return typeof input === 'string' && input.trim() !== '' ? input : null
+}
+
+function setPanelVisible(c: CommandContext, id: string, visible: boolean): void {
+  if (!!c.panels[id] === visible) return // already-in-state: idempotent (FL silent-ok)
+  c.togglePanel(id)
+}
+
+/** Window-menu / shortcut / toolbar toggle — dispatches show or hide. */
+export function runPanelToggle(c: CommandContext, id: string): void {
+  setPanelVisible(c, id, !c.panels[id])
+}
+
 function frameCmd(ctx: CommandContext, action: string, lockedMsg: string): void {
   if (!engineOk(ctx)) {
     ctx.notify(`${action}: ${NOT_ATTACHED}`)
@@ -1717,68 +1737,41 @@ export const commands: Command[] = [
     },
   },
 
-  // ——— Window (Part 01 §1.2.10 / Adobe-verified) ———
+  // ——— Window (Part 01 §1.2.10 / SYS-01 §15) ———
+  // ONE commandId per semantic action: panel.show(id) / panel.hide(id).
   {
-    id: 'panel.layers',
-    label: 'Layers',
+    id: 'panel.show',
+    label: 'Show Panel',
     category: 'window',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] C-02',
-    checked: (c) => !!c.panels.layers,
-    run: (c) => c.togglePanel('layers'),
-    toolbar: true,
+    source: '[SYS-01 §15 / §30] panel.show(id) — Window menu + F4/Ctrl+L/Ctrl+Alt+T/Ctrl+F2',
+    run: (c, input) => {
+      const id = asPanelId(input)
+      if (!id) return c.notify('show panel: pick a panel from the Window menu')
+      setPanelVisible(c, id, true)
+    },
   },
   {
-    id: 'panel.properties',
-    label: 'Properties',
+    id: 'panel.hide',
+    label: 'Hide Panel',
     category: 'window',
-    shortcut: 'Ctrl+F3',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT + ADOBE] C-09 (Ctrl+F3 Adobe-verified)',
-    checked: (c) => !!c.panels.properties,
-    run: (c) => c.togglePanel('properties'),
-    toolbar: true,
-  },
-  {
-    id: 'panel.library',
-    label: 'Library',
-    category: 'window',
-    shortcut: 'Ctrl+L',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.9',
-    checked: (c) => !!c.panels.library,
-    run: (c) => c.togglePanel('library'),
-    toolbar: true,
-  },
-  {
-    id: 'panel.timeline',
-    label: 'Timeline',
-    category: 'window',
-    shortcut: 'Ctrl+Alt+T',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.9 ([ours] Ctrl+Alt+T)',
-    checked: (c) => !!c.panels.timeline,
-    run: (c) => c.togglePanel('timeline'),
-    toolbar: true,
-  },
-  {
-    id: 'panel.tools',
-    label: 'Tools',
-    category: 'window',
-    shortcut: 'Ctrl+F2',
-    status: 'FUNCTIONAL',
-    source: '[ADOBE REFERENCE] Window ▸ Tools (Ctrl+F2)',
-    checked: (c) => !!c.panels.tools,
-    run: (c) => c.togglePanel('tools'),
+    source: '[SYS-01 §15 / §30] panel.hide(id)',
+    run: (c, input) => {
+      const id = asPanelId(input)
+      if (!id) return c.notify('hide panel: pick a panel from the Window menu')
+      setPanelVisible(c, id, false)
+    },
   },
   {
     id: 'window.hideAllPanels',
     label: 'Hide All Panels',
     category: 'window',
-    shortcut: 'F4',
+    // F4 is LOCKED to Properties (C-09 "F4 toggle (ours)" / SYS-01 §9).
+    // Adobe Hide-All-on-F4 loses. No replacement shortcut invented (FL-0010).
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT + ADOBE] Window ▸ Hide All Panels (F4) — Part 01 §1.1.2 (panels hide/show; stage remains)',
-    /** Checked = at least one panel is visible (so the next F4 hides them). */
+    source: '[ADOBE REFERENCE] Window ▸ Hide All Panels — F4 owned by SYS-01 Properties (C-09); menu-only until a shortcut is decided',
+    /** Checked = at least one panel is visible (so Hide All is the next action). */
     checked: (c) => Object.values(c.panels).some(Boolean),
     run: (c) => {
       const anyVisible = Object.values(c.panels).some(Boolean)
@@ -2014,6 +2007,11 @@ export const shortcutAliases: Record<string, { id: string; input?: unknown }> = 
   'ctrl+shift+r': { id: 'file.export', input: 'image' },
   'ctrl+shift+v': { id: 'edit.paste', input: 'place' },
   backspace: { id: 'edit.delete' },
+  // SYS-01 §9 / C-09: F4 = Properties toggle (Adobe Ctrl+F3 loses — C-09 "F4 (ours)").
+  f4: { id: 'panel.show', input: 'properties' },
+  'ctrl+l': { id: 'panel.show', input: 'library' },
+  'ctrl+alt+t': { id: 'panel.show', input: 'timeline' },
+  'ctrl+f2': { id: 'panel.show', input: 'tools' },
 }
 
 
@@ -2025,7 +2023,14 @@ export function shortcutDisplayFor(id: string, input: unknown): string | undefin
     if (alias.id === id && alias.input === input) {
       const parts = canon.split('+')
       return parts
-        .map((p) => (p === 'ctrl' ? 'Ctrl' : p === 'shift' ? 'Shift' : p === 'alt' ? 'Alt' : p === 'cmd' ? 'Cmd' : p.length === 1 ? p.toUpperCase() : p))
+        .map((p) => {
+          if (p === 'ctrl') return 'Ctrl'
+          if (p === 'shift') return 'Shift'
+          if (p === 'alt') return 'Alt'
+          if (p === 'cmd') return 'Cmd'
+          if (/^f\d+$/i.test(p)) return p.toUpperCase()
+          return p.length === 1 ? p.toUpperCase() : p
+        })
         .join('+')
     }
   }

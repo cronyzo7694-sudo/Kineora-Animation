@@ -12,7 +12,7 @@
 // ============================================================================
 
 import { useEffect, useRef } from 'react'
-import { findCommand, findShortcutInvocation, type CommandContext } from './commands'
+import { findCommand, findShortcutInvocation, runPanelToggle, type CommandContext } from './commands'
 
 /**
  * Attach a scoped global shortcut listener.
@@ -59,6 +59,11 @@ export function useShortcutScope(scope: ReadonlySet<string>, ctx: CommandContext
         return
       }
       e.preventDefault()
+      // SYS-01 §9: F4 / Ctrl+L / Ctrl+Alt+T / Ctrl+F2 TOGGLE via show/hide.
+      if ((cmd.id === 'panel.show' || cmd.id === 'panel.hide') && typeof inv?.input === 'string') {
+        runPanelToggle(c, inv.input)
+        return
+      }
       cmd.run(c, inv?.input)
     }
     window.addEventListener('keydown', onKey)

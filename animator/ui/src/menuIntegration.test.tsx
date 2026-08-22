@@ -23,10 +23,10 @@ describe('menu bar + command architecture integration', () => {
     render(<App />)
     expect(screen.getByTestId('timeline')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('menu.window'))
-    fireEvent.click(screen.getByTestId('menu-item-panel.timeline'))
+    fireEvent.click(screen.getByTestId('menu-item-panel.show-timeline'))
     expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('menu.window'))
-    fireEvent.click(screen.getByTestId('menu-item-panel.timeline'))
+    fireEvent.click(screen.getByTestId('menu-item-panel.show-timeline'))
     expect(screen.getByTestId('timeline')).toBeInTheDocument()
   })
 
@@ -42,7 +42,7 @@ describe('menu bar + command architecture integration', () => {
     render(<App />)
     expect(screen.getByTestId('tool.select')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('menu.window'))
-    fireEvent.click(screen.getByTestId('menu-item-panel.tools'))
+    fireEvent.click(screen.getByTestId('menu-item-panel.show-tools'))
     expect(screen.queryByTestId('tool.select')).not.toBeInTheDocument()
   })
 

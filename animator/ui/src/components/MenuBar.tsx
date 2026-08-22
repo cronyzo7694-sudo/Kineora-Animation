@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getCommand, shortcutDisplayFor, type CommandContext } from '../commands'
+import { getCommand, runPanelToggle, shortcutDisplayFor, type CommandContext } from '../commands'
 import { listRecent } from '../file'
 import { menus, type MenuDef, type MenuEntry } from '../menus'
 
@@ -344,7 +344,8 @@ function CommandRow({ entry, onRun, ctx }: { entry: { id: string; input?: unknow
     : disabledByContext
       ? (cmd.whyDisabled ? cmd.whyDisabled(ctx) : 'not available')
       : undefined
-  const isChecked = cmd.checked ? cmd.checked(ctx) : false
+  const panelId = (entry.id === 'panel.show' || entry.id === 'panel.hide') && typeof entry.input === 'string' ? entry.input : null
+  const isChecked = panelId !== null ? !!ctx.panels[panelId] : cmd.checked ? cmd.checked(ctx) : false
 
   return (
     <button
@@ -356,7 +357,8 @@ function CommandRow({ entry, onRun, ctx }: { entry: { id: string; input?: unknow
       onClick={() => {
         if (disabled) return
         onRun()
-        cmd.run(ctx, entry.input)
+        if (panelId !== null) runPanelToggle(ctx, panelId)
+        else cmd.run(ctx, entry.input)
       }}
       style={{
         display: 'flex',

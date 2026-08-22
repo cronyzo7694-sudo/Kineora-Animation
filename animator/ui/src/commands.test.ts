@@ -3,7 +3,9 @@ import {
   commands,
   eventToCanonical,
   findCommandByEvent,
+  findShortcutInvocation,
   getCommand,
+  shortcutDisplayFor,
   shortcutToCanonical,
   validateCommands,
 } from './commands'
@@ -53,9 +55,31 @@ describe('command registry integrity (zero dead buttons)', () => {
 
   it('toolbar is a projection of the command registry (same ids/actions)', () => {
     for (const c of controls) {
+      // SYS-01 §30: toolbar `panel.layers` etc. are VIEW projections of
+      // panel.show/hide — not their own commandIds.
+      if (c.id.startsWith('panel.') && c.id !== 'panel.debug' && c.id !== 'panel.show' && c.id !== 'panel.hide') {
+        expect(getCommand('panel.show'), `toolbar ${c.id} needs panel.show`).toBeTruthy()
+        expect(getCommand('panel.hide'), `toolbar ${c.id} needs panel.hide`).toBeTruthy()
+        continue
+      }
       const cmd = getCommand(c.id)
       expect(cmd, `toolbar control ${c.id} has no command`).toBeTruthy()
     }
+  })
+
+  it('SYS-01 C-3: panel.show/hide are the only Window panel commandIds (INV-CMD-4)', () => {
+    expect(getCommand('panel.show')?.status).toBe('FUNCTIONAL')
+    expect(getCommand('panel.hide')?.status).toBe('FUNCTIONAL')
+    for (const gone of ['panel.layers', 'panel.properties', 'panel.library', 'panel.timeline', 'panel.tools']) {
+      expect(getCommand(gone), gone).toBeUndefined()
+    }
+    expect(findCommandByEvent({ key: 'F4' })?.id).toBe('panel.show')
+    expect(findShortcutInvocation({ key: 'F4' })?.input).toBe('properties')
+    expect(findCommandByEvent({ key: 'l', ctrlKey: true })?.id).toBe('panel.show')
+    expect(findShortcutInvocation({ key: 'l', ctrlKey: true })?.input).toBe('library')
+    expect(findCommandByEvent({ key: 't', ctrlKey: true, altKey: true })?.id).toBe('panel.show')
+    expect(shortcutDisplayFor('panel.show', 'properties')).toBe('F4')
+    expect(shortcutDisplayFor('panel.show', 'library')).toBe('Ctrl+L')
   })
 })
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { DebugPanel } from './components/DebugPanel'
 import { outputLog } from './outputLog'
-import { debugViewController, getCommand, makeCommandContext } from './commands'
+import { debugViewController, findCommandByEvent, getCommand, makeCommandContext } from './commands'
 import { useShortcutScope } from './shortcuts'
 
 describe('SYS-10 — Debug panel + Output console', () => {
@@ -95,7 +95,7 @@ describe('SYS-10 — Debug panel + Output console', () => {
   })
 })
 
-describe('SYS-11 — Window ▸ Hide/Show All Panels (F4)', () => {
+describe('SYS-11 — Window ▸ Hide/Show All Panels', () => {
   it('checked reflects whether any panel is visible', () => {
     const noop = () => {}
     const allVisible = makeCommandContext({ notify: noop, panels: { tools: true, timeline: true } })
@@ -104,25 +104,24 @@ describe('SYS-11 — Window ▸ Hide/Show All Panels (F4)', () => {
     expect(getCommand('window.hideAllPanels')!.checked?.(allHidden)).toBe(false)
   })
 
-  it('F4 shortcut invokes the command exactly once (dispatcher integration)', () => {
+  it('the command hides all panels when any are visible (menu path — INT-AIA-002)', () => {
     const setAll = vi.fn()
-    function Scope(): null {
-      const ctx = makeCommandContext({
-        notify: vi.fn(),
-        panels: { tools: true, timeline: true },
-        setAllPanelsVisible: setAll,
-      })
-      useShortcutScope(new Set(['window.hideAllPanels']), ctx)
-      return null
-    }
-    render(<Scope />)
-    fireEvent.keyDown(window, { key: 'F4' })
-    // The command toggles: with 2 panels visible it calls setAllPanelsVisible(false).
+    const ctx = makeCommandContext({
+      notify: vi.fn(),
+      panels: { tools: true, timeline: true },
+      setAllPanelsVisible: setAll,
+    })
+    getCommand('window.hideAllPanels')!.run(ctx)
     expect(setAll).toHaveBeenCalledTimes(1)
     expect(setAll).toHaveBeenCalledWith(false)
   })
 
-  it('F4 in an <input> is ignored (does not hide panels while typing)', () => {
+  it('F4 is SYS-01 Properties (C-09), not Hide All — INT-AIA-002', () => {
+    expect(getCommand('window.hideAllPanels')!.shortcut).toBeUndefined()
+    expect(findCommandByEvent({ key: 'F4' })?.id).toBe('panel.show')
+  })
+
+  it('F4 in an <input> does not hide panels while typing', () => {
     const setAll = vi.fn()
     function Scope(): null {
       const ctx = makeCommandContext({
@@ -130,7 +129,7 @@ describe('SYS-11 — Window ▸ Hide/Show All Panels (F4)', () => {
         panels: { tools: true },
         setAllPanelsVisible: setAll,
       })
-      useShortcutScope(new Set(['window.hideAllPanels']), ctx)
+      useShortcutScope(new Set(['window.hideAllPanels', 'panel.show']), ctx)
       return null
     }
     render(<Scope />)

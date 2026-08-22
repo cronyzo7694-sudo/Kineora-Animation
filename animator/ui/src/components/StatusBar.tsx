@@ -18,6 +18,18 @@ const cell: React.CSSProperties = { whiteSpace: 'nowrap', display: 'inline-flex'
 const label = { color: '#777' } as const
 const dim = '#888'
 
+/** SYS-01 §6.4 / C-05 st.snap — projection of `snap:changed`, never a fake
+ *  static "snap off". SYS-04 SnapEngine is not implemented → honest "—". */
+function SnapCell() {
+  const [mode, setMode] = useState<string | null>(null)
+  useBus('snap:changed', (p) => setMode(p.mode || null))
+  return (
+    <span data-testid="st-snap" style={cell}>
+      <span style={{ color: mode ? '#8ec8ff' : dim }}>{mode ? `snap ${mode}` : 'snap —'}</span>
+    </span>
+  )
+}
+
 /**
  * Status bar (C-05): the 12 state-visibility cells. UI-owned cells (tool,
  * playback, recording/saving/export/mode/snap) read live state; engine-owned
@@ -104,9 +116,7 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
       <span data-testid="st-mode" style={cell}>
         <span style={{ color: dim }}>mode —</span>
       </span>
-      <span data-testid="st-snap" style={cell}>
-        <span style={{ color: dim }}>snap off</span>
-      </span>
+      <SnapCell />
       <span data-testid="engine-status" style={{ color: engine.kind === 'ok' ? '#4a4' : '#e66', marginLeft: 'auto' }}>
         engine: {engine.kind === 'ok' ? 'attached' : 'not attached'}
       </span>

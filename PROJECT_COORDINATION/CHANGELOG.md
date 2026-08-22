@@ -1,5 +1,12 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — Tools system forensic research (docs only)
+
+- Research-only phase. **No product code.** Document: `PROJECT_COORDINATION/TOOLS_SYSTEM_FORENSIC_RESEARCH.md`.
+- Reconstructed `origin/main` at `7ab803a`. Inventory: Blueprint 02a–02d vs `commands.ts` / `Stage.tsx` / `Session::draw_rect` / `Node::{Rect,SymbolInstance}`.
+- Finding: only Selection, Rectangle, and Free-Transform *ids* exist; Q does not route Stage gestures; C-13 “FUNCTIONAL” is UI-contract paper, not engine truth.
+- SYS-13 **not COMPLETE**. AMB-TOOL-001..006 registered in the research doc (not invented as product decisions).
+
 > Records every meaningful coordination/spec/decision change. SYS-level detail lives in the SYS's own final-report; this is the project-level timeline.
 
 ---

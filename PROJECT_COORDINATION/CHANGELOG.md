@@ -187,3 +187,10 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
   since 9128ad9. cargo 313→320/320, UI 736/736.
 - SYS-23: MOD-EASING complete per eng 08 REQ-TWN-004 (quart/quint/expo/circ/back/elastic/bounce +
   steps(n), canonical Penner constants, 7 property tests). Motion-tween-ready easing surface.
+
+## 2026-08-22 — AI-B: Edit-menu forensic — block paste/duplicate on folder layer (`40999d7`)
+
+- Audited every Edit command end-to-end (Undo/Redo, Cut/Copy, Paste center/place/special, Duplicate, Delete, Select All/Deselect, Find) against Blueprint §1.2.2 + SYS-03 H00/H02. Undo/redo selection restore (C-2), locked-only cut (no fake mutation), single-event-per-gesture, clipboard SESSION boundary all verified.
+- **Bug (data loss):** `paste_objects`/`duplicate_objects` blocked hidden/locked active layers but NOT folders. `draw_rect` already refused folders; a paste onto a folder inserted nodes into the node table while `ensure_keyframe` on a folder left them unreachable by the renderer (orphans) and still pushed an undo entry. Fixed: folder active layer now returns false pre-mutation (`paste:blocked(active layer is a folder)`), no command, no selection change; duplicate inherits. Added Rust regression test.
+- Paste Special remains intentionally deferred (AMB-S03-003); Find & Replace deferred (no text model). No feature creep.
+- UI 756/756 green; tsc + vite build green. Rust/cargo NOT RUN — toolchain unavailable (honest; flagged for CI).

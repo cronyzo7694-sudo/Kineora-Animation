@@ -389,3 +389,52 @@ NO new event, NO bus.ts schema change (fields already declared optional). NO oth
 
 ## 12. Handoff for AI-C
 - selection:changed now ALWAYS carries `kind:'objects'|'none'`, and `bounds` (AABB union) + `commonType` when uniform. Timeline/layer-row consumers may rely on `.targets` unchanged. If AI-C adds frame-selection (Part 03 kind:'frames'), the payload's `kind` union must expand in SYS-01 bus schema AND here — do not silently emit a new kind string without an INT.
+
+---
+
+# SESSION 5 — 2026-08-22 (EDIT MENU product-usability)
+
+Final: `40999d7` (folder-paste fix) on top of `0101fbb`. No force-push.
+
+## Blueprint requirements (Part 01 §1.2.2 / SYS-03 H00/H02)
+Undo/Redo (Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y), Cut/Copy (Ctrl+X/C, full object JSON not pixels), Paste in Center/Place/Special (Ctrl+V / Ctrl+Shift+V / Ctrl+Shift+Alt+V; Special = AMB-S03-003), Duplicate (Ctrl+D), Select All/Deselect (Ctrl+A / Ctrl+Shift+A), Find & Replace (Ctrl+F, deferred), plus frame clipboard handed to SYS-15.
+
+## Complete Edit inventory & audit
+| Feature | Status | Evidence |
+|---|---|---|
+| Undo/Redo | FUNCTIONAL | command.rs History bounded 100, prev/post selection, redo invalidation; session.rs restores selection; client emits document:changed then selection:changed; menu greyed via undo/redo_len |
+| Cut | FUNCTIONAL | copy+one DeleteSelection; locked-only copies but doesn't delete (AI-A H04) and emits no fake document:changed; selection:changed only when mutated |
+| Copy | FUNCTIONAL | session clipboard SESSION-level, no command/undo/dirty; locked allowed (read-only); empty = false |
+| Paste (center/place) | FUNCTIONAL (after fix) | blocked on hidden/locked/folder; new IDs; one PasteObjects command; selects new nodes; place vs center |
+| Paste Special | INTENTIONALLY DEFERRED | AMB-S03-003 format list open; honest toast, not invented |
+| Duplicate | FUNCTIONAL (after fix) | copy+paste-in-place+10px offset; clipboard restored; blocked on folder via paste path |
+| Delete/Backspace | FUNCTIONAL | editable-only (visible+unlocked); one command; prunes selection; empty no-op |
+| Select All / Deselect | FUNCTIONAL | engine select_all/clear; view state, no undo; emits selection:changed |
+| Find & Replace | DEFERRED | text engine absent; correct not to fake |
+
+## Bug found & repaired (data loss)
+**BUG:** `paste_objects` (and therefore Duplicate) only blocked on hidden/locked active layer, NOT on a folder layer. draw_rect already blocked folders. Pasting onto a folder inserted nodes into the global node table, but `ensure_keyframe` on a folder stores no frame → nodes became orphans unreachable by the renderer (silent data loss), and an undo entry was created.
+**EVIDENCE:** session.rs paste_objects pre-check vs draw_rect folder guard; folders store no keyframes (layers.rs test).
+**FIX:** paste_objects returns false with `paste:blocked(active layer is a folder)` before any mutation/command; no undo, no selection change. Duplicate inherits the block. One Rust test added.
+**OWNERSHIP:** SYS-03 Edit (clipboard/paste) — in primary range. No other SYS touched.
+
+## Undo/redo verification
+- History bound 100, redo cleared on new command (command.rs).
+- prevSelection restored on undo, postSelection on redo (C-2 TS + Rust).
+- Event ordering: document:changed THEN selection:changed (client undo/redo), matching H00 §8.
+- Copy = no history; Cut/Paste/Duplicate/Delete = exactly one command each.
+
+## Tests (exact)
+- UI: **756/756** (56 files) — existing edit/sys03/sys14 suites all green. No new TS test needed for the folder block because the bug lives in Rust (the TS layer only forwards the bool); adding a fake-module test would assert mock behavior, not product behavior (FL test-integrity).
+- Rust: added `paste_and_duplicate_blocked_when_active_layer_is_a_folder`. **cargo test NOT RUN — Rust toolchain unavailable in sandbox.** Recorded honestly; AI-D/CI must run it.
+- tsc -b: PASS; vite build: PASS (371.40 kB).
+- Native desktop: NOT TESTED.
+
+## Remaining partial / deferred
+- Paste Special format list (AMB-S03-003) — product decision needed.
+- Find & Replace — needs text/font/color/symbol/sound model.
+- Frame clipboard items are SYS-15; exposed in Edit menu but owned there.
+- C-2 Rust Command trait still lacks canCoalesce/affected[] (foundation, SYS-03/future) — selection restore part is done.
+
+## Cross-SYS
+No contract changed. selection:changed payload (SYS-14) is consumed correctly by Edit's cut/paste/delete. Folder guard is consistent with SYS-16 (folders) and SYS-20 (draw target).

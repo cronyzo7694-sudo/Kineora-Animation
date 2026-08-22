@@ -443,3 +443,36 @@ fn h02_per_document_undo_history_is_isolated_across_tabs() {
         "A's history intact"
     );
 }
+
+// ————————————————————————————————————————————————————————————————
+// H07 — CLOSE: survivor selection (PROVISIONAL policy, AMB-H07-001 open).
+// ————————————————————————————————————————————————————————————————
+
+#[test]
+fn h07_survivor_selection_policy_provisional_amb_h07_001() {
+    // PROVISIONAL — AMB-H07-001 is an OPEN product decision (Blueprint
+    // silent). The behavior under test is the H07 §7 RECOMMENDATION (not
+    // authoritative): nearest remaining tab in open-set order — the closed
+    // document's right neighbour; when the closed document was the last, the
+    // last remaining document.
+    let mut m = dm();
+    m.push_new(Settings::default(), "A".into());
+    let b = m.push_new(Settings::default(), "B".into());
+    m.push_new(Settings::default(), "C".into());
+    m.set_active(b);
+    // close the active MIDDLE doc → right neighbour (C) becomes active
+    assert!(m.close(b));
+    assert_eq!(m.active_id(), 3, "right neighbour (provisional)");
+    // close the LAST doc → last remaining becomes active
+    assert!(m.close(3));
+    assert_eq!(
+        m.active_id(),
+        1,
+        "no right neighbour → last remaining (provisional)"
+    );
+    // closing an INACTIVE doc never moves the active pointer
+    let d = m.push_new(Settings::default(), "D".into()); // push activates D
+    m.set_active(1); // A active, D inactive
+    assert!(m.close(d));
+    assert_eq!(m.active_id(), 1, "inactive close → pointer unchanged");
+}

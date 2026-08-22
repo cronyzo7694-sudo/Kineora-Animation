@@ -56,6 +56,7 @@ import { NewDocumentDialog } from './components/NewDocumentDialog'
 import { TemplateGalleryDialog } from './components/TemplateGalleryDialog'
 import { SaveTemplateDialog } from './components/SaveTemplateDialog'
 import { CloseConfirmationDialog, type CloseConfirmationRequest } from './components/CloseConfirmationDialog'
+import type { CloseAllDecision } from './file'
 import type { ColorPreview } from './render/canvasRenderer'
 
 const VERSION = '0.2'
@@ -90,6 +91,9 @@ export default function App() {
   const [templateOpen, setTemplateOpen] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const [closeReq, setCloseReq] = useState<(CloseConfirmationRequest & { proceed: () => void; dirtyIds: number[] }) | null>(null)
+  // H07 §6 — SEQUENTIAL Close All: the per-document guard (one dirty doc at a
+  // time). Resolves the in-flight closeAllDocuments() promise.
+  const [seqGuard, setSeqGuard] = useState<{ docId: number; resolve: (d: CloseAllDecision) => void } | null>(null)
   const [exited, setExited] = useState(false)
   // ——— desktop shell diagnostics (Dev panel; desktop only) ———
   const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null)
@@ -275,6 +279,34 @@ export default function App() {
     })
   }
 
+  /** H07 §6 — per-document guard for the sequential Close All. While the
+   *  dialog is open (including save retry) the sequence is PAUSED. */
+  const confirmCloseDoc = (docId: number) =>
+    new Promise<CloseAllDecision>((resolve) => {
+      setSeqGuard({ docId, resolve })
+    })
+
+  const onSeqGuardSave = async () => {
+    const req = seqGuard
+    if (!req) return
+    // H05 save of THAT document (guard Save reuses file.save — H07 §9)
+    setActiveDoc(req.docId)
+    const ok = await saveDocument(notify)
+    if (!ok) return // save failed → stay DIRTY, close BLOCKED, dialog stays open (retry/cancel)
+    setSeqGuard(null)
+    req.resolve('save-ok')
+  }
+  const onSeqGuardDiscard = () => {
+    const req = seqGuard
+    setSeqGuard(null)
+    req?.resolve('discard')
+  }
+  const onSeqGuardCancel = () => {
+    const req = seqGuard
+    setSeqGuard(null)
+    req?.resolve('cancel')
+  }
+
   const onCloseSave = async () => {
     const req = closeReq
     if (!req) return
@@ -358,6 +390,7 @@ export default function App() {
     exitEditRoot,
     openGoToFrame: () => setGotoOpen(true),
     confirmClose,
+    confirmCloseDoc,
     openNewDialog: () => setNewOpen(true),
     openTemplateGallery: () => setTemplateOpen(true),
     openSaveTemplate: () => setSaveTemplateOpen(true),
@@ -610,6 +643,13 @@ export default function App() {
       <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
       <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
       <CloseConfirmationDialog request={closeReq} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
+      {/* H07 §6 — sequential Close All guard (one dirty document at a time) */}
+      <CloseConfirmationDialog
+        request={seqGuard ? { what: 'this document', dirtyCount: 1 } : null}
+        onSave={onSeqGuardSave}
+        onDiscard={onSeqGuardDiscard}
+        onCancel={onSeqGuardCancel}
+      />
       {/* No-document empty state (C-02): engine attached but all documents closed */}
       {engine.kind === 'ok' && !status && !exited && (
         <div data-testid="no-doc-state" style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
@@ -620,7 +660,7 @@ export default function App() {
               <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
                 New (Ctrl+N)
               </button>
-              <button data-testid="no-doc-open" onClick={() => ctx.confirmClose(() => openDocument(notify))} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
+              <button data-testid="no-doc-open" onClick={() => openDocument(notify)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
                 Open (Ctrl+O)
               </button>
             </div>

@@ -38,6 +38,7 @@ import {
   saveDocument,
   saveTemplate,
   switchActiveDocument,
+  type CloseAllDecision,
   type NewDocSettings,
 } from './file'
 import type { StatusJson } from './engine/wasmTypes'
@@ -100,6 +101,11 @@ export interface CommandContext {
    *  every dirty document (Close All / Exit); a NUMBER = guard that specific
    *  document by stable id (H02 per-tab close of a non-active document). */
   confirmClose: (proceed: () => void, scope?: 'active' | 'all' | number) => void
+  /** H07 §6 — per-document guard for the SEQUENTIAL Close All (H07 opens the
+   *  dialog; H04 owns the decision contract). Resolves 'save-ok' only after a
+   *  successful H05 save; 'discard' = permanent; 'cancel' = stop the sequence.
+   *  While the dialog is open (incl. save retry) the sequence is paused. */
+  confirmCloseDoc: (docId: number) => Promise<CloseAllDecision>
   openNewDialog: () => void
   openTemplateGallery: () => void
   openSaveTemplate: () => void
@@ -291,13 +297,15 @@ export const commands: Command[] = [
           c.notify(`already open — activated "${entry.title}"`)
           return
         }
-        // step 2: dirty guard on the active doc (H04), then the load.
-        c.confirmClose(() => {
-          void openFromRecent(entry, c.notify)
-        })
+        // FINAL RECONCILIATION F-4 / FL-0032: NO dirty guard on Open —
+        // multi-document Open ADDS + activates; a dirty active doc is
+        // preserved as INACTIVE (no data loss → no guard, FL-0032).
+        void openFromRecent(entry, c.notify)
         return
       }
-      c.confirmClose(() => openDocument(c.notify))
+      // Same rule for interactive Open (guard-trigger set = Close / Close All
+      // / Exit ONLY — final reconciliation §4 F-4).
+      openDocument(c.notify)
     },
   },
   {
@@ -327,10 +335,15 @@ export const commands: Command[] = [
     label: 'Close All',
     category: 'file',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save, per-doc guard)',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (prompt save) + H07 §6 sequential per-doc guard (P-5)',
     enabled: (c) => (c.getStatus()?.doc_count ?? 0) > 0,
     whyDisabled: () => 'no documents open',
-    run: (c) => c.confirmClose(() => closeAllDocuments(c.notify), 'all'),
+    // H07 §6 / final reconciliation F-3: SEQUENTIAL (P-5), NOT atomic, NOT a
+    // single summary dialog — clean docs close directly, each dirty doc gets
+    // its own guard; Cancel stops the REMAINING docs (partial close is legal).
+    run: (c) => {
+      void closeAllDocuments(c.notify, (docId) => c.confirmCloseDoc(docId))
+    },
   },
   // ——— H02 document tabs (SYS-02 owns the open-set; the SYS-01 strip is the
   // view that invokes these canonical commands — one id per control, no
@@ -1863,6 +1876,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     exitEditRoot: () => {},
     openGoToFrame: () => {},
     confirmClose: (proceed) => proceed(),
+    confirmCloseDoc: async () => 'cancel',
     openNewDialog: () => {},
     openTemplateGallery: () => {},
     openSaveTemplate: () => {},

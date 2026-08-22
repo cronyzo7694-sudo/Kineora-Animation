@@ -672,3 +672,39 @@ Formal spec `H01_NEW_DOCUMENT_TEMPLATES.md` (v2) audited against the build; gaps
 | 6 | File ▸ Open Recent → an entry for an already-open file | activates it WITHOUT the dirty guard, no reload |
 | 7 | File ▸ Open Recent → entry whose file was deleted | "no longer available" toast, nothing opens |
 | 8 | Open Recent with the active doc dirty (not already-open) | guard applies; Cancel = nothing |
+
+## SYS-02 H07 — Close + Close All + Exit (H07-RELEASE spec, post final-reconciliation)
+- **Close All is now SEQUENTIAL (P-5), not atomic, not a summary dialog** (final reconciliation F-3 / residual bug #1): the open-set is processed IN ORDER — clean docs close directly; each DIRTY doc gets its OWN per-doc guard (new App state `seqGuard` + `ctx.confirmCloseDoc(docId) → Promise<'save-ok'|'discard'|'cancel'>`); 'save-ok' (H05 write succeeded) / 'discard' → close + continue; **'cancel' STOPS the sequence — remaining docs stay open (partial close is LEGAL)**. Save failure keeps the doc open + DIRTY with the dialog open (retry/cancel).
+- **`activeDoc:changed{null}` EXACTLY ONCE, only when the open-set actually becomes empty** — never on a partial Close All, never because Close All was initiated (the engine's survivor pointer drives it).
+- **Survivor selection ISOLATED as a named PROVISIONAL policy** (Rust `survivor_index` in doc_manager.rs): AMB-H07-001 is an OPEN product decision (Blueprint silent); current behavior = the H07 §7 RECOMMENDATION (right neighbour, else last remaining) — explicitly NOT authoritative, natively tested as provisional.
+- **`file.close()` vs `tab.close(docId)` remain two intentional commands** (H07 §9 / R-5): both run the same Close(targetDocId) flow with different targets; file.close = ACTIVE doc, tab.close = TARGETED doc (must never close the active doc).
+- **Exit**: guard if ANY dirty (Save/Discard/Cancel) → quit; clean → quit directly (unchanged).
+- **Tests:** NEW `h07.test.tsx` (16 — T-close, T-close-inactive, T-close-last, T-close-stale, T-close-no-mutate, T-close-dup-event, T-close-all-mixed, **T-close-cancel-mid (mandatory)**, **T-close-all-savefail (mandatory)**, T-close-all-clean, App-level dirty-close guard/cancel, **App-level sequential Close All (clean closes first w/o dialog; save-fail keeps dialog+doc open; cancel stops)**, T-exit-mixed, T-exit-clean) + native `h07_survivor_selection_policy_provisional_amb_h07_001`.
+
+## FINAL RECONCILIATION COMPLIANCE (F-1..F-5, FL-0032) — code changes
+- **F-4 / FL-0032 — guard-on-Open REMOVED** (it was a single-doc relic in my H06 implementation): `file.open` (interactive AND recent) no longer calls the dirty guard — multi-doc Open ADDS + activates; a dirty active doc is preserved as INACTIVE (no data loss → no guard). Guard-trigger set is now EXACTLY Close / Close All / Exit. h02/h06 Open-dirty tests rewritten to the no-guard semantics (A stays dirty + open, B added + activated, events canonical).
+- **F-3 / residual bug #1 — Close All sequential**: see H07 section above (mandatory partial-Cancel + save-fail tests pass).
+- **Residual bug #2 — canonical openSet payload AUDITED**: all 6 emitters (file.ts) use the canonical `{change: 'added'|'removed'|'reordered', docId?}` schema; the single consumer (DocumentTabs) reads it via the typed bus; no alternate schema exists (FL-0030).
+- **F-1 (OPEN_FAILED was a state, now an error outcome)**: no code change needed — the implementation already treats a failed load as an error outcome (toast + unchanged), never a lifecycle state.
+- **F-2 (AMB-003 re-owned to H10)**: the localStorage recent store remains the provisional mechanism (P-7-class deployment detail); NOT falsely closed — AMB-003 stays open under H10.
+
+## SYS-02 H08 — Import / Export / Publish Handoffs (H08-RELEASE spec)
+- **Verified already implemented** (honest handoffs, no SYS-27 internals absorbed): all 6 controls present in the registry — file.importStage (Ctrl+R) / file.importLibrary (Ctrl+I) → SYS-27 MOD-IMPORT handoff; file.export (Ctrl+Shift+R) → SYS-27 MOD-EXPORT (image export = working in-app dialog from the earlier export unit; video/GIF/movie/sequence = SYS-27 handoff); file.publishSettings / file.publish / file.publishProfiles → SYS-27. Each reports "integration gap — owned by SYS-27" (no fake success, no dead control).
+- **Event ownership per H08 §9 (downstream, never promoted to SYS-02):** `export:done` = SYS-27 (bus type extended with optional `path` to match the canonical `{format, path}` payload); `library:changed` = SYS-18; `document:changed` = SYS-01 §27.1. H08 observes; it neither owns nor re-emits them.
+- **Dirty/undo classification holds:** import = DOCUMENT MUTATION (dirties, undoable — when SYS-27 lands); export/publish = NON-MUTATING (no dirty, no undo).
+- **Note (reported, not silently changed):** H08 §8's canonical `file.import(target)` is represented in our registry as the two parameterized entries file.importStage/file.importLibrary (one owner — the SYS-27 handoff; distinct shortcuts Ctrl+R/Ctrl+I require distinct registry entries in the current one-shortcut-per-command model). Semantics identical; no duplicate command invented.
+
+## H00–H08 IMPLEMENTATION STATUS (this batch)
+| Spec | Implemented | Notes |
+|---|---|---|
+| H00 constitution | ✅ (earlier batches) | snapshot dirty, INV-MD, events, identity |
+| H01 New/Templates | ✅ (H01-v2) | **AMB-H01-002/003 still PROVISIONAL — product decisions pending** |
+| H02 Multi-doc/Tabs | ✅ | openSet events, per-tab close, dup-open, reorder, a11y |
+| H03 Context menu | ✅ | single "Close" item, non-destructive open, focus return |
+| H04 Dirty/Unsaved | ✅ | document:changed, saving transitions, guard contract |
+| H05 Save/Save As | ✅ | pick→validate→write, open-path BLOCK, modifiedAt |
+| H06 Open/Open Recent | ✅ | **guard REMOVED per F-4**, ADD semantics, no-drift command |
+| H07 Close/CloseAll/Exit | ✅ | sequential per-doc guard, partial cancel, survivor policy ISOLATED (AMB-H07-001) |
+| H08 Import/Export/Publish | ✅ (handoffs) | verified; SYS-27 engines out of scope |
+
+**Unresolved product decisions (NOT invented, isolated + reported):** AMB-H01-002 (duplicate template name — current: guarded Replace, PROVISIONAL) · AMB-H01-003 (seeded-doc identity — current: Untitled-N, PROVISIONAL) · AMB-H07-001 (survivor after close-active — current: right-neighbour/last, PROVISIONAL via `survivor_index`) · AMB-002/003/004 deferred to H10/H11.

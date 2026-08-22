@@ -266,23 +266,23 @@ describe('H06 §13 — Open (interactive)', () => {
     expect(notify.mock.calls.some((c) => String(c[0]).includes('open failed'))).toBe(true)
   })
 
-  it('T-open-dirty: active DIRTY → guard first; cancel aborts, proceed opens (H04 handoff)', async () => {
+  it('T-open-dirty: Open alongside a DIRTY active → NO guard (F-4/FL-0032); A preserved', async () => {
     newDoc() // A (1) dirty
     fake.state.docs[0].dirty = true
     openWillReturn('v', '/p/v.json', VALID)
-    // (a) cancel → no load, no change
     const { events, stop } = capture('openSet:changed', 'activeDoc:changed')
-    getCommand('file.open')!.run(makeCtx({ confirmClose: vi.fn() as never }))
-    await flush()
-    stop()
-    expect(fake.docList()).toHaveLength(1)
-    expect(events).toEqual([])
-    expect(platform.openProject).not.toHaveBeenCalled() // guard resolves before the picker
-    // (b) proceed (default confirmClose) → the open happens
     getCommand('file.open')!.run(makeCtx())
     await flush()
+    stop()
+    // FINAL RECONCILIATION F-4: multi-doc Open ADDS — a dirty active doc
+    // becomes INACTIVE, preserved completely (no guard, no destruction).
     expect(fake.docList()).toHaveLength(2)
     expect(fake.activeDocId()).toBe(2)
+    expect(fake.state.docs[0].dirty).toBe(true)
+    expect(events).toEqual([
+      { name: 'openSet:changed', change: 'added', docId: 2 },
+      { name: 'activeDoc:changed', docId: 2 },
+    ])
   })
 
   it('T-open-already-open (D-AMB-001): same path → activate existing, NO reload, activeDoc only', async () => {
@@ -354,15 +354,14 @@ describe('H06 §13 — Open Recent (reuses file.open; known entry)', () => {
     expect(fake.state.docs[0].dirty).toBe(true)
   })
 
-  it('T-open-dirty (recent): NOT already-open + active DIRTY → guard applies (cancel aborts)', async () => {
+  it('T-open-dirty (recent): NOT already-open + active DIRTY → NO guard; A preserved', async () => {
     newDoc() // A (1) dirty
     fake.state.docs[0].dirty = true
-    const confirmClose = vi.fn()
-    getCommand('file.open')!.run(makeCtx({ confirmClose }) as CommandContext, entry({ title: 'n', json: VALID }))
+    getCommand('file.open')!.run(makeCtx() as CommandContext, entry({ title: 'n', json: VALID }))
     await flush()
-    expect(confirmClose).toHaveBeenCalledTimes(1)
-    expect(fake.docList()).toHaveLength(1)
-    expect(fake.activeDocId()).toBe(1)
+    expect(fake.docList()).toHaveLength(2)
+    expect(fake.activeDocId()).toBe(2)
+    expect(fake.state.docs[0].dirty).toBe(true)
   })
 })
 

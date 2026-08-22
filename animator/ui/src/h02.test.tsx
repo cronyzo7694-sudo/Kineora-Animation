@@ -342,26 +342,20 @@ describe('H02 — Open (ST2: ADD, never replace · ST2b: duplicate-open)', () =>
     expect(docPath(2)).toBe('/p/proj.json')
   })
 
-  it('T-tab-open-dirty: guard applies to Open; proceed → new active; cancel → unchanged', async () => {
+  it('T-tab-open-dirty: Open alongside a DIRTY active → NO guard (F-4/FL-0032); A preserved', async () => {
     newDoc() // A (id 1)
     fake.state.docs[0].dirty = true
-    // (a) cancel — the guard decides, nothing happens
     openProjectWillReturn('dirty', '/p/dirty.json')
     const { events, stop } = capture()
-    getCommand('file.open')!.run(makeCtx({ confirmClose: vi.fn() as never }))
-    await flush()
-    stop()
-    expect(fake.docList()).toHaveLength(1)
-    expect(events).toEqual([])
-    // (b) proceed (makeCommandContext default confirmClose proceeds)
-    const { events: e2, stop: s2 } = capture()
     getCommand('file.open')!.run(makeCtx())
     await flush()
-    s2()
+    stop()
+    // FINAL RECONCILIATION F-4: no dirty guard on Open — the dirty active
+    // doc is preserved as INACTIVE (no data loss in the multi-doc model).
     expect(fake.docList()).toHaveLength(2)
     expect(fake.activeDocId()).toBe(2)
-    expect(fake.state.docs[0].dirty).toBe(true)
-    expect(e2).toEqual([
+    expect(fake.state.docs[0].dirty).toBe(true) // A stays dirty + open
+    expect(events).toEqual([
       { name: 'openSet:changed', change: 'added', docId: 2 },
       { name: 'activeDoc:changed', docId: 2 },
     ])

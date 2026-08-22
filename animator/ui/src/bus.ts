@@ -31,7 +31,7 @@ export interface BusEvents {
    *  (consumers re-read the engine); `targets` = affected node ids when
    *  known, else []. Never emitted for view/session/workspace/pref changes. */
   'document:changed': { type: string; targets: number[] }
-  'export:done': { format: string }
+  'export:done': { format: string; path?: string }
   'mode:changed': { modeId: string; active: boolean }
   'snap:changed': { mode: string }
   'recording:changed': { active: boolean }

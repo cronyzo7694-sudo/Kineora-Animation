@@ -332,8 +332,40 @@ export function closeActiveDocument(notify: Notify): void {
   closeDocumentById(id, notify)
 }
 
-export function closeAllDocuments(notify: Notify): void {
-  for (const d of docList()) closeDocumentById(d.id, notify)
+/** H07 guard DECISIONS (a decision contract — NOT commands, H04 v2 / H07 §9):
+ *  'save-ok' = an H05 write SUCCEEDED (doc is now CLEAN); 'discard' =
+ *  permanent, non-undoable; 'cancel' = the sequence stops. */
+export type CloseAllDecision = 'save-ok' | 'discard' | 'cancel'
+
+/**
+ * H07 §6 — Close All is SEQUENTIAL (P-5), NOT atomic, and NOT a single
+ * summary dialog: the open-set is processed IN ORDER; clean documents close
+ * directly; each DIRTY document gets its own guard (via `guardDirtyDoc`,
+ * provided by the UI — H07 opens the dialog, H04 owns the decision contract):
+ *  - 'save-ok'   → close that doc, continue
+ *  - 'discard'   → close that doc, continue (non-undoable)
+ *  - 'cancel'    → STOP: the remaining documents stay open. Partial close is
+ *                  LEGAL — already-closed documents stay closed.
+ *
+ * Events (H07 §10): each removal emits `openSet:changed{removed, docId}`
+ * (via closeDocumentById). `activeDoc:changed{null}` is emitted by the engine
+ * EXACTLY ONCE, and only when the open-set ACTUALLY becomes empty — never on
+ * a partial Close All, never merely because Close All was initiated.
+ */
+export async function closeAllDocuments(
+  notify: Notify,
+  guardDirtyDoc: (docId: number) => Promise<CloseAllDecision>,
+): Promise<void> {
+  for (const d of docList().slice()) {
+    const current = docList().find((x) => x.id === d.id)
+    if (!current) continue // already closed (defensive — the set is being mutated)
+    if (current.dirty) {
+      const decision = await guardDirtyDoc(current.id)
+      if (decision === 'cancel') return // STOP — remaining docs stay open
+      // 'save-ok' (H05 write succeeded → CLEAN) or 'discard' → close, continue
+    }
+    closeDocumentById(d.id, notify)
+  }
 }
 
 // ——— Open-set reorder (H02 §12 `app.tab.reorder` — chrome view action) ———

@@ -194,6 +194,7 @@ function capture(...names: string[]): { events: CapEvent[]; stop: () => void } {
   )
   return { events, stop: () => offs.forEach((off) => off()) }
 }
+const flush = () => new Promise((r) => setTimeout(r, 0))
 
 beforeEach(() => {
   fake.reset()
@@ -415,8 +416,11 @@ describe('H04 §8/§9 — dirty GUARD decision contract (Save/Discard/Cancel)', 
     render(<App />)
     fireEvent.click(screen.getByTestId('menu.file'))
     fireEvent.click(screen.getByTestId('menu-item-file.closeAll'))
-    expect(screen.getByTestId('dlg-close')).toBeInTheDocument() // guard fires for the dirty doc
+    // H07 §6 sequential (P-5): clean A closes first WITHOUT a dialog; the
+    // per-doc guard fires for dirty B
+    expect(screen.getByTestId('dlg-close')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('dlg-close-discard'))
+    await flush() // the sequential loop resumes on the resolved decision
     expect(fake.docList()).toHaveLength(0) // all closed after the guard resolved
     expect(fake.activeDocId()).toBe(0)
   })

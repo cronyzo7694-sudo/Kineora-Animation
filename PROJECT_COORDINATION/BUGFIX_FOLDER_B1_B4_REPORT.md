@@ -1,13 +1,16 @@
-# BUG FIX REPORT — folder bugs B-1 / B-2 / B-3 / B-4 (engine only)
+# BUG FIX REPORT — registered defects B-1…B-8 + BUG-P-001
 
 **Scope:** bug fixes ONLY. No new feature, no new command surface, no new UI,
 no new bus event, no schema change. Every fix closes an already-registered bug
 from `PROJECT_COORDINATION/LAYER_SYSTEM_FORENSIC_RESEARCH.md` §28 (and the copy
 of that table in `TIMELINE_LAYERS_RESEARCH/06_GAPS_BUGS_AMBS.md` §B).
 
-**Files touched (only these four):**
-`animator/core/src/eval.rs`, `animator/core/src/session.rs`,
-`animator/core/src/command.rs`, `animator/core/tests/layers.rs`.
+**Files touched:** `animator/core/src/eval.rs`, `animator/core/src/session.rs`,
+`animator/core/src/command.rs`, `animator/core/tests/layers.rs`,
+`animator/core/tests/properties.rs`, `animator/ui/src/engine/client.ts`,
+`animator/ui/src/engine/client.frameClipboard.test.ts`,
+`animator/ui/src/components/PropertiesPanel.tsx`,
+`animator/ui/src/components/PropertiesPanel.test.tsx`, `docs/BUGS.md`.
 
 ---
 
@@ -82,6 +85,54 @@ step. `DuplicateLayer.layer: Layer` became `DuplicateLayer.layers: Vec<Layer>`
 before inserting them handed out the SAME id repeatedly. The batch now counts up
 locally from `alloc_layer_id()`, keeping ids unique and stable.
 
+
+## B-5 — `place_symbol` accepted a folder target
+
+`draw_rect` and `paste_objects` already refused folders; dragging a symbol from
+the Library onto the stage while a folder row was active did not. Same guard
+added (log + `NodeId(0)`, no command).
+
+## B-2 (full scope) — every frame op, not just F5/F6/F7
+
+`12_AUDIT.md` §3 named `paste_frames` as the same hole (and
+`convert_to_blank_keyframes` would have created blank keyframes on a folder).
+The `layer_is_folder(layer)` guard now covers `move_keyframe`,
+`duplicate_keyframe`, `copy/cut/paste/remove/reverse_frames`,
+`set/remove_classic_tween`, `resize_span`, `duplicate_frames`,
+`convert_to_keyframes`, `convert_to_blank_keyframes` and `set_frame_label`.
+Frame ops are NOT forwarded to the folder's child layers — that would be new
+behavior (Adobe does forward for Copy Frames on a collapsed folder; Kineora has
+no multi-layer frame clipboard, so the honest result is a no-op, registered as
+a gap, not silently invented).
+
+## B-6 — reordering a folder stranded its children
+
+`move_layer` moved only the folder row, so its children stayed behind in the
+stack and the tree rendered broken. The folder's whole subtree now moves as one
+block (relative order preserved, `parent_id`s untouched, one undo step). A drop
+position inside the moved block is skipped in the direction of travel, so
+"move up" steps over the folder's own children instead of refusing; when there
+is nothing past the subtree the call is a clean no-op.
+Adobe: folders hold layers "in much the same way you organize files on your
+computer".
+
+## B-8 / BUG-TOOL-011 — `copyFrames` emitted `document:changed`
+
+Copying frames fills the session clipboard; it mutates nothing (H04 "copy is
+not a mutation" — `copyObjects` already never emitted). The emit is dropped;
+cut/paste still emit. The Paste button reads `clipboard_len` from the 120 ms
+status poll, so it still enables right after a copy.
+
+## BUG-P-001 — mixed selection containing a symbol instance
+
+Verified before fixing: `apply_node_props` returns instances unchanged, so
+there was NO data corruption — but the panel still rendered W/H for a multi
+selection containing an instance and sent width/height patches for its id, so
+the edit silently applied to the rects only. W/H are now hidden whenever any
+selected object is an instance (identical to the existing single-instance
+rule), and the commit filters instance ids. Instance W/H editing was NOT added
+— that is AMB-P-004, still open.
+
 ---
 
 ## Tests added (`animator/core/tests/layers.rs`)
@@ -91,6 +142,13 @@ locally from `alloc_layer_id()`, keeping ids unique and stable.
 - `folder_lock_cascades_one_undo` (B-3, one history entry + undo restore)
 - `frame_ops_are_blocked_on_a_folder` (B-2, no command recorded)
 - `duplicate_folder_deep_copies_the_subtree` (B-4, nesting + independence + undo/redo)
+- `reordering_a_folder_carries_its_children` + `a_folder_move_steps_over_its_own_subtree` (B-6)
+- `properties.rs::set_node_props_on_a_symbol_instance_is_a_no_op` (BUG-P-001 engine proof)
+
+## UI tests added (run and PASSING here — 790 total, was 786)
+
+- `engine/client.frameClipboard.test.ts` — copy emits nothing, cut/paste still emit (B-8)
+- `PropertiesPanel.test.tsx` — W/H hidden with an instance in the selection; W edit patch shape (BUG-P-001)
 
 ## VERIFICATION STATUS — READ THIS
 
@@ -105,8 +163,12 @@ before this is marked ACCEPTED:
 cd animator/core && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-## Known bug intentionally NOT touched (avoid collision with the other agent)
+## Registered items intentionally NOT touched (feature gaps, not defects)
 
-- **B-8** — `copyFrames` in `animator/ui/src/engine/client.ts` emits
-  `document:changed` although copying is not a mutation. It lives in the UI
-  layer where another agent is working; left alone on purpose.
+BUG-TOOL-001/002/004/005/006/009/010/014 (drill-in double-click, Shift/Alt
+modifiers, edge reshape, dedicated transform mode, pivot/skew, tween-layer
+guard UI), BUG-TOOL-007/008 (rect tool's hard-coded fill/stroke — needs the
+Color system SYS-21), BUG-P-002 (context chip gains tool/frame modes only once
+those modes exist), and the whole AMB-TL-* / AMB-P-* ambiguity register
+("do not guess"). Fixing these means BUILDING missing features or guessing a
+product decision, which is out of scope for a bug-fix pass.

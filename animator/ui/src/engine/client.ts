@@ -347,10 +347,12 @@ export function duplicateKeyframe(layer: number, from: number, to: number): bool
   return ok
 }
 
+/** BUG B-8 / BUG-TOOL-011: copying frames fills the session clipboard — it does
+ *  NOT mutate the document, so it must not emit `document:changed` (that made
+ *  panels re-render and look like something was edited/saved). Same rule as
+ *  `copyObjects`, which never emitted. */
 export function copyFrames(layer: number, start: number, end: number): boolean {
-  const ok = mod?.kineora_copy_frames(layer, start, end) ?? false
-  if (ok) docChanged('frame')
-  return ok
+  return mod?.kineora_copy_frames(layer, start, end) ?? false
 }
 
 export function cutFrames(layer: number, start: number, end: number): boolean {

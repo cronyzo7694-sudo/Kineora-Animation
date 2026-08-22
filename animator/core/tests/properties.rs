@@ -365,3 +365,41 @@ fn node_id_newtype_identity_holds_for_patches() {
     let id = s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
     assert_eq!(id, NodeId(1), "node ids are monotonic from 1");
 }
+
+/// BUG-P-001 (verification) — a symbol instance owns no base W/H, so a
+/// `set_node_props` width/height patch aimed at one must be a NO-OP: no node
+/// change, no command, no undo entry (the Properties panel additionally stops
+/// sending it — `PropertiesPanel.tsx`, BUG-P-001).
+#[test]
+fn set_node_props_on_a_symbol_instance_is_a_no_op() {
+    use animator_core::SymbolType;
+    let mut s = session();
+    let a = s.draw_rect(0.0, 0.0, 100.0, 50.0, "#ff0000");
+    s.selection = vec![a];
+    let inst = s.convert_selection_to_symbol("arm", SymbolType::Graphic, 4);
+    assert_ne!(inst, NodeId(0), "instance created");
+    let before = s.doc.nodes.get(&inst).cloned().expect("instance node");
+    let history = s.history.undo_len();
+
+    s.set_node_props(vec![(
+        inst,
+        NodePropsPatch {
+            width: Some(999.0),
+            height: Some(999.0),
+            fill: Some("#00ff00".into()),
+            ..Default::default()
+        },
+    )]);
+
+    assert_eq!(
+        s.doc.nodes.get(&inst),
+        Some(&before),
+        "instance node is untouched by a base-props patch"
+    );
+    assert_eq!(
+        s.history.undo_len(),
+        history,
+        "no command / no undo entry for a no-op patch"
+    );
+    assert!(s.doc.nodes.contains_key(&a), "source rect still exists");
+}

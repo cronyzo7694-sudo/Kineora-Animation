@@ -8,6 +8,7 @@ import {
   panBy,
   screenToDoc,
   zoomAt,
+  zoomToRect,
 } from './viewport'
 
 describe('viewport geometry', () => {
@@ -43,8 +44,9 @@ describe('viewport geometry', () => {
   })
 
   it('clampZoom bounds zoom to [MIN, MAX]', () => {
-    expect(clampZoom(0)).toBeGreaterThanOrEqual(0.05)
-    expect(clampZoom(1e9)).toBeLessThanOrEqual(32)
+    // Adobe Animate's documented range: 8% … 2000%
+    expect(clampZoom(0)).toBe(0.08)
+    expect(clampZoom(1e9)).toBe(20)
     expect(clampZoom(1.5)).toBe(1.5)
   })
 
@@ -106,5 +108,35 @@ describe('viewport never mutates document coordinates (foundation regression)', 
     const docAfter = screenToDoc(zoomed, anchor.x, anchor.y)
     expect(docAfter.x).toBeCloseTo(docBefore.x, 9)
     expect(docAfter.y).toBeCloseTo(docBefore.y, 9)
+  })
+})
+
+describe('zoomToRect — Zoom tool marquee (Adobe: "drag a rectangular selection")', () => {
+  it('makes the dragged doc rect fill the view, centered', () => {
+    const vp = zoomToRect(createViewport(), { x: 100, y: 100, w: 200, h: 100 }, 800, 400)
+    expect(vp.zoom).toBe(4) // min(800/200, 400/100)
+    // the rect centre (200,150) lands at the view centre (400,200)
+    const c = docToScreen(vp, 200, 150)
+    expect(c.x).toBeCloseTo(400)
+    expect(c.y).toBeCloseTo(200)
+  })
+
+  it('keeps the whole rect visible when the aspect ratios differ', () => {
+    const vp = zoomToRect(createViewport(), { x: 0, y: 0, w: 400, h: 100 }, 800, 800)
+    expect(vp.zoom).toBe(2) // limited by width
+    const tl = docToScreen(vp, 0, 0)
+    const br = docToScreen(vp, 400, 100)
+    expect(tl.x).toBeGreaterThanOrEqual(0)
+    expect(br.x).toBeLessThanOrEqual(800)
+  })
+
+  it('clamps to the Adobe maximum (2000%) for a tiny marquee', () => {
+    const vp = zoomToRect(createViewport(), { x: 0, y: 0, w: 0.5, h: 0.5 }, 800, 400)
+    expect(vp.zoom).toBe(20)
+  })
+
+  it('a degenerate rect (a click, not a drag) leaves the viewport untouched', () => {
+    const base = { zoom: 1.5, panX: 10, panY: 20 }
+    expect(zoomToRect(base, { x: 5, y: 5, w: 0, h: 0 }, 800, 400)).toEqual(base)
   })
 })

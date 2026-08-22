@@ -16,7 +16,7 @@ import {
 } from '../engine/client'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
-import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
+import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, zoomToRect, type Viewport } from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
   handlePositions,
@@ -42,6 +42,25 @@ interface Props {
   notify?: (msg: string) => void
   /** Live color/stroke preview while a Properties field is being edited. */
   colorPreview?: ColorPreview | null
+}
+
+/**
+ * Pointer feedback per tool (Adobe's Tools panel cursors): the Hand tool grabs,
+ * the Zoom tool magnifies, drawing tools cross-hair.
+ */
+export function stageCursor(tool: string): string {
+  switch (tool) {
+    case 'hand':
+      return 'grab'
+    case 'zoom':
+      return 'zoom-in'
+    case 'rect':
+      return 'crosshair'
+    case 'transform':
+      return 'move'
+    default:
+      return 'default'
+  }
 }
 
 interface SelectGesture {
@@ -92,6 +111,27 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
   const marqueeRef = useRef<DocRect | null>(null)
   const marqueeStartRef = useRef<Pt | null>(null)
   const rafRef = useRef<number | null>(null)
+  // ——— view tools (Adobe: Hand H / Zoom Z, helpx "Use the Stage and Tools
+  // panel for Animate") ———
+  // `spaceHeld` = the Spacebar override ("To temporarily switch between another
+  // tool and the Hand tool, hold down the Spacebar"). `zoomMarquee` is the
+  // Zoom tool's drag rectangle ("drag a rectangular selection on the Stage").
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const spaceHeldRef = useRef(false)
+  const zoomMarqueeRef = useRef<DocRect | null>(null)
+  const zoomStartRef = useRef<{ doc: Pt; sx: number; sy: number; dragging: boolean } | null>(null)
+  /** The tool actually driving the pointer right now (Spacebar wins). */
+  const activeTool = () => (spaceHeldRef.current ? 'hand' : toolRef.current)
+  /**
+   * BUG-TOOL-005 — the Free Transform tool (Q) was registered but the pointer
+   * router only understood 'select', so picking it did nothing. In Adobe the
+   * Free Transform tool selects objects AND shows the transform handles, i.e.
+   * it drives the same pointer paths as the Selection tool.
+   */
+  const isSelectLike = () => {
+    const t = activeTool()
+    return t === 'select' || t === 'transform'
+  }
 
   const scheduleRedraw = () => {
     if (rafRef.current == null) {
@@ -194,7 +234,19 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
         return
       }
 
-      if (toolRef.current === 'select') {
+      // Zoom-tool marquee
+      const zg = zoomStartRef.current
+      if (zg) {
+        if (!zg.dragging) {
+          if (!pastDragThreshold(sx - zg.sx, sy - zg.sy)) return
+          zg.dragging = true
+        }
+        zoomMarqueeRef.current = normalizeRect(zg.doc.x, zg.doc.y, doc.x, doc.y)
+        scheduleRedraw()
+        return
+      }
+
+      if (isSelectLike()) {
         // transform gesture (scale/rotate handles)
         if (transformRef.current) {
           const g = transformRef.current
@@ -234,7 +286,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
 
       // rect-tool draw
       const rg = rectGestureRef.current
-      if (rg && toolRef.current === 'rect') {
+      if (rg && activeTool() === 'rect') {
         if (!rg.dragging) {
           if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return
           rg.dragging = true
@@ -252,6 +304,25 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
 
     const up = (e: MouseEvent) => {
       panDragRef.current = null
+
+      // ——— Zoom tool commit (Adobe: click = zoom in, Alt/Option+click = zoom
+      // out, drag = the dragged area fills the window) ———
+      const zg = zoomStartRef.current
+      zoomStartRef.current = null
+      const zm = zoomMarqueeRef.current
+      zoomMarqueeRef.current = null
+      if (zg) {
+        const wrap = wrapRef.current
+        if (wrap) {
+          if (zg.dragging && zm && zm.w > 0 && zm.h > 0) {
+            applyViewport(zoomToRect(vpRef.current, zm, wrap.clientWidth, wrap.clientHeight))
+          } else {
+            applyViewport(zoomAt(vpRef.current, zg.sx, zg.sy, e.altKey ? 0.5 : 2))
+          }
+        }
+        scheduleRedraw()
+        return
+      }
 
       // commit transform (one command)
       const tg = transformRef.current
@@ -308,6 +379,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
 
     const cancel = () => {
       panDragRef.current = null
+      zoomStartRef.current = null
+      zoomMarqueeRef.current = null
       selectGestureRef.current = null
       previewRef.current = null
       rectGestureRef.current = null
@@ -323,11 +396,13 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
     // Capture so we win over edit.exitOneLevel when a draw is live.
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return
-      if (!rectGestureRef.current) return
+      if (!rectGestureRef.current && !zoomStartRef.current) return
       ev.preventDefault()
       ev.stopPropagation()
       rectGestureRef.current = null
       rectPreviewRef.current = null
+      zoomStartRef.current = null
+      zoomMarqueeRef.current = null
       scheduleRedraw()
     }
 
@@ -344,6 +419,48 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       window.removeEventListener('keydown', onKey, true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ——— Spacebar = temporary Hand tool (Adobe: "To temporarily switch between
+  // another tool and the Hand tool, hold down the Spacebar") ———
+  // Ignored while typing in a field, and released on blur so the override can
+  // never get stuck.
+  useEffect(() => {
+    const typing = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null
+      if (!el || !el.tagName) return false
+      const tag = el.tagName.toLowerCase()
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true
+    }
+    const setHeld = (v: boolean) => {
+      if (spaceHeldRef.current === v) return
+      spaceHeldRef.current = v
+      setSpaceHeld(v)
+    }
+    const down = (ev: KeyboardEvent) => {
+      if (ev.code !== 'Space' && ev.key !== ' ') return
+      if (typing(ev.target)) return
+      if (ev.repeat) return
+      ev.preventDefault() // no page scroll, no button re-trigger
+      setHeld(true)
+    }
+    const up = (ev: KeyboardEvent) => {
+      if (ev.code !== 'Space' && ev.key !== ' ') return
+      setHeld(false)
+      panDragRef.current = null
+    }
+    const release = () => {
+      setHeld(false)
+      panDragRef.current = null
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', release)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', release)
+    }
   }, [])
 
   // ——— render loop ———
@@ -391,7 +508,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       items: displayItems,
       selectedIds: status.selection ?? [],
       overlay,
-      marquee: marqueeRef.current,
+      marquee: marqueeRef.current ?? zoomMarqueeRef.current,
       previewDelta: previewRef.current,
       previewRect: rectPreviewRef.current,
       colorPreview,
@@ -441,7 +558,22 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       return
     }
 
-    if (e.button === 0 && toolRef.current === 'select') {
+    // ——— Hand tool (H) / Spacebar override: drag the Stage to move the view ———
+    if (e.button === 0 && activeTool() === 'hand') {
+      e.preventDefault()
+      panDragRef.current = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    // ——— Zoom tool (Z): click = in, Alt+click = out, drag = zoom to area ———
+    if (e.button === 0 && activeTool() === 'zoom') {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      zoomStartRef.current = { doc, sx, sy, dragging: false }
+      zoomMarqueeRef.current = null
+      return
+    }
+
+    if (e.button === 0 && isSelectLike()) {
       const doc = screenToDoc(vpRef.current, sx, sy)
 
       // 1) handle hit-test → arm transform gesture
@@ -483,7 +615,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       return
     }
 
-    if (e.button === 0 && toolRef.current === 'rect') {
+    if (e.button === 0 && activeTool() === 'rect') {
       const startDoc = screenToDoc(vpRef.current, sx, sy)
       rectGestureRef.current = {
         startX: sx,
@@ -537,7 +669,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       <canvas
         ref={canvasRef}
         data-testid="stage-canvas"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }}
+        data-tool={spaceHeld ? 'hand' : tool}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: stageCursor(spaceHeld ? 'hand' : tool) }}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
@@ -551,7 +684,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
         </div>
       )}
       <div style={{ position: 'absolute', bottom: 4, left: 8, color: '#888', fontSize: 12, pointerEvents: 'none' }}>
-        tool: {tool} · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span> · stage: <span data-testid="stage-readout">{stageW}×{stageH}</span>
+        tool: <span data-testid="tool-readout">{spaceHeld ? 'hand (space)' : tool}</span> · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span> · stage: <span data-testid="stage-readout">{stageW}×{stageH}</span>
       </div>
     </div>
   )

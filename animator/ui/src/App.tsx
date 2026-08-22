@@ -532,6 +532,8 @@ export default function App() {
       'tool.select',
       'tool.rect',
       'tool.transform',
+      'tool.hand',
+      'tool.zoom',
       'edit.undo',
       'edit.redo',
       'file.new',

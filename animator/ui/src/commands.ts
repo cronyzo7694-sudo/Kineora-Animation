@@ -298,6 +298,32 @@ export const commands: Command[] = [
     run: (c) => c.setTool('transform'),
     toolbar: true,
   },
+  {
+    // Adobe: "In the Tools panel, select the Hand tool and drag the Stage…
+    // To temporarily switch between another tool and the Hand tool, hold down
+    // the Spacebar" (helpx — Use the Stage and Tools panel for Animate).
+    id: 'tool.hand',
+    label: 'Hand Tool',
+    category: 'tools',
+    shortcut: 'H',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Stage & Tools panel — view tools',
+    run: (c) => c.setTool('hand'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "select the Zoom tool and click the element… Alt-click to zoom
+    // out… To zoom in so that a specific area fills the window, drag a
+    // rectangular selection on the Stage with the Zoom tool."
+    id: 'tool.zoom',
+    label: 'Zoom Tool',
+    category: 'tools',
+    shortcut: 'Z',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Stage & Tools panel — view tools',
+    run: (c) => c.setTool('zoom'),
+    toolbar: true,
+  },
 
   // ——— File (SYS-02 §6.1/§7: 10 REQUIRED + 8 HANDOFF; AIR/Print/Page-Setup = HIDDEN) ———
   {

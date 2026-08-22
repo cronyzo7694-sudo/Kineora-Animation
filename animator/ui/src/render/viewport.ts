@@ -8,8 +8,13 @@ export interface Viewport {
   panY: number
 }
 
-export const MIN_ZOOM = 0.05
-export const MAX_ZOOM = 32
+/**
+ * Adobe Animate's documented magnification range: "The minimum value for
+ * zooming out on the Stage is 8%. The maximum value for zooming in on the
+ * Stage is 2000%." (helpx — Use the Stage and Tools panel for Animate).
+ */
+export const MIN_ZOOM = 0.08
+export const MAX_ZOOM = 20
 
 export function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
@@ -77,4 +82,21 @@ export function zoomAt(vp: Viewport, anchorX: number, anchorY: number, factor: n
 /** Pan by a screen-space delta. */
 export function panBy(vp: Viewport, dx: number, dy: number): Viewport {
   return { ...vp, panX: vp.panX + dx, panY: vp.panY + dy }
+}
+
+/**
+ * Zoom tool marquee (Adobe: "To zoom in so that a specific area of your drawing
+ * fills the window, drag a rectangular selection on the Stage with the Zoom
+ * tool"): return the viewport that makes `r` (document space) fill the view,
+ * centered. A degenerate rect (a click, not a drag) returns the viewport
+ * unchanged — the caller treats that as a click-zoom instead.
+ */
+export function zoomToRect(vp: Viewport, r: DocRect, viewW: number, viewH: number): Viewport {
+  if (r.w <= 0 || r.h <= 0 || viewW <= 0 || viewH <= 0) return vp
+  const zoom = clampZoom(Math.min(viewW / r.w, viewH / r.h))
+  return {
+    zoom,
+    panX: viewW / 2 - (r.x + r.w / 2) * zoom,
+    panY: viewH / 2 - (r.y + r.h / 2) * zoom,
+  }
 }

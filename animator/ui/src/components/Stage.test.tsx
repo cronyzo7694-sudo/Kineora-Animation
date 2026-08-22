@@ -509,3 +509,171 @@ describe('Stage — library drag-drop (place + swap)', () => {
     expect(vi.mocked(placeSymbol)).not.toHaveBeenCalled()
   })
 })
+
+// ————————————————————————————————————————————————————————————————
+// View tools — Adobe Animate "Use the Stage and Tools panel":
+//  · Hand tool: "select the Hand tool and drag the Stage"; "To temporarily
+//    switch between another tool and the Hand tool, hold down the Spacebar."
+//  · Zoom tool: "click the element" (in), "Alt-click (Windows)… to zoom out",
+//    "To zoom in so that a specific area of your drawing fills the window,
+//    drag a rectangular selection on the Stage with the Zoom tool."
+// ————————————————————————————————————————————————————————————————
+
+/** jsdom gives elements a 0×0 box — give the stage a real size when the test
+ *  exercises view math that depends on the viewport size (fit / zoom-to-area). */
+function sizeStage(w: number, h: number): void {
+  const wrap = screen.getByTestId('stage-wrap')
+  Object.defineProperty(wrap, 'clientWidth', { value: w, configurable: true })
+  Object.defineProperty(wrap, 'clientHeight', { value: h, configurable: true })
+}
+
+describe('Stage — Hand tool (H)', () => {
+  it('dragging with the Hand tool pans the view', async () => {
+    renderStage('hand')
+    const canvas = screen.getByTestId('stage-canvas')
+    expect(screen.getByTestId('pan-readout')).toHaveTextContent('0,0')
+
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseMove(window, { clientX: 140, clientY: 130 })
+    await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('40,30'))
+    fireEvent.mouseUp(window)
+
+    // pan ended: further movement must not keep panning
+    fireEvent.mouseMove(window, { clientX: 300, clientY: 300 })
+    expect(screen.getByTestId('pan-readout')).toHaveTextContent('40,30')
+  })
+
+  it('the Hand tool never touches the document (no selection / draw calls)', () => {
+    renderStage('hand')
+    const canvas = screen.getByTestId('stage-canvas')
+    drag(canvas, [10, 10], [80, 60])
+    expect(selectAtMock).not.toHaveBeenCalled()
+    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+
+  it('shows a grab cursor and marks the canvas with the active tool', () => {
+    renderStage('hand')
+    const canvas = screen.getByTestId('stage-canvas')
+    expect(canvas).toHaveAttribute('data-tool', 'hand')
+    expect(canvas.style.cursor).toBe('grab')
+  })
+})
+
+describe('Stage — Spacebar = temporary Hand tool', () => {
+  it('holding Space pans with any tool active, and releasing restores it', async () => {
+    renderStage('rect')
+    const canvas = screen.getByTestId('stage-canvas')
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+    await waitFor(() => expect(screen.getByTestId('tool-readout')).toHaveTextContent('hand (space)'))
+    expect(canvas).toHaveAttribute('data-tool', 'hand')
+
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 50, clientY: 50 })
+    fireEvent.mouseMove(window, { clientX: 70, clientY: 90 })
+    await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('20,40'))
+    fireEvent.mouseUp(window)
+    expect(drawRectMock).not.toHaveBeenCalled() // the rect tool did NOT draw
+
+    fireEvent.keyUp(window, { code: 'Space', key: ' ' })
+    await waitFor(() => expect(screen.getByTestId('tool-readout')).toHaveTextContent('rect'))
+  })
+
+  it('Space typed into a text field never hijacks the tool', () => {
+    renderStage('select')
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    fireEvent.keyDown(input, { code: 'Space', key: ' ' })
+    expect(screen.getByTestId('tool-readout')).toHaveTextContent('select')
+    input.remove()
+  })
+
+  it('window blur releases a stuck Spacebar override', async () => {
+    renderStage('select')
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+    await waitFor(() => expect(screen.getByTestId('tool-readout')).toHaveTextContent('hand (space)'))
+    fireEvent.blur(window)
+    await waitFor(() => expect(screen.getByTestId('tool-readout')).toHaveTextContent('select'))
+  })
+})
+
+describe('Stage — Zoom tool (Z)', () => {
+  it('click zooms IN around the pointer', async () => {
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100 })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('200%'))
+  })
+
+  it('Alt+click zooms OUT (Adobe: "Alt‑click (Windows) … to zoom out")', async () => {
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100, altKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('50%'))
+  })
+
+  it('dragging a rectangle magnifies that area (and never edits the document)', async () => {
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    sizeStage(800, 600)
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 10 })
+    fireEvent.mouseMove(window, { clientX: 210, clientY: 110 })
+    fireEvent.mouseUp(window, { clientX: 210, clientY: 110 })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).not.toHaveTextContent('100%'))
+    expect(selectInRectMock).not.toHaveBeenCalled()
+    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+
+  it('Escape cancels an in-progress zoom marquee (view unchanged)', async () => {
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 10 })
+    fireEvent.mouseMove(window, { clientX: 210, clientY: 110 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseUp(window, { clientX: 210, clientY: 110 })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
+  })
+
+  it('shows the magnifier cursor', () => {
+    renderStage('zoom')
+    expect(screen.getByTestId('stage-canvas').style.cursor).toBe('zoom-in')
+  })
+})
+
+describe('Stage — Free Transform tool (Q) drives the pointer (BUG-TOOL-005)', () => {
+  it('clicking with the transform tool selects, like the Selection tool', () => {
+    renderStage('transform')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 40 })
+    fireEvent.mouseUp(window)
+    expect(selectAtMock).toHaveBeenCalled()
+  })
+
+  it('dragging the selection with the transform tool commits ONE move command', () => {
+    renderStage('transform')
+    const canvas = screen.getByTestId('stage-canvas')
+    drag(canvas, [40, 40], [90, 70])
+    expect(moveSelectionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('dragging a scale handle commits one transformSelection command', () => {
+    renderStage('transform')
+    const canvas = screen.getByTestId('stage-canvas')
+    // the mocked selection is the doc rect (0,0,100,100); its bottom-right
+    // handle sits at doc (100,100) = screen (100,100) at zoom 1 / pan 0.
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseMove(window, { clientX: 200, clientY: 200 })
+    fireEvent.mouseUp(window)
+    expect(transformSelectionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('the rect tool is unaffected by the transform tool wiring', () => {
+    renderStage('rect')
+    const canvas = screen.getByTestId('stage-canvas')
+    drag(canvas, [10, 10], [60, 50])
+    expect(drawRectMock).toHaveBeenCalled()
+  })
+})

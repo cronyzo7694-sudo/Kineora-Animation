@@ -254,14 +254,12 @@ deps absent); (c) toolchain does NOT persist across worker sessions (sandbox sna
 - **Not fixed by AI-D:** SYS-16 core semantics = AI-C's ownership; implementing them here would be a silent cross-SYS write.
 
 ### BUG-D-001 — pre-existing failing Rust test on main (owner: AI-B/AI-A — sys03-edit)
+- **Status:** **RESOLVED** (2026-08-23) — assertion repaired to match the comment + impl.
 - **BUG:** `edit_ops.rs::paste_and_duplicate_blocked_when_active_layer_is_a_folder` FAILS on
   origin/main (`094f08f`): "blocked paste must not change selection" (tests/edit_ops.rs:288).
-- **EVIDENCE:** reproduced on a clean worktree at `094f08f` (pre-AI-D-rebase) — failure is
-  pre-existing from commit `40999d7` (fix + test landed together; test asserts the blocked paste
-  leaves selection untouched, implementation apparently still mutates it).
-- **OWNER:** SYS-03 Edit (40999d7's author). **IMPACT:** cargo test red on main (97→ suite halts at
-  edit_ops; downstream binaries unreported). **NOT fixed by AI-D:** whether a blocked paste may
-  touch selection = the owner's contract decision, not mechanical.
-- **RECOMMENDED HANDOFF:** owner re-runs `cargo test --test edit_ops` (toolchain: rustup ~15s),
-  fixes impl or assertion. (Repeat of the FL-0035-candidate pattern: cross-boundary commits
-  authored without running the Rust side.)
+- **ROOT CAUSE (verified):** implementation already returned false with no mutation. After
+  draw+copy the source rect stays selected; `create_folder` / `set_active_layer` do not clear
+  selection. The test then asserted `selection.is_empty()`, which contradicted its own
+  "must not change selection" comment. Not an impl bug.
+- **FIX:** compare `selection` to the pre-paste snapshot. Paste still blocked; no undo; no
+  selection change. Duplicate still blocked via the paste path.

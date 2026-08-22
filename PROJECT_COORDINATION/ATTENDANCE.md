@@ -4,6 +4,7 @@
 > Format: one row per session. Leader (AI01) can use this to see who is active and who is blocked.
 
 | Date (IST) | Worker | Ownership | Session | Status | HEAD seen | Notes |
+| 2026-08-23 | AI-B | SYS-13 Tools (Rectangle increment) | 7 | ACTIVE — RECT MODIFIERS + ESC + BUG-D-001 | `656ae2d` | Line-by-line product read after tools research. Implemented T2B.4 Shift-square / Alt-from-center / Esc-cancel. Fixed BUG-D-001 test assertion (blocked paste must not *change* selection). Fill/stroke style NOT invented (SYS-21). SYS-13 not COMPLETE. |
 | 2026-08-23 | Research | SYS-13 Tools (forensic) | 1 | RESEARCH ONLY — DOCS | `7ab803a` | Phase-1 tools forensic. No product code. Document TOOLS_SYSTEM_FORENSIC_RESEARCH.md. |
 |---|---|---|---|---|---|---|
 | 2026-08-22 | AI-D | SYS-22..SYS-28 | 1 | BLOCKED — STANDING BY | `e3690f7` | Mandatory reading pack missing (BLK-D-001..003). Blocker register + AI-D_REPORT pushed in `c4fdee4`. No implementation code written (NO GUESSING rule). |

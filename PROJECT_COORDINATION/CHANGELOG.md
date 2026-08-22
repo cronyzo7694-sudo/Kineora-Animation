@@ -1,5 +1,13 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — SYS-13 Rectangle honesty (T2B.4 modifiers + Esc) + BUG-D-001
+
+- **One increment:** Rectangle tool Shift = square, Alt = from-center, Esc = discard in-progress (no command). Fill/stroke still hardcoded `#3f9bf5` / none — SYS-21 CurrentStyle not invented.
+- `gesture.ts` `buildRect()` — unconstrained path bit-identical to `normalizeRect`.
+- `Stage.tsx` rebuilds on mouseup from last pointer + live modifiers; Esc capture cancels the gesture.
+- **BUG-D-001:** `edit_ops.rs` folder-paste test asserted `selection.is_empty()` while the comment said “must not change selection”. Implementation already blocked paste correctly; assertion now compares against the pre-paste selection.
+- SYS-13 still **PARTIAL** (3 tools). Not COMPLETE. Native QA PENDING.
+
 ## 2026-08-23 — Tools system forensic research (docs only)
 
 - Research-only phase. **No product code.** Document: `PROJECT_COORDINATION/TOOLS_SYSTEM_FORENSIC_RESEARCH.md`.

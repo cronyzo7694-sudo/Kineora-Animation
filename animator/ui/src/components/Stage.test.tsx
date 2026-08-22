@@ -424,6 +424,36 @@ describe('Stage rect-tool drawing', () => {
     expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(100, 5)
     expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(50, 5)
   })
+
+  it('Shift-drag commits a square (longer side, start-corner anchor) — T2B.4', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50, shiftKey: true })
+    fireEvent.mouseUp(window, { shiftKey: true })
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    expect(drawRectMock).toHaveBeenCalledWith(0, 0, 100, 100, '#3f9bf5')
+  })
+
+  it('Alt-drag commits from the start point as center — T2B.4', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseMove(window, { clientX: 150, clientY: 120, altKey: true })
+    fireEvent.mouseUp(window, { altKey: true })
+    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    expect(drawRectMock).toHaveBeenCalledWith(50, 80, 100, 40, '#3f9bf5')
+  })
+
+  it('Escape mid-draw discards the rect — NO command (T2B.4 cancel)', async () => {
+    renderRectStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseUp(window)
+    expect(drawRectMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('Stage — library drag-drop (place + swap)', () => {

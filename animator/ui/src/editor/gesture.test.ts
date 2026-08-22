@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DRAG_THRESHOLD_PX, MIN_RECT_DIM, isValidRect, normalizeRect, pastDragThreshold, screenDeltaToDoc } from './gesture'
+import { DRAG_THRESHOLD_PX, MIN_RECT_DIM, buildRect, isValidRect, normalizeRect, pastDragThreshold, screenDeltaToDoc } from './gesture'
 
 describe('pointer→tool gesture math (select + move)', () => {
   it('drag threshold is 3px and rejects sub-threshold movement', () => {
@@ -58,5 +58,43 @@ describe('rect normalization (4 draw directions + minimums)', () => {
     expect(isValidRect({ x: 0, y: 0, w: 100, h: 0 })).toBe(false) // zero height
     expect(isValidRect({ x: 0, y: 0, w: MIN_RECT_DIM, h: MIN_RECT_DIM })).toBe(true)
     expect(isValidRect({ x: 0, y: 0, w: MIN_RECT_DIM - 0.1, h: 5 })).toBe(false)
+  })
+})
+
+describe('rect modifiers (Blueprint T2B.4 — Shift square, Alt from-center)', () => {
+  it('unconstrained buildRect matches normalizeRect in all four directions', () => {
+    expect(buildRect(0, 0, 100, 50)).toEqual(normalizeRect(0, 0, 100, 50))
+    expect(buildRect(100, 50, 0, 0)).toEqual(normalizeRect(100, 50, 0, 0))
+    expect(buildRect(100, 0, 0, 50)).toEqual(normalizeRect(100, 0, 0, 50))
+    expect(buildRect(0, 50, 100, 0)).toEqual(normalizeRect(0, 50, 100, 0))
+  })
+
+  it('Shift (square) uses the longer side and keeps the start-corner anchor', () => {
+    // 100×50 right-down → 100×100 from (0,0)
+    expect(buildRect(0, 0, 100, 50, { square: true })).toEqual({ x: 0, y: 0, w: 100, h: 100 })
+    // 40×90 right-down → 90×90
+    expect(buildRect(10, 10, 50, 100, { square: true })).toEqual({ x: 10, y: 10, w: 90, h: 90 })
+    // left-up from (100,100) to (50,80): |dx|=50 |dy|=20 → side 50 → (50,50,50,50)
+    expect(buildRect(100, 100, 50, 80, { square: true })).toEqual({ x: 50, y: 50, w: 50, h: 50 })
+  })
+
+  it('Alt (from-center) grows both ways from the start point', () => {
+    // start (100,100) → (150,120): hw=50 hh=20 → (50,80,100,40)
+    expect(buildRect(100, 100, 150, 120, { fromCenter: true })).toEqual({
+      x: 50,
+      y: 80,
+      w: 100,
+      h: 40,
+    })
+  })
+
+  it('Shift+Alt is a square grown from the start point as center', () => {
+    // start (100,100) → (150,120): side=50 → (50,50,100,100)
+    expect(buildRect(100, 100, 150, 120, { square: true, fromCenter: true })).toEqual({
+      x: 50,
+      y: 50,
+      w: 100,
+      h: 100,
+    })
   })
 })

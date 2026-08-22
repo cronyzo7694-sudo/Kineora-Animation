@@ -61,6 +61,44 @@ export function normalizeRect(ax: number, ay: number, bx: number, by: number): D
   }
 }
 
+/** Blueprint T2B.4 modifiers — not invented: Shift = square, Alt = from center. */
+export interface RectBuildOpts {
+  square?: boolean
+  fromCenter?: boolean
+}
+
+/**
+ * Build a document-space rectangle from a drag, applying Blueprint T2B.4
+ * modifiers. Unconstrained (`{}`) is identical to `normalizeRect`.
+ *
+ * - square: side = max(|dx|, |dy|); the start corner (or center) is the anchor
+ * - fromCenter: start point is the center; pointer is a corner
+ * - both: square grown from the start point as center
+ */
+export function buildRect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  opts: RectBuildOpts = {},
+): DocRect {
+  const dx = bx - ax
+  const dy = by - ay
+  let hw = Math.abs(dx)
+  let hh = Math.abs(dy)
+  if (opts.square) {
+    const side = Math.max(hw, hh)
+    hw = side
+    hh = side
+  }
+  if (opts.fromCenter) {
+    return { x: ax - hw, y: ay - hh, w: hw * 2, h: hh * 2 }
+  }
+  const x = dx < 0 ? ax - hw : ax
+  const y = dy < 0 ? ay - hh : ay
+  return { x, y, w: hw, h: hh }
+}
+
 /** True when a normalized rect is big enough to create an object. */
 export function isValidRect(r: DocRect): boolean {
   return r.w >= MIN_RECT_DIM && r.h >= MIN_RECT_DIM

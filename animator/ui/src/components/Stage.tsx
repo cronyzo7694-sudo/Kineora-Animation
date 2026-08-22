@@ -17,7 +17,7 @@ import {
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
-import { pastDragThreshold, screenDeltaToDoc, normalizeRect, isValidRect, type DocRect } from '../editor/gesture'
+import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
   handlePositions,
   oppositeHandle,
@@ -54,6 +54,8 @@ interface RectGesture {
   startX: number
   startY: number
   dragging: boolean
+  lastDocX: number
+  lastDocY: number
 }
 
 interface TransformGesture {
@@ -237,13 +239,18 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
           if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return
           rg.dragging = true
         }
+        rg.lastDocX = doc.x
+        rg.lastDocY = doc.y
         const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
-        rectPreviewRef.current = normalizeRect(a.x, a.y, doc.x, doc.y)
+        rectPreviewRef.current = buildRect(a.x, a.y, doc.x, doc.y, {
+          square: e.shiftKey,
+          fromCenter: e.altKey,
+        })
         scheduleRedraw()
       }
     }
 
-    const up = () => {
+    const up = (e: MouseEvent) => {
       panDragRef.current = null
 
       // commit transform (one command)
@@ -278,15 +285,22 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
         moveSelection(p.x, p.y)
       }
 
-      // commit rect draw
+      // commit rect draw — rebuild from last pointer + modifiers at release
+      // so Shift/Alt held through mouseup still apply (T2B.4).
       const rg = rectGestureRef.current
       rectGestureRef.current = null
-      const rp = rectPreviewRef.current
       rectPreviewRef.current = null
-      if (rg?.dragging && rp && isValidRect(rp)) {
-        const id = drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
-        if (id === 0 && engine.kind === 'ok' && notify) {
-          notify('draw blocked: active layer is locked or hidden')
+      if (rg?.dragging) {
+        const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
+        const rp = buildRect(a.x, a.y, rg.lastDocX, rg.lastDocY, {
+          square: e.shiftKey,
+          fromCenter: e.altKey,
+        })
+        if (isValidRect(rp)) {
+          const id = drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
+          if (id === 0 && engine.kind === 'ok' && notify) {
+            notify('draw blocked: active layer is locked, hidden, or a folder')
+          }
         }
       }
       scheduleRedraw()
@@ -305,15 +319,29 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       scheduleRedraw()
     }
 
+    // Blueprint T2B.4: Esc discards an in-progress rect (no command, no undo).
+    // Capture so we win over edit.exitOneLevel when a draw is live.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return
+      if (!rectGestureRef.current) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      rectGestureRef.current = null
+      rectPreviewRef.current = null
+      scheduleRedraw()
+    }
+
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
     window.addEventListener('pointercancel', cancel)
     window.addEventListener('blur', cancel)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('blur', cancel)
+      window.removeEventListener('keydown', onKey, true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -456,7 +484,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
     }
 
     if (e.button === 0 && toolRef.current === 'rect') {
-      rectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+      const startDoc = screenToDoc(vpRef.current, sx, sy)
+      rectGestureRef.current = {
+        startX: sx,
+        startY: sy,
+        dragging: false,
+        lastDocX: startDoc.x,
+        lastDocY: startDoc.y,
+      }
       rectPreviewRef.current = null
       scheduleRedraw()
     }

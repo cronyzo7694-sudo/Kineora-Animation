@@ -276,6 +276,7 @@ fn paste_and_duplicate_blocked_when_active_layer_is_a_folder() {
     s.set_active_layer(folder);
 
     let undo_before = s.history.undo_len();
+    let sel_before = s.selection.clone();
     assert!(
         !s.paste_objects(PasteMode::Center),
         "paste onto a folder layer must be blocked"
@@ -285,8 +286,12 @@ fn paste_and_duplicate_blocked_when_active_layer_is_a_folder() {
         undo_before,
         "blocked paste must not create an undo entry"
     );
-    assert!(
-        s.selection.is_empty(),
+    // BUG-D-001: the original assertion (`selection.is_empty()`) contradicted
+    // its own comment ("must not change selection"). Draw+copy leaves the
+    // source rect selected on Layer 1; activating a folder does not clear
+    // that selection; a blocked paste must leave it untouched.
+    assert_eq!(
+        s.selection, sel_before,
         "blocked paste must not change selection"
     );
 

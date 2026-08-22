@@ -450,3 +450,39 @@ Inventory: clipboard/undo/select FUNCTIONAL. Highest incomplete: `edit.findRepla
 Implemented H03 Find & Replace dialog: 5 Blueprint targets. Color + Symbol apply via existing `setNodeProps` / `swapInstance`. Text/font/sound = honest 0 matches (no entities). Color replace-all = one undo. Symbol replace-all = N undo steps (journal batch not in engine — recorded).
 
 UI 767/767. tsc -b PASS. Rust/WASM/native NOT TESTED this increment (no rustc in PATH this session).
+
+---
+
+# SESSION 7 — 2026-08-23 (SYS-13 Rectangle honesty + BUG-D-001)
+
+**HEAD at start:** `656ae2d` (tools forensic research). Human: look at every product file, then write + push.
+
+## Line-by-line product read (this session)
+
+Read in full: `model.rs`, `session.rs` (all 2446 lines), `edit_ops.rs`, `lib.rs`, `Stage.tsx`, `gesture.ts`, `commands.ts` (tools + File/Edit/View), `STATUS.md` (status tables), `TOOLS_SYSTEM_FORENSIC_RESEARCH.md`, coordination pack (LEADER_ORDERS, AI_ASSIGNMENTS, ATTENDANCE, BOARD, BLOCKERS, CHANGELOG, AI-A/B/C reports).
+
+**Honest engine snapshot (evidence, not COMPLETE):**
+- Node model = `Rect | SymbolInstance` only.
+- 3 tool IDs. Stage pointer router = `select | rect` only (`tool === 'transform'` unused).
+- `draw_rect` hardcodes fill, stroke None; blocks folder/hidden/locked.
+- `paste_objects` already blocks folders (impl correct).
+
+## Increment (one, specified)
+
+Blueprint T2B.4: Rectangle Shift = square, Alt = from-center, Esc = discard in-progress.
+
+**Not invented:** CurrentStyle / fill-from-Color (SYS-21), path nodes, Hand/Zoom tools, Q routing (AMB-TOOL-003 open), tween-layer draw block (would need a new toast contract).
+
+## BUG-D-001
+
+Test asserted `selection.is_empty()` after a blocked folder paste. Draw+copy leaves the source selected; folder activation does not clear it; impl already returned false with no mutation. Assertion now compares to the pre-paste snapshot. `cargo test --test edit_ops` 21/21.
+
+## Tests
+
+- UI focused: Stage 37 + gesture 14.
+- Full UI: **786/786** (59 files) before the last Stage type-field fix; re-ran focused Stage/gesture after the type fix.
+- `tsc --noEmit` PASS after `RectGesture.lastDocX/Y` landed on both the interface and mousedown.
+- Rust: `cargo test` green (edit_ops 21/21 included).
+- WASM/Tauri/native: **NOT TESTED**.
+
+SYS-13 = **PARTIAL+**. Not COMPLETE. Manual QA PENDING (Shift-square, Alt-from-center, Esc cancel on the desktop).

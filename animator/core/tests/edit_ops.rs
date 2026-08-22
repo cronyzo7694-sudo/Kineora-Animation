@@ -262,3 +262,38 @@ fn empty_ops_create_no_command() {
     assert!(!s.align_selection(AlignOp::Left, AlignSpace::Stage));
     assert_eq!(s.history.undo_len(), n);
 }
+
+#[test]
+fn paste_and_duplicate_blocked_when_active_layer_is_a_folder() {
+    // SYS-03 H02: folders are organizational and hold no frames. Paste must
+    // not silently create orphan nodes (draw_rect already blocks folders;
+    // paste/duplicate must match). No command, no dirty, no selection change.
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#fff");
+    assert!(s.copy_objects(), "copy the rect");
+
+    let folder = s.create_folder().expect("folder");
+    s.set_active_layer(folder);
+
+    let undo_before = s.history.undo_len();
+    assert!(
+        !s.paste_objects(PasteMode::Center),
+        "paste onto a folder layer must be blocked"
+    );
+    assert_eq!(
+        s.history.undo_len(),
+        undo_before,
+        "blocked paste must not create an undo entry"
+    );
+    assert!(
+        s.selection.is_empty(),
+        "blocked paste must not change selection"
+    );
+
+    // Duplicate goes through paste and must be blocked too.
+    assert!(
+        !s.duplicate_objects(),
+        "duplicate with active folder must be blocked (paste path)"
+    );
+    assert_eq!(s.history.undo_len(), undo_before);
+}

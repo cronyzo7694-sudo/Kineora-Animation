@@ -1199,6 +1199,14 @@ impl Session {
             return false;
         }
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            // Folders are organizational containers — they hold no frames and
+            // cannot host drawable content (consistent with draw_rect
+            // blocking on folders). Paste/Duplicate must not silently create
+            // orphan nodes that cannot be reached by the renderer.
+            if l.is_folder() {
+                self.log("paste:blocked(active layer is a folder)");
+                return false;
+            }
             if !l.visible || l.locked {
                 self.log("paste:blocked(layer hidden/locked)");
                 return false;

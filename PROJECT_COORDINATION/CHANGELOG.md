@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-08-22 — AI-C turn 3: SYS-16 folders (F-20-05)
+
+- Reconstruct from `origin/main` (`da36772`). Previous AI-C: SYS-16 outline/dup/batch + INT-0010 + drag-through. Leader next deliverable = folder cascade E8/E9 OR SYS-15 increment — chose **folders (depth over breadth)**.
+- Model: `LayerKind::{Normal,Folder}`, `parent_id`, `collapsed` (serde defaults → old files load). Commands: Create folder, SetLayerParent, SetFolderCollapsed, DeleteLayerGroup. Folder hide/lock/outline cascade = one `SetLayerFlags` undo. Draw blocked on folders. Cycle nest blocked. Timeline hides collapsed descendants (INT-0014).
+- UI tests (LayersPanel + timeline + bus + layer events): **115/115** focused green. **Rust/wasm NOT TESTED** — no rustc/cargo in this sandbox (same class as BLK-D-005). Manual desktop QA PENDING.
+
 ## 2026-08-22 — AI-B: SYS-09 Control/Playback hardening + SYS-12 Help (Leader orders, `9064b70`)
 
 - Read FL-0001..0034 + full corpus; executed the AI-B section of `LEADER_ORDERS.md` (SYS-09 then SYS-12).

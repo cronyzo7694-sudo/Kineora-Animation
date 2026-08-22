@@ -220,3 +220,20 @@ Read `PROJECT_COORDINATION/LEADER_ORDERS.md` in full (post-`c648fbf`). Executed 
 ---
 
 *Report complete. AI-C hands off to AI-01 for final integration + forensic audit.*
+
+
+---
+
+# TURN 3 — REPLACEMENT AI-C (2026-08-22) — SYS-16 FOLDERS (F-20-05)
+
+**HEAD at start:** `da36772`. Previous AI-C work preserved (`a562052`, `46d3b9e`).
+
+Audit: SYS-16 folders were MISSING (Leader next increment). SYS-15 frame ops already deep. SYS-17–21 not this increment.
+
+Implemented F-20-05: create folder, nest/un-nest, unlimited depth, collapse/expand, cascade hide/lock/outline (one undo), delete folder+descendants, draw blocked on folders, cycle blocked, serde defaults. Timeline hides collapsed children (INT-0014).
+
+NOT implemented: other layer types, F-20-06 parenting, Layer Properties dialog, copy/paste layer.
+
+Tests: UI focused 115 passed. Rust/wasm **NOT TESTED** (no rustc/cargo).
+
+SYS-16: IMPLEMENTED (folders increment) + UI AUTOMATED TESTED · MANUAL PENDING · not COMPLETE.

@@ -232,3 +232,76 @@ Stand by for Leader review of INT-0011/0012/0013 and the SYS-09/12 increment. On
 next independently-unblocked candidates in range: SYS-11 Window panel-presets/panel-handoffs or
 SYS-10 Dev-panel hardening (low collision); SYS-13 Tools requires the cross-worker ownership
 contract (drawing ↔ SYS-20, camera ↔ SYS-25, rig ↔ SYS-19) and is NOT started.
+
+---
+
+# SESSION 3 — 2026-08-22 (Deep completion order: SYS-10 Debug + SYS-11 Window)
+
+HEAD at start: `da36772` (AI-01 Round-1 integrated audit). AI-01 verdict: SYS-09/12 PASS at automated level; next = SYS-10 + SYS-11 (panel dock/float explicitly excluded as a SYS-01 deferred unit).
+
+## Audit (before code — no duplicate)
+- **SYS-10 Debug**: `panel.debug` (Developer panel) already FUNCTIONAL; `debug.as3` UNAVAILABLE (Blueprint historical-only). Gaps: no Output console / log levels / copy-clear / ARIA log landmark; bus error handler only toasted, did not persist.
+- **SYS-11 Window**: all six panel toggles + workspaces + reset already FUNCTIONAL. Gap: F4 "Hide/Show All Panels" (Adobe muscle-memory) absent; no way to toggle all panels at once.
+
+No existing implementations were replaced. The view-controller pattern already in place for Stage/Timeline was extended with a `debugViewController` for menu→panel actions (FL-0009).
+
+## Changes
+
+### SYS-10 Debug
+- New `animator/ui/src/outputLog.ts`:
+  - Bounded ring buffer (500 entries), monotonic ids, ms timestamps.
+  - Levels `info|warn|error|debug`; synchronous pub/sub with per-subscriber fault isolation (matches MOD-BUS §failure).
+  - `clear()` resets buffer + id counter; `all()` returns a snapshot; `subscribe()` immediately replays.
+  - SESSION-only (no persistence, no undo, no document mutation — boundary documented in the file).
+  - Convenience helpers `outputInfo/Warn/Error/Debug`.
+- `components/DebugPanel.tsx`:
+  - Subscribes to the Output log; renders a `<ul role="log" aria-live="polite">` with timestamp, source tag and level-colored message.
+  - Header shows count + error/warn summary; empty-state copy.
+  - Registers `debugViewController.current = { clearOutput, outputText }` so Debug-menu commands can act without importing React.
+- `App.tsx`:
+  - `bus.setErrorHandler` now writes to `outputError('bus', ...)` before toasting.
+  - `notify()` mirrors every toast into the Output console with a level derived from simple substring heuristics (fail/error/not-attached → error; gap/future/not-implemented → warn; else info).
+- `commands.ts`:
+  - New `debug.clearOutput` (FUNCTIONAL) and `debug.copyOutput` (FUNCTIONAL) with honest clipboard failure reporting and a `textarea+execCommand` fallback for non-secure contexts.
+  - New `DebugViewController` interface + `debugViewController` singleton.
+- `menus.ts`: Debug menu now contains Developer Panel · Clear Output · Copy Output · (sep) · ActionScript Debugger (legacy, UNAVAILABLE).
+
+### SYS-11 Window
+- `commands.ts`: new `window.hideAllPanels` command (FUNCTIONAL, shortcut F4). Checked when any panel is visible. `run()` calls `ctx.setAllPanelsVisible(!anyVisible)`.
+- `CommandContext` gains `setAllPanelsVisible(visible: boolean)` with a default no-op in `makeCommandContext`.
+- `App.tsx`:
+  - Implements `setAllPanelsVisible` using a `hiddenAllSnapshot` ref: hide snapshots current visibility and emits one `panel:changed` per known panel; show restores the snapshot or falls back to `DEFAULT_VISIBILITY`.
+  - Adds `window.hideAllPanels` to the global shortcut scope; the existing dispatcher suppresses F4 in inputs/textareas/contentEditable (typing-safe).
+- `menus.ts`: "Hide All Panels" added between the per-panel list and Workspaces submenu.
+
+## Commands / events / state contracts
+- New commands (no collisions — verified by `validateCommands` lint): `debug.clearOutput`, `debug.copyOutput`, `window.hideAllPanels`.
+- No new bus events. Output console uses an internal pub/sub, deliberately NOT on the global bus (it is a Dev-only surface; adding its events to SYS-01's locked event set would be scope expansion, FL-0001).
+- `panel:changed` payload unchanged (`{id,change:'visibility',visible?}`) — one emission per affected panel, matching the existing contract.
+
+## Cross-SYS dependencies
+- SYS-10 consumes SYS-01 (bus errors, panel chrome), SYS-09/12 (toasts already produced there). Owns only its own Output log.
+- SYS-11 consumes SYS-01 panel visibility + workspace persistence (the existing snapshot save effect persists the all-hidden/restored layout). No SYS-01 contract changed.
+- No INT required: neither change touches another SYS's command/event/payload. The DebugPanel already renders SYS-18/Library etc., but only via existing props.
+
+## Tests
+- New `outputLog.test.ts` (6): append ids/timestamps, subscribe replay, clear resets buffer+counter, 500-cap ring eviction, throwing subscriber isolation, level helpers.
+- New `sys10-sys11.test.tsx` (16): Output render from pre-mount entries, count summary, empty-state, Clear, Copy-empty + Copy-with-clipboard + fallback, debug.as3 UNAVAILABLE, registry audit readout; F4 checked state + dispatcher invokes command once + input suppression.
+- `menus.test.ts`: required-commands list now includes `window.hideAllPanels`, `debug.clearOutput`, `debug.copyOutput`.
+- Full UI suite after rebase onto AI-C's SYS-16 folders (`0be97e5`): **712 passed / 712** (53 files). `tsc -b` clean, `vite build` clean (362.95 kB bundle).
+
+## Manual QA status
+PENDING (FL-0019) — jsdom-level automated only. User to verify on Linux Mint: Dev panel Output fills with bus/notify messages; Debug ▸ Clear/Copy; F4 hides all panels, F4 again restores the same layout; typing in a field does not trigger F4.
+
+## Build / runtime
+TypeScript + Vite pass. No Rust/WASM/Tauri code touched this session; native runtime NOT exercised (BLK-D-005-style environment gap — recorded, not faked).
+
+## Remaining blockers / decisions
+None new. `window.workspacePresets` stays DEFERRED (Blueprint silent on preset catalog; a saved-workspace list already exists via Window ▸ Workspaces). Panel dock/float/tab-stack remains a SYS-01 deferred unit (AI-01 explicitly forbade absorbing it).
+
+## Commit
+- `7ebc3cc` `feat(sys10-11): Output console (SYS-10) + Hide/Show All Panels F4 (SYS-11)` — rebased onto `0be97e5`, no conflicts, fast-forward push.
+
+## Status update
+- SYS-10 Debug: **PARTIAL** — Dev panel + Output console are FUNCTIONAL and tested; the P2 "inspector/debugger for the scripting layer" remains correctly UNAVAILABLE (no scripting layer exists yet).
+- SYS-11 Window: **PARTIAL** — every Blueprint-required panel toggle + workspace + Hide/Show All (F4) FUNCTIONAL; panel dock/float/presets deferred per SYS-01.

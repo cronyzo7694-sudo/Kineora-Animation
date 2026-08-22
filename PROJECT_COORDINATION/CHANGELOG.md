@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-08-22 — AI-B session 3: SYS-10 Debug Output console + SYS-11 Window F4 Hide/Show All (`7ebc3cc`)
+
+- Audit-first: SYS-10 already had the Dev panel; SYS-11 already had panel toggles + workspaces. No rebuild; extended only identified gaps (deep-completion order).
+- **SYS-10:** new `outputLog.ts` bounded ring buffer (500 entries; levels info/warn/error/debug; fault-isolated subscribers); App routes `bus.setErrorHandler` and every `notify()` toast into the Output console; DebugPanel renders `<ul role="log" aria-live="polite">` with timestamp/source/level coloring and count summary; new Debug-menu commands `debug.clearOutput` and `debug.copyOutput` (navigator.clipboard with execCommand fallback); `debug.as3` stays UNAVAILABLE (historical only). `debugViewController` keeps the menu decoupled from panel internals (FL-0009).
+- **SYS-11:** new `window.hideAllPanels` command bound to **F4** (Adobe muscle-memory); hides every panel and restores the exact prior visibility snapshot on the next F4 (or defaults on first use); per-panel `panel:changed` emissions keep workspace persistence/subscribers consistent; F4 is suppressed inside input/textarea/contentEditable.
+- No new bus events (Output console uses its own internal pub/sub by design — SYS-01's locked event set must not expand per FL-0001). No other SYS's command/event/payload changed.
+- Tests: 22 new (outputLog 6, sys10-sys11 16) plus menu coverage. **712/712 UI green** after rebase onto AI-C SYS-16 folders (`0be97e5`); `tsc -b` and `vite build` green; no conflicts. Manual native-desktop QA PENDING.
+
 ## 2026-08-22 — AI-C turn 3: SYS-16 folders (F-20-05)
 
 - Reconstruct from `origin/main` (`da36772`). Previous AI-C: SYS-16 outline/dup/batch + INT-0010 + drag-through. Leader next deliverable = folder cascade E8/E9 OR SYS-15 increment — chose **folders (depth over breadth)**.

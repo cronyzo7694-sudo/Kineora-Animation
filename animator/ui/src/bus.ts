@@ -23,6 +23,10 @@ export interface BusEvents {
   'workspace:changed': { name?: string; layout?: unknown }
   'playback:started': Record<string, never>
   'playback:stopped': Record<string, never>
+  /** STM-PLAYBACK PAUSED side effect (engineering 04): Enter toggles
+   *  PLAYING→PAUSED; a subsequent Enter resumes (PAUSED→PLAYING, emits
+   *  playback:started). Empty payload, matching the sibling playback events. */
+  'playback:paused': Record<string, never>
   'playhead:moved': { frame: number }
   'saving:changed': { state: 'idle' | 'saving' | 'saved' | 'error'; time?: string }
   /** H04 §10 / SYS-01 §27.1: a DOCUMENT mutation happened (edit/import/

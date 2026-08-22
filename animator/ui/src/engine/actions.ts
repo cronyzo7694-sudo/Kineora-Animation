@@ -14,7 +14,7 @@ import {
   projectJson,
   redo,
   selectAll,
-  setPlayhead,
+  setPlayhead as setPlayheadEngine,
   statusJson,
   undo,
 } from './client'
@@ -138,8 +138,21 @@ export function performAction(id: string, notify: Notify): void {
 // NOTE: File ▸ New / Open now live in `../file` (SYS-02 document lifecycle);
 // actions.ts keeps only the discrete engine actions + playback transport.
 
-// ——— playback (slice-1: a real engine playhead loop, stepped by the UI) ———
+// ——— playback (STM-PLAYBACK: IDLE → PLAYING ⇄ PAUSED → IDLE) ———
+// Engineering 04 state machine. VIEW state (no undo, not persisted). The
+// machine is the single source of truth for transport state; the menu label
+// (Play/Pause), StatusBar chip and transport buttons all read playbackState().
+//
+//   IDLE  --play()-->   PLAYING   (emit playback:started; start tick)
+//   PLAYING --pause()--> PAUSED   (emit playback:paused; stop tick)
+//   PAUSED --play()-->  PLAYING   (emit playback:started; resume tick)
+//   PLAYING/PAUSED --stop()--> IDLE (emit playback:stopped; stop tick)
+//   PLAYING --seek(f)----> PLAYING (emit playhead:moved; tick keeps running)
+//   PAUSED --seek(f)----> PAUSED  (emit playhead:moved)
+// Forbidden transitions (e.g. play on empty doc) are no-ops + a status toast;
+// they never throw or partially mutate.
 let playTimer: number | null = null
+let playback: 'IDLE' | 'PLAYING' | 'PAUSED' = 'IDLE'
 // Loop playback toggle (Part 07 §7.1.5 / C-08 tl.loop) — VIEW state (no undo,
 // not persisted). Default ON [OUR DESIGN DECISION — the blueprint specifies the
 // toggle but not its initial state; looping matches the current behavior].
@@ -153,29 +166,32 @@ export function setLoopEnabled(on: boolean): void {
   loopEnabled = on
 }
 
-export function isPlaying(): boolean {
-  return playTimer !== null
+/** Current STM-PLAYBACK state (IDLE/PLAYING/PAUSED). */
+export function playbackState(): 'IDLE' | 'PLAYING' | 'PAUSED' {
+  return playback
 }
 
-export function stopPlayback(): void {
+/** True while the transport is advancing (timer running). */
+export function isPlaying(): boolean {
+  return playback === 'PLAYING'
+}
+
+/** True when paused mid-playback (Enter was pressed once while playing). */
+export function isPaused(): boolean {
+  return playback === 'PAUSED'
+}
+
+function clearTick(): void {
   if (playTimer !== null) {
     window.clearInterval(playTimer)
     playTimer = null
-    bus.emit('playback:stopped', {})
   }
 }
 
-/** Toggle playback. Each tick is a REAL engine call (kineora_set_playhead). */
-export function togglePlay(notify: Notify): void {
-  if (!engineAttached()) {
-    notify(notAttached('play'))
-    return
-  }
-  if (playTimer !== null) {
-    stopPlayback()
-    notify('play: paused')
-    return
-  }
+function startTick(): void {
+  // Idempotent: never stack two intervals (e.g. a redundant play while an
+  // interval ref survived). Clear any existing tick first.
+  clearTick()
   const fps = statusJson()?.fps ?? 24
   playTimer = window.setInterval(() => {
     const st = statusJson()
@@ -183,16 +199,66 @@ export function togglePlay(notify: Notify): void {
     // Playback range = [1, derived duration] (Part 07 §7.0; REQ-TIM-004).
     const dur = Math.max(1, st.duration ?? 1)
     if (!loopEnabled && st.playhead >= dur) {
-      // Loop OFF → stop at the last frame (pause at end).
+      // Loop OFF → stop at the last frame (idle, playhead parked at end).
       stopPlayback()
-      notify('play: finished (loop off)')
       return
     }
     const next = st.playhead >= dur ? 1 : st.playhead + 1
-    setPlayhead(next)
+    // Tick is NOT a user seek — call the engine directly (no playhead:moved
+    // event; INT-0012: event is advisory and per-tick emission would flood).
+    setPlayheadEngine(next)
   }, Math.round(1000 / fps))
+}
+
+/** Stop playback and return to IDLE. The playhead is NOT rewound here:
+ *  "Rewind" is its own command (control.rewind / Ctrl+Alt+R), matching the
+ *  Blueprint Control menu which lists Stop and Rewind separately. The eng-04
+ *  "stop → playhead=first" side effect describes the combined Stop button;
+ *  Blueprint (higher authority) separates the two, so Stop halts at the
+ *  current frame. Recorded in AI-B_REPORT (no silent decision). */
+export function stopPlayback(): void {
+  if (playback === 'IDLE' && playTimer === null) return
+  clearTick()
+  playback = 'IDLE'
+  bus.emit('playback:stopped', {})
+}
+
+/** Pause playback (PLAYING → PAUSED). No-op when not playing. */
+export function pausePlayback(): void {
+  if (playback !== 'PLAYING') return
+  clearTick()
+  playback = 'PAUSED'
+  bus.emit('playback:paused', {})
+}
+
+/**
+ * User-initiated seek (menu/button/shortcut) — sets the playhead AND emits
+ * `playhead:moved{frame}` so panels can react (INT-0012). Playback ticks call
+ * `setPlayheadEngine` directly to avoid per-frame event flooding.
+ */
+export function seekPlayhead(frame: number): void {
+  const f = Math.max(1, Math.floor(frame) || 1)
+  setPlayheadEngine(f)
+  bus.emit('playhead:moved', { frame: f })
+}
+
+/** Toggle playback per STM-PLAYBACK: IDLE/PAUSED → PLAYING; PLAYING → PAUSED.
+ *  Each tick is a REAL engine call (kineora_set_playhead). */
+export function togglePlay(notify: Notify): void {
+  if (!engineAttached()) {
+    notify(notAttached('play'))
+    return
+  }
+  if (playback === 'PLAYING') {
+    pausePlayback()
+    notify('play: paused')
+    return
+  }
+  // IDLE or PAUSED → (re)start. PAUSED resumes from the current playhead.
+  startTick()
+  playback = 'PLAYING'
   bus.emit('playback:started', {})
-  notify('play: started')
+  notify(playback === 'PLAYING' ? 'play: started' : 'play: resumed')
 }
 
 /** Best-effort convenience: step the playhead forward one frame (real call). */
@@ -202,6 +268,6 @@ export function stepPlayhead(notify: Notify): void {
     return
   }
   const st = statusJson()
-  setPlayhead((st?.playhead ?? 0) + 1)
+  seekPlayhead((st?.playhead ?? 0) + 1)
   notify('play: stepped')
 }

@@ -23,7 +23,14 @@ vi.mock('../engine/client', () => ({
 vi.mock('../engine/actions', () => ({
   performAction: vi.fn(),
   isLoopEnabled: () => true,
+  isPlaying: () => false,
+  isPaused: () => false,
+  playbackState: () => 'IDLE',
   setLoopEnabled: vi.fn(),
+  togglePlay: vi.fn(),
+  stopPlayback: vi.fn(),
+  pausePlayback: vi.fn(),
+  seekPlayhead: vi.fn(),
 }))
 
 import {
@@ -44,11 +51,15 @@ import {
   setFrameLabel,
   setPlayhead,
 } from '../engine/client'
-import { performAction, setLoopEnabled } from '../engine/actions'
+import { performAction, setLoopEnabled, seekPlayhead } from '../engine/actions'
 import { TimelineStrip, CELL_W, NAME_W } from './TimelineStrip'
 import type { StatusJson } from '../engine/wasmTypes'
 
 const setPlayheadMock = vi.mocked(setPlayhead)
+// Commands (Home/End/step/keyframe-hop) route through SYS-09's seekPlayhead
+// (which emits playhead:moved); the timeline's own ruler/scrub buttons call
+// setPlayhead directly. Both are spied so tests assert the right boundary.
+const seekPlayheadMock = vi.mocked(seekPlayhead)
 const setActiveLayerMock = vi.mocked(setActiveLayer)
 const moveKeyframeSequenceMock = vi.mocked(moveKeyframeSequence)
 const duplicateKeyframeMock = vi.mocked(duplicateKeyframe)
@@ -264,9 +275,9 @@ describe('TimelineStrip — frame ops + keyboard', () => {
     fireEvent.keyDown(window, { key: 'F6', shiftKey: true })
     expect(performActionMock).toHaveBeenCalledWith('timeline.clear', notify)
     fireEvent.keyDown(window, { key: 'Home' })
-    expect(setPlayheadMock).toHaveBeenCalledWith(1)
+    expect(seekPlayheadMock).toHaveBeenCalledWith(1)
     fireEvent.keyDown(window, { key: 'End' })
-    expect(setPlayheadMock).toHaveBeenCalledWith(20)
+    expect(seekPlayheadMock).toHaveBeenCalledWith(20)
   })
 
   it('typing in an input does NOT trigger timeline shortcuts', () => {
@@ -478,31 +489,31 @@ describe('TimelineStrip — transport + loop (Part 07 §7.1.5, F-07-04)', () => 
   it('. and , step the playhead by one frame', () => {
     render(<TimelineStrip status={makeStatus({ playhead: 5 })} notify={notify} />)
     fireEvent.keyDown(window, { key: '.' })
-    expect(setPlayheadMock).toHaveBeenLastCalledWith(6)
+    expect(seekPlayheadMock).toHaveBeenLastCalledWith(6)
     fireEvent.keyDown(window, { key: ',' })
-    expect(setPlayheadMock).toHaveBeenLastCalledWith(4)
+    expect(seekPlayheadMock).toHaveBeenLastCalledWith(4)
   })
 
   it(', clamps to frame 1', () => {
     render(<TimelineStrip status={makeStatus({ playhead: 1 })} notify={notify} />)
     fireEvent.keyDown(window, { key: ',' })
-    expect(setPlayheadMock).toHaveBeenLastCalledWith(1)
+    expect(seekPlayheadMock).toHaveBeenLastCalledWith(1)
   })
 
   it('Alt+. and Alt+, hop between keyframes on the active layer', () => {
     render(<TimelineStrip status={makeStatus({ playhead: 5 })} notify={notify} />)
     // active layer 0 keyframes: 1, 10, 20
     fireEvent.keyDown(window, { key: '.', altKey: true })
-    expect(setPlayheadMock).toHaveBeenLastCalledWith(10)
+    expect(seekPlayheadMock).toHaveBeenLastCalledWith(10)
     fireEvent.keyDown(window, { key: ',', altKey: true })
-    expect(setPlayheadMock).toHaveBeenLastCalledWith(1)
+    expect(seekPlayheadMock).toHaveBeenLastCalledWith(1)
   })
 
   it('Alt+. at the last keyframe is a no-op', () => {
     render(<TimelineStrip status={makeStatus({ playhead: 20 })} notify={notify} />)
-    setPlayheadMock.mockClear()
+    seekPlayheadMock.mockClear()
     fireEvent.keyDown(window, { key: '.', altKey: true })
-    expect(setPlayheadMock).not.toHaveBeenCalled()
+    expect(seekPlayheadMock).not.toHaveBeenCalled()
   })
 
   it('first/last buttons jump the playhead', () => {

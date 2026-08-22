@@ -12,7 +12,7 @@
 // ============================================================================
 
 import { useEffect, useRef } from 'react'
-import { findShortcutInvocation, type CommandContext } from './commands'
+import { findCommand, findShortcutInvocation, type CommandContext } from './commands'
 
 /**
  * Attach a scoped global shortcut listener.
@@ -27,16 +27,27 @@ export function useShortcutScope(scope: ReadonlySet<string>, ctx: CommandContext
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
+      const t = e.target as (HTMLElement & { getAttribute?: (n: string) => string | null }) | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       // Enter/Space on a focused button must trigger the button's native
-      // activation, not a global shortcut (never double-fire).
-      if ((e.key === 'Enter' || e.key === ' ') && t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.getAttribute('role') === 'button')) return
+      // activation, not a global shortcut (never double-fire). Guard getAttribute
+      // for synthetic event targets that are not real elements.
+      const role = typeof t?.getAttribute === 'function' ? t.getAttribute('role') : null
+      if ((e.key === 'Enter' || e.key === ' ') && t && (t.tagName === 'BUTTON' || t.tagName === 'A' || role === 'button')) return
       // pure modifier presses never dispatch
       if (e.key === 'Control' || e.key === 'Meta' || e.key === 'Alt' || e.key === 'Shift') return
 
       const inv = findShortcutInvocation(e)
-      const cmd = inv?.cmd
+      let cmd = inv?.cmd
+      // D-6 (APPROVED): Ctrl+Enter is context-scoped. Inside a symbol/group
+      // edit (depth > 0) it exits to the document root (edit.exitRoot); at
+      // document root it runs Test Movie (control.test). The registry binds
+      // Ctrl+Enter to control.test, so re-point it to edit.exitRoot when the
+      // edit-depth context applies. One command fires, never both.
+      if (cmd?.id === 'control.test' && ctxRef.current.editDepth() > 0) {
+        const root = findCommand('edit.exitRoot')
+        if (root) cmd = root
+      }
       if (!cmd || !scopeRef.current.has(cmd.id)) return
 
       const c = ctxRef.current

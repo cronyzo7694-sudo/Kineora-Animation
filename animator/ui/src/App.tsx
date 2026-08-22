@@ -56,6 +56,7 @@ import { SymbolDialog, type SymbolDialogMode } from './components/SymbolDialog'
 import { CommandPalette } from './components/CommandPalette'
 import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { AboutDialog } from './components/AboutDialog'
+import { HelpDialog } from './components/HelpDialog'
 import { DocumentSettingsDialog } from './components/DocumentSettingsDialog'
 import { GoToFrameDialog } from './components/GoToFrameDialog'
 import { EditBar } from './components/EditBar'
@@ -99,6 +100,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [help, setHelp] = useState<{ open: boolean; section: 'docs' | 'troubleshoot' }>({ open: false, section: 'docs' })
   const [docSettingsOpen, setDocSettingsOpen] = useState(false)
   const [gotoOpen, setGotoOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
@@ -450,6 +452,7 @@ export default function App() {
     exitEditOne,
     exitEditRoot,
     openGoToFrame: () => setGotoOpen(true),
+    openHelp: (section) => setHelp({ open: true, section }),
     confirmClose,
     confirmCloseDoc,
     openNewDialog: () => setNewOpen(true),
@@ -516,6 +519,9 @@ export default function App() {
       'modify.arrangeBackward',
       'modify.arrangeBack',
       'insert.classicTween',
+      // SYS-09 Control ▸ Test Movie (Ctrl+Enter; context-scoped to
+      // edit.exitRoot inside a symbol edit per D-6/INT-0013).
+      'control.test',
     ]),
     ctx,
   )
@@ -706,6 +712,7 @@ export default function App() {
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} ctx={ctx} />
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} engine={engine} />
+      <HelpDialog open={help.open} section={help.section} onClose={() => setHelp((h) => ({ ...h, open: false }))} />
       <DocumentSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} notify={notify} />
       <GoToFrameDialog
         open={gotoOpen}

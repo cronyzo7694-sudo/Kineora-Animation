@@ -19,7 +19,14 @@
 //   [BLUEPRINT IMPLIED] / [OUR DESIGN DECISION] / [NOT IN BLUEPRINT]
 // ============================================================================
 
-import { performAction, stopPlayback, togglePlay, isLoopEnabled } from './engine/actions'
+import {
+  performAction,
+  stopPlayback,
+  togglePlay,
+  isLoopEnabled,
+  seekPlayhead,
+  playbackState,
+} from './engine/actions'
 import {
   alignSelection,
   arrangeSelection,
@@ -32,7 +39,6 @@ import {
   removeTransform,
   rotateSelection,
   setClassicTween,
-  setPlayhead,
   statusJson,
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
@@ -109,6 +115,8 @@ export interface CommandContext {
   exitEditOne: () => void
   exitEditRoot: () => void
   openGoToFrame: () => void
+  /** SYS-12: open the local Help dialog ('docs' or 'troubleshoot'). */
+  openHelp: (section: 'docs' | 'troubleshoot') => void
   // ——— SYS-02 File ———
   /** Canonical unsaved-changes guard: run `proceed` now (clean) or after the
    *  Close-Confirmation Save/Discard resolves (dirty). Cancel → not run.
@@ -199,7 +207,7 @@ function hopKeyframe(ctx: CommandContext, dir: 1 | -1): void {
   const keys = layer.keyframes.map((k) => k.frame).sort((a, b) => a - b)
   const cur = st.playhead ?? 1
   const target = dir === 1 ? keys.find((k) => k > cur) : [...keys].reverse().find((k) => k < cur)
-  if (target !== undefined) setPlayhead(target)
+  if (target !== undefined) seekPlayhead(target)
 }
 
 function frameCmd(ctx: CommandContext, action: string, lockedMsg: string): void {
@@ -1456,7 +1464,9 @@ export const commands: Command[] = [
     run: () => {},
   },
 
-  // ——— Control (Part 01 §1.2.8 / Adobe-verified) ———
+  // ——— Control (Part 01 §1.2.8 / Adobe-verified; STM-PLAYBACK engineering 04) ———
+  // Play/Pause is ONE command whose label/checked reflect STM-PLAYBACK: playing
+  // or paused shows "Pause", idle shows "Play". Enter toggles (INT-0013).
   {
     id: 'timeline.play',
     label: 'Play',
@@ -1475,8 +1485,9 @@ export const commands: Command[] = [
     category: 'control',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT + ADOBE] Part 01 §1.2.8',
-    enabled: engineOk,
-    whyDisabled: () => NOT_ATTACHED,
+    // Stop only has an effect while playing/paused; disabled when idle.
+    enabled: (c) => engineOk(c) && playbackState() !== 'IDLE',
+    whyDisabled: (c) => (engineOk(c) ? 'playback is stopped' : NOT_ATTACHED),
     run: (c) => {
       stopPlayback()
       c.notify('play: stopped')
@@ -1491,7 +1502,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT + ADOBE] Part 01 §1.2.8',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: () => setPlayhead(1),
+    run: () => seekPlayhead(1),
   },
   {
     id: 'control.firstFrame',
@@ -1502,7 +1513,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT + ADOBE] Part 29 §29.6',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: () => setPlayhead(1),
+    run: () => seekPlayhead(1),
   },
   {
     id: 'control.lastFrame',
@@ -1513,7 +1524,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT + ADOBE] Part 29 §29.6',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => setPlayhead(Math.max(1, c.getStatus()?.duration ?? 1)),
+    run: (c) => seekPlayhead(Math.max(1, c.getStatus()?.duration ?? 1)),
   },
   {
     id: 'control.gotoFrame',
@@ -1534,7 +1545,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT + ADOBE] Part 29 §29.6',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => setPlayhead((c.getStatus()?.playhead ?? 0) + 1),
+    run: (c) => seekPlayhead((c.getStatus()?.playhead ?? 0) + 1),
   },
   {
     id: 'control.stepBackward',
@@ -1545,7 +1556,7 @@ export const commands: Command[] = [
     source: '[BLUEPRINT + ADOBE] Part 29 §29.6',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => setPlayhead(Math.max(1, (c.getStatus()?.playhead ?? 1) - 1)),
+    run: (c) => seekPlayhead(Math.max(1, (c.getStatus()?.playhead ?? 1) - 1)),
   },
   {
     id: 'control.nextKeyframe',
@@ -1583,20 +1594,30 @@ export const commands: Command[] = [
     label: 'Mute Sounds',
     category: 'control',
     shortcut: 'Ctrl+Alt+M',
-    status: 'DEFERRED',
-    source: '[ADOBE REFERENCE] Part 01 §1.2.8',
-    reason: 'audio is a future unit',
-    run: () => {},
+    // SYS-09 owns the menu entry; the audio engine + mute state are SYS-26.
+    // FUNCTIONAL = honest handoff toast (consistent with File ▸ Import/Export
+    // handoffs in H08): it never fakes mute, never dirties the document.
+    status: 'FUNCTIONAL',
+    source: '[ADOBE REFERENCE] Part 01 §1.2.8 → handoff SYS-26',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) =>
+      c.notify('Mute Sounds: integration gap — owned by SYS-26 (audio engine), not implemented yet'),
   },
   {
     id: 'control.test',
     label: 'Test Movie',
     category: 'control',
     shortcut: 'Ctrl+Enter',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT + ADOBE] Part 01 §1.2.8',
-    reason: 'test player is a future unit',
-    run: () => {},
+    // SYS-09 owns the menu/shortcut; the test player/export is SYS-27. At
+    // document root Ctrl+Enter shows the honest handoff toast; inside a symbol
+    // edit it is re-routed to edit.exitRoot by the dispatcher (D-6, INT-0013).
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT + ADOBE] Part 01 §1.2.8 → handoff SYS-27',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) =>
+      c.notify('Test Movie: integration gap — owned by SYS-27 (publish/preview engine), not implemented yet'),
   },
 
   // ——— Debug (Part 01 §1.2.9) ———
@@ -1753,19 +1774,17 @@ export const commands: Command[] = [
     id: 'help.docs',
     label: 'Documentation…',
     category: 'help',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.11',
-    reason: 'local documentation site is a future feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.11 (offline local docs)',
+    run: (c) => c.openHelp('docs'),
   },
   {
     id: 'help.troubleshoot',
     label: 'Troubleshooting…',
     category: 'help',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.11',
-    reason: 'troubleshooting guide is a future feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.11 (offline local docs)',
+    run: (c) => c.openHelp('troubleshoot'),
   },
 
   // ——— App (palette) ———
@@ -1981,6 +2000,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     exitEditOne: () => {},
     exitEditRoot: () => {},
     openGoToFrame: () => {},
+    openHelp: () => {},
     confirmClose: (proceed) => proceed(),
     confirmCloseDoc: async () => 'cancel',
     openNewDialog: () => {},

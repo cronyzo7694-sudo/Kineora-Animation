@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isLoopEnabled, isPlaying } from '../engine/actions'
+import { isLoopEnabled, playbackState } from '../engine/actions'
 import type { EngineStatus } from '../controlRegistry'
 import type { StatusJson } from '../engine/wasmTypes'
 import { useBus } from '../useBus'
@@ -32,7 +32,13 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
     selection.length === 0 ? '' : details.length > 0 && details.every((d) => d.kind === details[0].kind) ? details[0].kind : 'mixed'
   const activeLayer = status?.layers?.[status.active_layer ?? 0]
 
-  const playing = isPlaying()
+  // STM-PLAYBACK cell (SYS-09): re-render on every transport transition so
+  // the chip always reflects IDLE/PLAYING/PAUSED (FL-0013: no stale state).
+  const [, forcePlayback] = useState(0)
+  useBus('playback:started', () => forcePlayback((n) => n + 1))
+  useBus('playback:stopped', () => forcePlayback((n) => n + 1))
+  useBus('playback:paused', () => forcePlayback((n) => n + 1))
+  const pb = playbackState()
   const loop = isLoopEnabled()
 
   // saving:changed (bus) → st.saving cell; produced by File ▸ Save.
@@ -81,7 +87,12 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
         <span style={{ color: dim }}>rec —</span>
       </span>
       <span data-testid="st-playback" style={cell}>
-        <span style={{ color: playing ? '#8ec8ff' : dim }}>{playing ? '▶ playing' : '⏸ stopped'}</span>
+        <span
+          data-testid="st-playback-state"
+          style={{ color: pb === 'IDLE' ? dim : '#8ec8ff' }}
+        >
+          {pb === 'PLAYING' ? '▶ playing' : pb === 'PAUSED' ? '⏸ paused' : '⏹ stopped'}
+        </span>
         <span style={{ color: loop ? '#8ec8ff' : dim }}>{loop ? 'loop' : 'once'}</span>
       </span>
       <span data-testid="st-saving" style={cell} aria-live="polite">

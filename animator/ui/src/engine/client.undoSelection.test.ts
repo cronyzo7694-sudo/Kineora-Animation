@@ -44,6 +44,17 @@ const wireModule = {
     selection = [3]
     return true
   },
+  kineora_select_at: () => {
+    selection = [9]
+    return true
+  },
+  kineora_select_toggle_at: () => {
+    selection = [1, 9]
+    return true
+  },
+  kineora_select_in_rect: () => {
+    selection = [4, 5]
+  },
 }
 
 async function attach(): Promise<void> {
@@ -108,5 +119,28 @@ describe('client — undo/redo emit selection:changed (H01 §9 / INT-AIA-003)', 
     expect(undo()).toBe(false)
     expect(redo()).toBe(false)
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('client — view selection emits selection:changed only', () => {
+  it('selectAt emits selection:changed and never document:changed', async () => {
+    const { selectAt } = await import('./client')
+    await attach()
+    const spy = vi.spyOn(bus, 'emit')
+    selectAt(1, 1)
+    const names = spy.mock.calls.map((c) => c[0])
+    expect(names).toContain('selection:changed')
+    expect(names).not.toContain('document:changed')
+  })
+
+  it('selectToggleAt / selectInRect emit selection:changed and never document:changed', async () => {
+    const { selectToggleAt, selectInRect } = await import('./client')
+    await attach()
+    const spy = vi.spyOn(bus, 'emit')
+    selectToggleAt(2, 2)
+    selectInRect(0, 0, 10, 10)
+    const names = spy.mock.calls.map((c) => c[0])
+    expect(names.filter((n) => n === 'selection:changed')).toHaveLength(2)
+    expect(names).not.toContain('document:changed')
   })
 })

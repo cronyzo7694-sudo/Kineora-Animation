@@ -371,3 +371,31 @@ No new event. `st.snap` **consumes** existing `snap:changed{mode}` (SYS-01 §27.
 ## S3.4 Status
 
 SYS-03 = **AUTOMATED TESTED / PARTIAL**. INV-EDIT-2 prevSelection **implemented at Session/History**. Not COMPLETE (no History panel, no canCoalesce, no affected[], Paste Special AMB, Find & Replace).
+
+---
+
+# SESSION 5 — FORENSIC QA / REPAIR (no new features) — 2026-08-22
+
+**HEAD at check-in:** `fe7566f` = origin/main (C-2). Working tree clean. Other AIs had not moved main.
+
+## S5.1 Bugs found and fixed
+
+| ID | Problem | Authority | Fix |
+|---|---|---|---|
+| BUG-AIA-F01 | `convert_selection_to_symbol` called `ensure_keyframe` on the document BEFORE History::execute — undo left an orphan keyframe on a hold | INV-EDIT-1 / REQ-SYS-002 | Auto-key moved into `ConvertToSymbol.apply`; revert removes created keyframe |
+| BUG-AIA-F02 | Stage `selectAt`/`selectToggleAt`/`selectInRect` never emitted `selection:changed`; App did not tick on that event | SYS-01 §27.1 / H01 §9 / REQ-SEL-005 | Emit from client; App `setTick` on `selection:changed` |
+| BUG-AIA-F03 | `cutObjects` emitted `document:changed` even when rust only copied (locked-only) | H04 / FL-0007 | Emit only when selection actually changed |
+
+## S5.2 Escalated (not fixed)
+
+- SYS-16 folder **lock** does not cascade (hide/outline do). No test. Owner AI-C / F-20-05.
+- Browser Save path identity FAIL vs H05 (honest gap; AMB).
+- History panel / `canCoalesce` / `affected[]` / Paste Special / Find & Replace / dock-float / scene tabs / SnapEngine AMBs.
+
+## S5.3 Tests (this session, executed)
+
+- Rust: **332/332** (was 331 + convert-on-hold).
+- UI: **741/741** (55 files). `tsc --noEmit` PASS. `vite build` PASS.
+- WASM / wasm-pack / Tauri / native: **NOT TESTED — TOOLCHAIN/ENVIRONMENT**.
+
+No SYS COMPLETE.

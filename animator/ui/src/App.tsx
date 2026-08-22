@@ -236,6 +236,13 @@ export default function App() {
     return bus.on('layer:changed', () => setTick((t) => t + 1))
   }, [])
 
+  // SYS-01 §27.1 / H01 §9 / INT-AIA-003: selection restore and view-only
+  // select/clear must rebind Properties/Stage immediately — do not wait
+  // for the 120ms poll.
+  useEffect(() => {
+    return bus.on('selection:changed', () => setTick((t) => t + 1))
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])

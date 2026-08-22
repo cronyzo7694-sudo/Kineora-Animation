@@ -21,12 +21,13 @@ function* walk(entries: MenuEntry[]): Generator<MenuEntry> {
   }
 }
 
+let wireSelection = [1]
 const wire = {
   default: async (input: unknown) => input,
   kineora_status: () =>
     JSON.stringify({
       playhead: 1,
-      selection: [1],
+      selection: wireSelection,
       object_clipboard_len: 1,
       undo_len: 0,
       redo_len: 0,
@@ -38,7 +39,10 @@ const wire = {
     }),
   kineora_evaluate: () => '[]',
   kineora_copy_objects: () => true,
-  kineora_cut_objects: () => true,
+  kineora_cut_objects: () => {
+    wireSelection = []
+    return true
+  },
   kineora_paste_objects: () => true,
   kineora_delete_selection: () => true,
   kineora_duplicate_objects: () => true,
@@ -69,6 +73,7 @@ beforeEach(() => {
   resetViewPrefsForTests()
   bus.clear()
   vi.clearAllMocks()
+  wireSelection = [1]
 })
 
 describe('SYS-03/04/06 command registry', () => {

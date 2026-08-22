@@ -878,12 +878,9 @@ impl Session {
             _ => (cx, cy), // 4 (center) and any fallback
         };
 
-        // ensure a keyframe at the playhead to host the instance
-        if self
-            .doc
-            .ensure_keyframe(self.active_scene, self.active_layer, self.playhead)
-            .is_none()
-        {
+        // INV-EDIT-1: do NOT mutate the document here. ConvertToSymbol.apply
+        // auto-keys the playhead if needed and reverts that keyframe on undo.
+        if self.doc.layer(self.active_scene, self.active_layer).is_none() {
             return NodeId(0);
         }
 

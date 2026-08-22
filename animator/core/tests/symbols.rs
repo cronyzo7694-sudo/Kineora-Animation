@@ -542,6 +542,37 @@ fn export_flattens_nested_content_without_overlays() {
 // ——— Locked layer ———
 
 #[test]
+fn convert_on_a_hold_frame_auto_keys_inside_the_command_and_undo_removes_it() {
+    // INV-EDIT-1: Session must not ensure_keyframe before execute. F8 on a
+    // held frame creates the host keyframe as part of ConvertToSymbol; undo
+    // must remove that keyframe (hold resumes), not leave an orphan key.
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 20.0, 20.0, "#ff0000");
+    assert!(s.insert_keyframe(10));
+    s.set_playhead(5);
+    assert!(
+        s.doc.layer(0, 0).unwrap().keyframes.get(&5).is_none(),
+        "frame 5 is a hold, not a key"
+    );
+    let n = s.history.undo_len();
+    let inst = s.convert_selection_to_symbol("held", animator_core::SymbolType::Graphic, 4);
+    assert_ne!(inst, animator_core::NodeId(0));
+    assert!(
+        matches!(
+            s.doc.layer(0, 0).unwrap().keyframes.get(&5),
+            Some(animator_core::Frame::Keyframe { .. })
+        ),
+        "convert auto-keys the playhead"
+    );
+    assert_eq!(s.history.undo_len(), n + 1, "one command (not a leaked pre-key)");
+    assert!(s.undo());
+    assert!(
+        s.doc.layer(0, 0).unwrap().keyframes.get(&5).is_none(),
+        "undo convert removes the auto-created keyframe"
+    );
+}
+
+#[test]
 fn place_symbol_blocked_on_locked_layer() {
     let mut s = session();
     let sid = s.new_symbol("s", SymbolType::Graphic);

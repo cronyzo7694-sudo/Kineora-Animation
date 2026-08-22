@@ -1569,6 +1569,9 @@ pub struct ConvertToSymbol {
     pub node_ids: Vec<NodeId>,
     prev_content: Option<Vec<NodeId>>,
     prev_transforms: Option<Vec<(NodeId, Transform)>>,
+    /// True when apply() created the host keyframe (INV-EDIT-1: Session must
+    /// not mutate the document before execute). Revert removes that keyframe.
+    created_keyframe: bool,
 }
 
 impl ConvertToSymbol {
@@ -1591,6 +1594,7 @@ impl ConvertToSymbol {
             node_ids,
             prev_content: None,
             prev_transforms: None,
+            created_keyframe: false,
         }
     }
 }
@@ -1607,6 +1611,21 @@ impl Command for ConvertToSymbol {
                 .filter_map(|id| doc.nodes.get(id).map(|n| (*id, n.transform().clone())))
                 .collect(),
         );
+        let existed = matches!(
+            doc.layer(self.scene, self.layer)
+                .and_then(|l| l.keyframes.get(&self.frame)),
+            Some(Frame::Keyframe { .. })
+        );
+        if !existed {
+            // INV-EDIT-1: auto-key lives INSIDE the command (not Session).
+            if doc
+                .ensure_keyframe(self.scene, self.layer, self.frame)
+                .is_none()
+            {
+                return;
+            }
+            self.created_keyframe = true;
+        }
         self.prev_content = doc
             .layer(self.scene, self.layer)
             .and_then(|l| l.keyframes.get(&self.frame))
@@ -1654,13 +1673,15 @@ impl Command for ConvertToSymbol {
                 }
             }
         }
-        // restore EXACT original frame content order
-        if let (Some(prev), Some(l)) = (
-            self.prev_content.clone(),
-            doc.layer_mut(self.scene, self.layer),
-        ) {
-            if let Some(Frame::Keyframe { content, .. }) = l.keyframes.get_mut(&self.frame) {
-                *content = prev;
+        // restore EXACT original frame: if we created the host keyframe,
+        // remove it (hold resumes); otherwise put the original content back.
+        if let Some(l) = doc.layer_mut(self.scene, self.layer) {
+            if self.created_keyframe {
+                l.keyframes.remove(&self.frame);
+            } else if let Some(prev) = self.prev_content.clone() {
+                if let Some(Frame::Keyframe { content, .. }) = l.keyframes.get_mut(&self.frame) {
+                    *content = prev;
+                }
             }
         }
     }

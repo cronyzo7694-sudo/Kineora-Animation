@@ -136,7 +136,7 @@ Implementation landed for SYS-03 H02 object clipboard + SYS-04 view overlays + S
 | AMB-S03-002 +10px offset | matches H02 resolved decision |
 | AMB-S03-003 Paste Special | still OPEN — dialog not implemented (no invented format list) |
 | AMB-S03-004 edit.delete | **ADD IN THIS REBASE** |
-| INV-EDIT-2 prevSelection | **OPEN** — History/Command trait does not yet store prevSelection (H01) |
+| INV-EDIT-2 prevSelection | **IMPLEMENTED** (`fe7566f` C-2; HistoryEntry prev/post; Session exec/undo/redo) |
 | Unified object+frame clipboard slot | **OPEN** — object clipboard is now app-level; frame_clipboard remains on Session (SYS-15 handoff, not silently absorbed) |
 | `selection:changed` payload | **OPEN / partial** — bus event added if missing; full `{prevTargets,targets,kind,commonType,bounds}` may be incomplete until SYS-14 |
 | SYS-07 Text | still BLOCKED (no Node::Text) |

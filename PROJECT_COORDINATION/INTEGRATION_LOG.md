@@ -137,3 +137,13 @@
 | Affects | SYS-03 (producer), SYS-01 bus, SYS-17/14 consumers re-read; SYS-16 folder Session methods keep compiling against History::execute(doc,cmd,prev) |
 | Worker | AI-A |
 | Status | LANDED — Leader verify |
+
+## INT-AIA-004 — 2026-08-22 AI-A forensic repair: selection:changed consumers + F8 auto-key
+
+| Field | Value |
+|---|---|
+| Change | (1) `App.tsx` now ticks on `selection:changed` (SYS-01 §27.1 / H01 §9 consumer). (2) `client.ts` `selectAt` / `selectToggleAt` / `selectInRect` emit locked `selection:changed` and never `document:changed`. Draw/delete/paste/duplicate also emit selection:changed after document:changed. Cut emits document:changed only when selection actually changed (locked-only copy is not a mutation — H04/FL-0007). (3) `ConvertToSymbol` auto-keys the playhead INSIDE apply; Session no longer calls `ensure_keyframe` before execute (INV-EDIT-1). |
+| New event? | **No** |
+| Affects | SYS-03 producer, SYS-01 App consumer, SYS-19 convert command (same History) |
+| Worker | AI-A |
+| Status | LANDED — Leader verify |

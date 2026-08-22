@@ -165,8 +165,12 @@ function emitSelectionChanged(prev: number[]): void {
 }
 
 export function drawRect(x: number, y: number, w: number, h: number, fill: string): number {
+  const prev = statusJson()?.selection ?? []
   const id = asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
-  if (id > 0) docChanged('draw')
+  if (id > 0) {
+    docChanged('draw')
+    emitSelectionChanged(prev)
+  }
   return id
 }
 
@@ -401,7 +405,10 @@ export function setPlayhead(frame: number): void {
 }
 
 export function selectAt(x: number, y: number): boolean {
-  return mod?.kineora_select_at(x, y) ?? false
+  const prev = statusJson()?.selection ?? []
+  const hit = mod?.kineora_select_at(x, y) ?? false
+  emitSelectionChanged(prev)
+  return hit
 }
 
 /** Select everything on visible, unlocked layers (view state — not undoable). */
@@ -426,11 +433,16 @@ export function newDefaultDocument(): boolean {
 }
 
 export function selectToggleAt(x: number, y: number): boolean {
-  return mod?.kineora_select_toggle_at(x, y) ?? false
+  const prev = statusJson()?.selection ?? []
+  const hit = mod?.kineora_select_toggle_at(x, y) ?? false
+  emitSelectionChanged(prev)
+  return hit
 }
 
 export function selectInRect(x0: number, y0: number, x1: number, y1: number): void {
+  const prev = statusJson()?.selection ?? []
   mod?.kineora_select_in_rect(x0, y0, x1, y1)
+  emitSelectionChanged(prev)
 }
 
 export function transformSelection(transforms: Array<Record<string, number>>): void {
@@ -754,26 +766,47 @@ export function copyObjects(): boolean {
 }
 
 export function cutObjects(): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_cut_objects?.() ?? false
-  if (ok) docChanged('edit')
-  return ok
+  if (!ok) return false
+  // Locked-only cut copies but does not delete (H02). That is NOT a
+  // document mutation — do not emit document:changed (H04 / FL-0007).
+  const after = statusJson()?.selection ?? []
+  const mutated = after.length !== prev.length || after.some((id, i) => id !== prev[i])
+  if (mutated) {
+    docChanged('edit')
+    emitSelectionChanged(prev)
+  }
+  return true
 }
 
 export function deleteSelection(): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_delete_selection?.() ?? false
-  if (ok) docChanged('edit')
+  if (ok) {
+    docChanged('edit')
+    emitSelectionChanged(prev)
+  }
   return ok
 }
 
 export function pasteObjects(mode: 'inplace' | 'center'): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_paste_objects?.(mode) ?? false
-  if (ok) docChanged('edit')
+  if (ok) {
+    docChanged('edit')
+    emitSelectionChanged(prev)
+  }
   return ok
 }
 
 export function duplicateObjects(): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_duplicate_objects?.() ?? false
-  if (ok) docChanged('edit')
+  if (ok) {
+    docChanged('edit')
+    emitSelectionChanged(prev)
+  }
   return ok
 }
 

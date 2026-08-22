@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-08-22 — AI-A: forensic repair — INV-EDIT-1 F8 auto-key + selection:changed consumers
+
+- No new features. Audit of SYS-01..07 against locked contracts.
+- **INV-EDIT-1:** `Session::convert_selection_to_symbol` no longer calls `ensure_keyframe` before History::execute. `ConvertToSymbol` auto-keys inside apply and removes that keyframe on revert.
+- **H01 §9 / SYS-01 §27.1:** Stage `selectAt`/`selectToggleAt`/`selectInRect` emit `selection:changed` (never `document:changed`). App ticks on `selection:changed`. Draw/delete/paste/duplicate also emit selection:changed.
+- **H04 / FL-0007:** cut emits `document:changed` only when selection actually changed (locked-only copy is not a mutation).
+- Escalated (not fixed): SYS-16 folder lock does not cascade (visible/outline do; no test). Browser H05 path identity. History panel / canCoalesce / AMBs.
+
 ## 2026-08-22 — AI-A: SYS-03 C-2 — prevSelection restore + History bound 100
 
 - INTEGRATED_AUDIT C-2 (HIGH). Session captures prev/post selection around `History::execute`; undo restores prev, redo restores post (INV-EDIT-2). Command trait stays `{label,apply,revert}` — no 30-impl duplication.

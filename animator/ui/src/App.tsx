@@ -44,6 +44,7 @@ import {
 } from './workspace'
 import { Toolbar } from './components/Toolbar'
 import { ToolColors } from './components/ToolColors'
+import { ToolOptions } from './components/ToolOptions'
 import { MenuBar } from './components/MenuBar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -680,6 +681,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
           <Toolbar controls={controls} ctx={ctx} />
           <ToolColors />
+          <ToolOptions tool={tool} />
         </div>
       )}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

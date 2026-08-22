@@ -40,6 +40,7 @@ vi.mock('../engine/client', () => ({
 import { drawRect, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, setNodeProps, statusJson, swapInstance, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
 import { defaultToolColors, loadToolColors, resetToolColorsCacheForTests, setToolColors } from '../toolColors'
+import { resetToolOptionsForTests, setToolOptions } from '../toolOptions'
 
 /** Adobe: new objects are drawn with the Tools-panel Fill Color (default white). */
 const DEFAULT_FILL = defaultToolColors().fill as string
@@ -47,6 +48,7 @@ const DEFAULT_FILL = defaultToolColors().fill as string
 beforeEach(() => {
   window.localStorage.clear()
   resetToolColorsCacheForTests()
+  resetToolOptionsForTests()
 })
 
 const selectAtMock = vi.mocked(selectAt)
@@ -812,5 +814,34 @@ describe('Stage — Eyedropper tool (I)', () => {
     render(<Stage engine={{ kind: 'ok', detail: 'mock' }} tool="eyedropper" playhead={1} tick={0} onToolChange={onToolChange} />)
     fireEvent.mouseDown(screen.getByTestId('stage-canvas'), { button: 0, clientX: 30, clientY: 30 })
     expect(onToolChange).toHaveBeenCalledWith('bucket')
+  })
+})
+
+describe('Stage — Zoom tool Enlarge/Reduce modifier (Adobe options area)', () => {
+  beforeEach(() => resetToolOptionsForTests())
+
+  it('Reduce mode makes a plain click zoom OUT', async () => {
+    setToolOptions({ zoomMode: 'out' })
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100 })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('50%'))
+  })
+
+  it('Alt+click reverses the modifier (Reduce + Alt = zoom in)', async () => {
+    setToolOptions({ zoomMode: 'out' })
+    renderStage('zoom')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100, altKey: true })
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('200%'))
+  })
+
+  it('the cursor shows which direction the click will zoom', async () => {
+    renderStage('zoom')
+    expect(screen.getByTestId('stage-canvas').style.cursor).toBe('zoom-in')
+    setToolOptions({ zoomMode: 'out' })
+    await waitFor(() => expect(screen.getByTestId('stage-canvas').style.cursor).toBe('zoom-out'))
   })
 })

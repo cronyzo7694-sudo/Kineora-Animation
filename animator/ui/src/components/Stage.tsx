@@ -18,6 +18,7 @@ import {
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
+import { loadToolOptions, subscribeToolOptions } from '../toolOptions'
 import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, zoomToRect, type Viewport } from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
@@ -55,12 +56,12 @@ interface Props {
  * Pointer feedback per tool (Adobe's Tools panel cursors): the Hand tool grabs,
  * the Zoom tool magnifies, drawing tools cross-hair.
  */
-export function stageCursor(tool: string): string {
+export function stageCursor(tool: string, zoomMode: 'in' | 'out' = 'in'): string {
   switch (tool) {
     case 'hand':
       return 'grab'
     case 'zoom':
-      return 'zoom-in'
+      return zoomMode === 'out' ? 'zoom-out' : 'zoom-in'
     case 'rect':
       return 'crosshair'
     case 'transform':
@@ -128,6 +129,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   // tool and the Hand tool, hold down the Spacebar"). `zoomMarquee` is the
   // Zoom tool's drag rectangle ("drag a rectangular selection on the Stage").
   const [spaceHeld, setSpaceHeld] = useState(false)
+  const [zoomMode, setZoomMode] = useState(loadToolOptions().zoomMode)
   const spaceHeldRef = useRef(false)
   const zoomMarqueeRef = useRef<DocRect | null>(null)
   const zoomStartRef = useRef<{ doc: Pt; sx: number; sy: number; dragging: boolean } | null>(null)
@@ -170,6 +172,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
   useEffect(() => subscribeViewPrefs(() => scheduleRedraw()), [])
   useEffect(() => subscribeToolColors(() => scheduleRedraw()), [])
+  useEffect(() => subscribeToolOptions(() => setZoomMode(loadToolOptions().zoomMode)), [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -329,7 +332,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           if (zg.dragging && zm && zm.w > 0 && zm.h > 0) {
             applyViewport(zoomToRect(vpRef.current, zm, wrap.clientWidth, wrap.clientHeight))
           } else {
-            applyViewport(zoomAt(vpRef.current, zg.sx, zg.sy, e.altKey ? 0.5 : 2))
+            // Adobe: the Enlarge / Reduce modifier decides the direction, and
+            // Alt-click inverts whatever the modifier says.
+            const reduce = loadToolOptions().zoomMode === 'out'
+            const out = e.altKey ? !reduce : reduce
+            applyViewport(zoomAt(vpRef.current, zg.sx, zg.sy, out ? 0.5 : 2))
           }
         }
         scheduleRedraw()
@@ -735,7 +742,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         ref={canvasRef}
         data-testid="stage-canvas"
         data-tool={spaceHeld ? 'hand' : tool}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: stageCursor(spaceHeld ? 'hand' : tool) }}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: stageCursor(spaceHeld ? 'hand' : tool, zoomMode) }}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}

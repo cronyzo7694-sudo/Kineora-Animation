@@ -25,6 +25,7 @@ import {
   arrangeSelection,
   copyObjects,
   cutObjects,
+  deleteSelection,
   duplicateObjects,
   flipSelection,
   pasteObjects,
@@ -573,30 +574,37 @@ export const commands: Command[] = [
   },
   {
     id: 'edit.paste',
-    label: 'Paste in Center',
+    label: 'Paste',
     category: 'edit',
     shortcut: 'Ctrl+V',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
+    // H02 §5: ONE commandId, three targets (center / place / special).
+    // special = AMB-S03-003 OPEN — not invented; center is the default (Ctrl+V).
+    source: '[SYS-03 H02 §5] edit.paste(center|place|special)',
     enabled: (c) => engineOk(c) && (c.getStatus()?.object_clipboard_len ?? 0) > 0,
     whyDisabled: (c) => (engineOk(c) ? 'clipboard empty' : NOT_ATTACHED),
-    run: (c) => {
+    run: (c, input) => {
       if (!engineOk(c)) return c.notify(`paste: ${NOT_ATTACHED}`)
-      c.notify(pasteObjects('center') ? 'paste: center' : 'paste: blocked (empty or locked layer)')
+      const target = input === 'place' ? 'inplace' : input === 'special' ? 'special' : 'center'
+      if (target === 'special') {
+        c.notify('paste special: format list is AMB-S03-003 (unresolved) — not invented')
+        return
+      }
+      c.notify(pasteObjects(target) ? `paste: ${target === 'inplace' ? 'in place' : 'center'}` : 'paste: blocked (empty or locked layer)')
     },
   },
   {
-    id: 'edit.pasteInPlace',
-    label: 'Paste in Place',
+    id: 'edit.delete',
+    label: 'Delete',
     category: 'edit',
-    shortcut: 'Ctrl+Shift+V',
+    shortcut: 'Delete',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.object_clipboard_len ?? 0) > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'clipboard empty' : NOT_ATTACHED),
+    source: '[SYS-03 H02 §6.5 / AMB-S03-004] edit.delete() — Delete/Backspace; not Clear Frames',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => {
-      if (!engineOk(c)) return c.notify(`paste: ${NOT_ATTACHED}`)
-      c.notify(pasteObjects('inplace') ? 'paste: in place' : 'paste: blocked (empty or locked layer)')
+      if (!engineOk(c)) return c.notify(`delete: ${NOT_ATTACHED}`)
+      c.notify(deleteSelection() ? 'delete: done' : 'delete: nothing selected')
     },
   },
   {
@@ -1895,6 +1903,8 @@ export const shortcutAliases: Record<string, { id: string; input?: unknown }> = 
   'ctrl+r': { id: 'file.import', input: 'stage' },
   'ctrl+i': { id: 'file.import', input: 'library' },
   'ctrl+shift+r': { id: 'file.export', input: 'image' },
+  'ctrl+shift+v': { id: 'edit.paste', input: 'place' },
+  backspace: { id: 'edit.delete' },
 }
 
 

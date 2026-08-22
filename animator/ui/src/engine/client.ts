@@ -157,6 +157,12 @@ function docChanged(type: string): void {
   if (mod) bus.emit('document:changed', { type, targets: [] })
 }
 
+function emitSelectionChanged(prev: number[]): void {
+  if (!mod) return
+  const targets = statusJson()?.selection ?? []
+  bus.emit('selection:changed', { prevTargets: prev, targets })
+}
+
 export function drawRect(x: number, y: number, w: number, h: number, fill: string): number {
   const id = asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
   if (id > 0) docChanged('draw')
@@ -390,12 +396,16 @@ export function selectAt(x: number, y: number): boolean {
 
 /** Select everything on visible, unlocked layers (view state — not undoable). */
 export function selectAll(): void {
+  const prev = statusJson()?.selection ?? []
   mod?.kineora_select_all()
+  emitSelectionChanged(prev)
 }
 
 /** Clear the stage selection (view state — not undoable). */
 export function clearSelection(): void {
+  const prev = statusJson()?.selection ?? []
   mod?.kineora_clear_selection()
+  emitSelectionChanged(prev)
 }
 
 /** New document from the engine's default settings (File ▸ New fallback).

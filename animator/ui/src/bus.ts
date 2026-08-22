@@ -42,6 +42,17 @@ export interface BusEvents {
    *  `activeDoc:changed` (H02 §14 — open-set is authoritative before the
    *  dependent UI consumes the active notification). */
   'openSet:changed': { change: 'added' | 'removed' | 'reordered'; docId?: number }
+  /** SYS-01 §27.1 / SYS-03 H00 §8 — selection command/mutation update.
+   *  Full schema is `{prevTargets,targets,kind,commonType,bounds}`; producers
+   *  MUST send prevTargets+targets. Other fields are optional until SYS-14
+   *  owns the complete MOD-SELECTION payload. */
+  'selection:changed': {
+    prevTargets: number[]
+    targets: number[]
+    kind?: string
+    commonType?: string
+    bounds?: { x: number; y: number; w: number; h: number } | null
+  }
 }
 
 export type BusEventName = keyof BusEvents

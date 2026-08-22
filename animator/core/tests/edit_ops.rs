@@ -2,10 +2,12 @@
 //! Source: Blueprint 1.2.2 / 1.2.5 / Part 24. Native engine tests — not mocked.
 
 use animator_core::{
-    AlignOp, AlignSpace, ArrangeOp, Frame, PasteMode, Session, Settings, DUPLICATE_OFFSET,
+    app_object_clipboard_len, clear_app_object_clipboard, AlignOp, AlignSpace, ArrangeOp, Frame,
+    PasteMode, Session, Settings, DUPLICATE_OFFSET,
 };
 
 fn session() -> Session {
+    clear_app_object_clipboard();
     Session::new(Settings::default())
 }
 
@@ -15,7 +17,7 @@ fn copy_is_session_state_not_a_command() {
     s.draw_rect(10.0, 20.0, 40.0, 30.0, "#ff0000");
     let n = s.history.undo_len();
     assert!(s.copy_objects());
-    assert_eq!(s.object_clipboard.len(), 1);
+    assert_eq!(app_object_clipboard_len(), 1);
     assert_eq!(
         s.history.undo_len(),
         n,
@@ -30,7 +32,7 @@ fn copy_empty_selection_is_noop() {
     s.draw_rect(0.0, 0.0, 10.0, 10.0, "#111111");
     s.clear_selection();
     assert!(!s.copy_objects());
-    assert!(s.object_clipboard.is_empty());
+    assert_eq!(app_object_clipboard_len(), 0);
 }
 
 #[test]
@@ -80,7 +82,7 @@ fn cut_removes_from_current_frame_and_fills_clipboard() {
     s.draw_rect(5.0, 5.0, 10.0, 10.0, "#111111");
     assert!(s.cut_objects());
     assert_eq!(s.current_frame().len(), 0);
-    assert_eq!(s.object_clipboard.len(), 1);
+    assert_eq!(app_object_clipboard_len(), 1);
     assert!(s.paste_objects(PasteMode::InPlace));
     assert_eq!(s.current_frame().len(), 1);
 }
@@ -224,6 +226,26 @@ fn align_two_objects_left_to_selection() {
     let tb = s.selected_transform(b).unwrap();
     assert!((ta.x - 50.0).abs() < 0.01, "leftmost stays, x={}", ta.x);
     assert!((tb.x - 50.0).abs() < 0.01, "right moves to 50, x={}", tb.x);
+}
+
+#[test]
+fn clipboard_is_application_level_across_sessions() {
+    let mut a = session();
+    a.draw_rect(10.0, 20.0, 40.0, 30.0, "#ff0000");
+    assert!(a.copy_objects());
+    let mut b = Session::new(Settings::default()); // must NOT clear app clipboard
+    assert_eq!(app_object_clipboard_len(), 1);
+    assert!(b.paste_objects(PasteMode::InPlace));
+    assert_eq!(b.current_frame().len(), 1);
+}
+
+#[test]
+fn from_document_does_not_clear_app_clipboard() {
+    let mut a = session();
+    a.draw_rect(0.0, 0.0, 10.0, 10.0, "#111111");
+    assert!(a.copy_objects());
+    let _b = Session::from_document(a.doc.clone());
+    assert_eq!(app_object_clipboard_len(), 1);
 }
 
 #[test]

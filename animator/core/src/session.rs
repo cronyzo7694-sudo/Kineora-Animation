@@ -11,8 +11,8 @@ use crate::command::{
     SetNodeProps, SwapInstance, TransformSelection,
 };
 use crate::edit_ops::{
-    AlignOp, AlignSpace, ArrangeOp, ArrangeSelection, DeleteSelection, ObjectClip, PasteMode,
-    PasteObjects, DUPLICATE_OFFSET,
+    app_object_clipboard, set_app_object_clipboard, AlignOp, AlignSpace, ArrangeOp,
+    ArrangeSelection, DeleteSelection, ObjectClip, PasteMode, PasteObjects, DUPLICATE_OFFSET,
 };
 use crate::eval::{
     evaluate, hit_test, hits_in_rect, node_bounds, node_layer_index, node_transform_in_scene,
@@ -74,10 +74,6 @@ pub struct Session {
     /// document, NOT persisted, NOT undoable (like the OS clipboard). Holds
     /// (frame number, record) pairs captured by copy/cut.
     pub frame_clipboard: Vec<(u32, Frame)>,
-    /// Stage-object clipboard (SYS-03 / Blueprint 1.2.2). Session state —
-    /// NOT persisted, NOT undoable. AMB-SYS03-002 PROVISIONAL = per-session
-    /// (matches the frame clipboard; cross-document paste is unspecified).
-    pub object_clipboard: Vec<ObjectClip>,
 }
 
 impl Session {
@@ -92,7 +88,6 @@ impl Session {
             active_layer: 0,
             event_log: vec!["session:new".into()],
             frame_clipboard: Vec::new(),
-            object_clipboard: Vec::new(),
         };
         s.log("document:created");
         s
@@ -1152,8 +1147,8 @@ impl Session {
             self.log("copy:nothing");
             return false;
         }
-        self.object_clipboard = clips;
-        self.log(&format!("copy:objects({})", self.object_clipboard.len()));
+        set_app_object_clipboard(clips);
+        self.log(&format!("copy:objects({})", app_object_clipboard().len()));
         true
     }
 
@@ -1191,7 +1186,8 @@ impl Session {
     /// `mode` = InPlace (same coords) or Center (AABB → stage center).
     /// Blocked on locked/hidden active layer; empty clipboard = no-op.
     pub fn paste_objects(&mut self, mode: PasteMode) -> bool {
-        if self.object_clipboard.is_empty() {
+        let clips = app_object_clipboard();
+        if clips.is_empty() {
             self.log("paste:empty");
             return false;
         }
@@ -1209,7 +1205,7 @@ impl Session {
         let mut miny = f64::INFINITY;
         let mut maxx = f64::NEG_INFINITY;
         let mut maxy = f64::NEG_INFINITY;
-        for clip in &self.object_clipboard {
+        for clip in &clips {
             let t = clip.node.transform();
             match &clip.node {
                 Node::Rect { width, height, .. } => {
@@ -1246,7 +1242,7 @@ impl Session {
 
         let mut items = Vec::new();
         let mut new_sel = Vec::new();
-        for clip in &self.object_clipboard {
+        for clip in &clips {
             let nid = self.doc.alloc_node_id();
             let mut node = clip.node.with_id(nid);
             node.transform_mut().x += dx;
@@ -1271,15 +1267,19 @@ impl Session {
         if !self.copy_objects() {
             return false;
         }
-        for clip in &mut self.object_clipboard {
+        let mut clips = app_object_clipboard();
+        for clip in &mut clips {
             clip.node.transform_mut().x += DUPLICATE_OFFSET;
             clip.node.transform_mut().y += DUPLICATE_OFFSET;
         }
+        set_app_object_clipboard(clips);
         let ok = self.paste_objects(PasteMode::InPlace);
-        for clip in &mut self.object_clipboard {
+        let mut clips = app_object_clipboard();
+        for clip in &mut clips {
             clip.node.transform_mut().x -= DUPLICATE_OFFSET;
             clip.node.transform_mut().y -= DUPLICATE_OFFSET;
         }
+        set_app_object_clipboard(clips);
         if ok {
             self.log("duplicate:objects");
         }
@@ -2131,7 +2131,6 @@ impl Session {
             active_layer: 0,
             event_log: vec!["session:loaded".into()],
             frame_clipboard: Vec::new(),
-            object_clipboard: Vec::new(),
         }
     }
 }

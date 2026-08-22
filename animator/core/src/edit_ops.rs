@@ -5,6 +5,7 @@
 //! write per-keyframe transform overrides). Clipboard COPY is session state
 //! (not a command) — same contract as the frame clipboard (F-07-12).
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use crate::command::Command;
@@ -19,10 +20,33 @@ pub struct ObjectClip {
     pub node: Node,
 }
 
-/// AMB-SYS03-001 PROVISIONAL — Blueprint 1.2.2 says Duplicate is
-/// "copy+offset" but is silent on the delta. 10 document units is the
-/// conventional editor nudge. Flagged, never silently finalized.
+/// AMB-S03-002 RESOLVED (SYS-03 H02 §6.4): Duplicate offset = +10 px x/y.
 pub const DUPLICATE_OFFSET: f64 = 10.0;
+
+thread_local! {
+    /// APPLICATION-level object clipboard (SYS-03 H02 §4.1 / AMB-S03-001).
+    /// Shared across open documents. SESSION (not persisted, not undoable).
+    /// App restart / process end clears it. Not stored on Session.
+    static APP_OBJECT_CLIPBOARD: RefCell<Vec<ObjectClip>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn app_object_clipboard() -> Vec<ObjectClip> {
+    APP_OBJECT_CLIPBOARD.with(|c| c.borrow().clone())
+}
+
+pub fn set_app_object_clipboard(items: Vec<ObjectClip>) {
+    APP_OBJECT_CLIPBOARD.with(|c| *c.borrow_mut() = items);
+}
+
+pub fn app_object_clipboard_len() -> usize {
+    APP_OBJECT_CLIPBOARD.with(|c| c.borrow().len())
+}
+
+/// Test-only / process reset. Never called by New/Open (clipboard survives
+/// document lifecycle — H02 §4.1).
+pub fn clear_app_object_clipboard() {
+    APP_OBJECT_CLIPBOARD.with(|c| c.borrow_mut().clear());
+}
 
 /// Paste placement (Blueprint 1.2.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

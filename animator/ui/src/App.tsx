@@ -457,6 +457,7 @@ export default function App() {
       'edit.paste',
       'edit.pasteInPlace',
       'edit.duplicate',
+      'edit.delete',
       'view.rulers',
       'view.grid',
       'view.hideEdges',

@@ -1245,7 +1245,7 @@ pub fn kineora_status() -> String {
             background_alpha: s.doc.settings.background_alpha,
             duration: s.timeline_duration(),
             clipboard_len: s.frame_clipboard.len(),
-            object_clipboard_len: s.object_clipboard.len(),
+            object_clipboard_len: crate::edit_ops::app_object_clipboard_len(),
             event_log: s.event_log.clone(),
             doc_id,
             doc_title,

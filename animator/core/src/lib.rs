@@ -21,7 +21,10 @@ pub mod wasm;
 pub use command::{Command, History};
 pub use doc_manager::{DocManager, ManagedDoc};
 pub use easing::{ease_classic, ease_penner, EaseFn, EaseMode};
-pub use edit_ops::{AlignOp, AlignSpace, ArrangeOp, ObjectClip, PasteMode, DUPLICATE_OFFSET};
+pub use edit_ops::{
+    app_object_clipboard_len, clear_app_object_clipboard, AlignOp, AlignSpace, ArrangeOp,
+    ObjectClip, PasteMode, DUPLICATE_OFFSET,
+};
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId, SymbolId};
 pub use model::{

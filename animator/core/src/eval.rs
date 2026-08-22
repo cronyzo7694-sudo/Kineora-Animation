@@ -255,6 +255,32 @@ pub(crate) fn instance_child_frame(
     }
 }
 
+/// Effective (tree-aware) visibility/lock of `layer` inside the layer stack it
+/// belongs to (BUG B-1 / F-20-05 folder cascade): a layer only renders when it
+/// AND every ancestor folder is visible, and it counts as locked as soon as any
+/// ancestor folder is locked. Walking the chain at read time keeps the stage,
+/// the hit-test and the marquee consistent even for documents saved before the
+/// folder-lock cascade existed.
+pub(crate) fn effective_layer_state(layers: &[Layer], layer: &Layer) -> (bool, bool) {
+    let mut visible = layer.visible;
+    let mut locked = layer.locked;
+    let mut cur = layer.parent_id;
+    let mut guard = 0usize;
+    while let Some(pid) = cur {
+        let Some(parent) = layers.iter().find(|l| l.id == pid) else {
+            break;
+        };
+        visible = visible && parent.visible;
+        locked = locked || parent.locked;
+        cur = parent.parent_id;
+        guard += 1;
+        if guard > layers.len() {
+            break; // cycle guard
+        }
+    }
+    (visible, locked)
+}
+
 /// Recursively flatten a layer stack at `frame` into render items, applying the
 /// accumulated instance context `ctx` (None = identity). `skip_locked` gates
 /// locked layers (used by hit-testing/marquee; rendering keeps locked layers).
@@ -275,7 +301,10 @@ pub(crate) fn collect_items(
     out: &mut Vec<RectItem>,
 ) {
     for layer in layers {
-        if !layer.visible || (skip_locked && layer.locked) {
+        // BUG B-1: a child of a hidden (or locked, when hit-testing) folder is
+        // hidden/locked too — check the whole ancestor chain, not just the row.
+        let (eff_visible, eff_locked) = effective_layer_state(layers, layer);
+        if !eff_visible || (skip_locked && eff_locked) {
             continue;
         }
         let layer_outline = if layer.outline {
@@ -412,7 +441,9 @@ pub fn hits_in_rect(
         return out;
     };
     for layer in scene_.layers.iter() {
-        if !layer.visible || layer.locked {
+        // BUG B-1: ancestor folders gate marquee selection too.
+        let (eff_visible, eff_locked) = effective_layer_state(&scene_.layers, layer);
+        if !eff_visible || eff_locked {
             continue;
         }
         let states = node_states_at(doc, layer, frame);
@@ -474,7 +505,9 @@ fn hit_layers(
     depth: u32,
 ) -> Option<NodeId> {
     for layer in layers.iter().rev() {
-        if !layer.visible || layer.locked {
+        // BUG B-1: ancestor folders gate hit-testing too.
+        let (eff_visible, eff_locked) = effective_layer_state(layers, layer);
+        if !eff_visible || eff_locked {
             continue;
         }
         let states = node_states_at(doc, layer, frame);

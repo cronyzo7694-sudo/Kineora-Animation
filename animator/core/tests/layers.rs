@@ -661,3 +661,129 @@ fn collapse_folder_is_undoable() {
     s.undo();
     assert!(!s.doc.scene(0).unwrap().layers[fi].collapsed);
 }
+
+// ——— Regression tests for the folder bugs B-1 / B-2 / B-3 / B-4 ———
+// (source: PROJECT_COORDINATION/LAYER_SYSTEM_FORENSIC_RESEARCH.md §28)
+
+/// B-1 — a child of a HIDDEN folder must not render, hit-test or marquee.
+#[test]
+fn hidden_folder_hides_child_layer_content() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    s.set_active_layer(li);
+    let id = s.draw_rect(0.0, 0.0, 50.0, 50.0, "#abcdef");
+    assert_ne!(id, animator_core::NodeId(0), "draw lands on the child layer");
+    assert_eq!(s.evaluate(1).len(), 1, "visible before hiding the folder");
+
+    assert!(s.set_layer_visible(fi, false));
+    assert!(
+        s.evaluate(1).is_empty(),
+        "child of a hidden folder must not render"
+    );
+    s.select_at(25.0, 25.0);
+    assert!(
+        s.selection.is_empty(),
+        "child of a hidden folder is not hit-testable"
+    );
+    s.select_in_rect(-10.0, -10.0, 200.0, 200.0);
+    assert!(
+        s.selection.is_empty(),
+        "child of a hidden folder is not marquee-selectable"
+    );
+}
+
+/// B-1/B-3 — a child of a LOCKED folder is not selectable (render unaffected).
+#[test]
+fn locked_folder_blocks_child_selection_but_still_renders() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    s.set_layer_parent(li, Some(fi));
+    s.set_active_layer(li);
+    s.draw_rect(0.0, 0.0, 50.0, 50.0, "#abcdef");
+
+    assert!(s.set_layer_locked(fi, true));
+    assert_eq!(s.evaluate(1).len(), 1, "locked layers still render");
+    s.select_at(25.0, 25.0);
+    assert!(s.selection.is_empty(), "locked folder blocks child hit-test");
+}
+
+/// B-3 — locking a folder cascades to descendants as ONE undo step.
+#[test]
+fn folder_lock_cascades_one_undo() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    let n = s.history.undo_len();
+    assert!(s.set_layer_locked(fi, true));
+    assert_eq!(s.history.undo_len(), n + 1, "cascade = one command");
+    assert!(s.doc.scene(0).unwrap().layers[fi].locked);
+    assert!(
+        s.doc.scene(0).unwrap().layers[li].locked,
+        "lock cascades to the child (B-3)"
+    );
+    s.undo();
+    assert!(!s.doc.scene(0).unwrap().layers[fi].locked);
+    assert!(!s.doc.scene(0).unwrap().layers[li].locked);
+}
+
+/// B-2 — F5/F6/F7/Shift+F5/Shift+F6 are no-ops on a folder row.
+#[test]
+fn frame_ops_are_blocked_on_a_folder() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    s.set_active_layer(fi);
+    let n = s.history.undo_len();
+    assert!(!s.insert_keyframe(5), "F6 blocked on folder");
+    assert!(!s.insert_blank_keyframe(5), "F7 blocked on folder");
+    assert!(!s.clear_keyframe(1), "Shift+F6 blocked on folder");
+    assert!(!s.insert_frame(1), "F5 blocked on folder");
+    assert!(!s.delete_frame(1), "Shift+F5 blocked on folder");
+    assert_eq!(s.history.undo_len(), n, "no command recorded");
+    assert!(
+        s.doc.scene(0).unwrap().layers[fi].keyframes.is_empty(),
+        "folders still store no frames"
+    );
+}
+
+/// B-4 — duplicating a folder duplicates the WHOLE subtree, independently.
+#[test]
+fn duplicate_folder_deep_copies_the_subtree() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    s.set_layer_parent(li, Some(fi));
+    s.set_active_layer(li);
+    let src_node = s.draw_rect(0.0, 0.0, 40.0, 40.0, "#00ff00");
+    let before = s.doc.scene(0).unwrap().layers.len();
+
+    let n = s.history.undo_len();
+    assert!(s.duplicate_layer(fi).is_some());
+    assert_eq!(s.history.undo_len(), n + 1, "subtree duplicate = one undo");
+    let sc = s.doc.scene(0).unwrap();
+    assert_eq!(sc.layers.len(), before + 2, "folder + child copied");
+
+    let folder_copy = &sc.layers[fi + 1];
+    let child_copy = &sc.layers[fi + 2];
+    assert!(folder_copy.is_folder(), "the folder row is copied");
+    assert_eq!(
+        child_copy.parent_id,
+        Some(folder_copy.id),
+        "the copied child is nested under the COPIED folder"
+    );
+    let copy_node = child_copy.content_at(1)[0];
+    assert_ne!(copy_node, src_node, "content is deep-copied (new node id)");
+    assert_eq!(s.evaluate(1).len(), 2, "both subtrees render");
+
+    s.undo();
+    let sc = s.doc.scene(0).unwrap();
+    assert_eq!(sc.layers.len(), before, "undo removes the whole subtree");
+    assert!(!s.doc.nodes.contains_key(&copy_node), "copied node removed");
+    assert!(s.doc.nodes.contains_key(&src_node), "source untouched");
+
+    s.redo();
+    assert_eq!(s.doc.scene(0).unwrap().layers.len(), before + 2);
+}

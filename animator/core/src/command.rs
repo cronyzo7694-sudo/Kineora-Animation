@@ -2313,7 +2313,10 @@ impl Command for SetLayerFlags {
 pub struct DuplicateLayer {
     pub scene: usize,
     pub source_index: usize,
-    pub layer: Layer,
+    /// The copied rows, in stack order: [0] is the duplicate of the clicked
+    /// layer; for a FOLDER duplicate the rest are its copied descendants
+    /// (BUG B-4 — the whole subtree is one undo step).
+    pub layers: Vec<Layer>,
     pub copied_nodes: BTreeMap<NodeId, Node>,
 }
 
@@ -2329,7 +2332,9 @@ impl Command for DuplicateLayer {
             return;
         };
         let idx = (self.source_index + 1).min(sc.layers.len());
-        sc.layers.insert(idx, self.layer.clone());
+        for (i, layer) in self.layers.iter().enumerate() {
+            sc.layers.insert(idx + i, layer.clone());
+        }
     }
     fn revert(&mut self, doc: &mut Document) {
         for id in self.copied_nodes.keys() {
@@ -2338,7 +2343,7 @@ impl Command for DuplicateLayer {
         let Some(sc) = doc.scenes.get_mut(self.scene) else {
             return;
         };
-        sc.layers.retain(|l| l.id != self.layer.id);
+        sc.layers.retain(|l| !self.layers.iter().any(|c| c.id == l.id));
     }
 }
 

@@ -20,7 +20,21 @@
 // ============================================================================
 
 import { performAction, stopPlayback, togglePlay, isLoopEnabled } from './engine/actions'
-import { setPlayhead, statusJson } from './engine/client'
+import {
+  alignSelection,
+  arrangeSelection,
+  copyObjects,
+  cutObjects,
+  duplicateObjects,
+  flipSelection,
+  pasteObjects,
+  removeTransform,
+  rotateSelection,
+  setClassicTween,
+  setPlayhead,
+  statusJson,
+} from './engine/client'
+import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
 import {
   closeActiveDocument,
   closeAllDocuments,
@@ -160,6 +174,8 @@ export interface TimelineViewController {
   convertBlank: () => void
   loopEnabled: () => boolean
   toggleLoop: () => void
+  /** Insert ▸ Classic Tween — create a span from the current timeline selection. */
+  createClassicTween: () => void
 }
 
 export const stageViewController: { current: StageViewController | null } = { current: null }
@@ -532,50 +548,70 @@ export const commands: Command[] = [
     label: 'Cut',
     category: 'edit',
     shortcut: 'Ctrl+X',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2',
-    reason: 'stage object clipboard is a future unit (frame clipboard works — Edit ▸ Timeline)',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2 (clipboard = object JSON)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => {
+      if (!engineOk(c)) return c.notify(`cut: ${NOT_ATTACHED}`)
+      c.notify(cutObjects() ? 'cut: done' : 'cut: nothing to cut')
+    },
   },
   {
     id: 'edit.copy',
     label: 'Copy',
     category: 'edit',
     shortcut: 'Ctrl+C',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2',
-    reason: 'stage object clipboard is a future unit (frame clipboard works — Edit ▸ Timeline)',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2 (clipboard = object JSON)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => {
+      if (!engineOk(c)) return c.notify(`copy: ${NOT_ATTACHED}`)
+      c.notify(copyObjects() ? 'copy: done' : 'copy: nothing selected')
+    },
   },
   {
     id: 'edit.paste',
     label: 'Paste in Center',
     category: 'edit',
     shortcut: 'Ctrl+V',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
-    reason: 'stage object clipboard is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.object_clipboard_len ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'clipboard empty' : NOT_ATTACHED),
+    run: (c) => {
+      if (!engineOk(c)) return c.notify(`paste: ${NOT_ATTACHED}`)
+      c.notify(pasteObjects('center') ? 'paste: center' : 'paste: blocked (empty or locked layer)')
+    },
   },
   {
     id: 'edit.pasteInPlace',
     label: 'Paste in Place',
     category: 'edit',
     shortcut: 'Ctrl+Shift+V',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
-    reason: 'stage object clipboard is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.object_clipboard_len ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'clipboard empty' : NOT_ATTACHED),
+    run: (c) => {
+      if (!engineOk(c)) return c.notify(`paste: ${NOT_ATTACHED}`)
+      c.notify(pasteObjects('inplace') ? 'paste: in place' : 'paste: blocked (empty or locked layer)')
+    },
   },
   {
     id: 'edit.duplicate',
     label: 'Duplicate',
     category: 'edit',
     shortcut: 'Ctrl+D',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
-    reason: 'stage duplicate is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.2 (offset = AMB-SYS03-001 PROVISIONAL 10px)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => {
+      if (!engineOk(c)) return c.notify(`duplicate: ${NOT_ATTACHED}`)
+      c.notify(duplicateObjects() ? 'duplicate: done' : 'duplicate: nothing selected')
+    },
   },
   {
     id: 'edit.selectAll',
@@ -795,20 +831,26 @@ export const commands: Command[] = [
     label: 'Show Rulers',
     category: 'view',
     shortcut: 'Ctrl+Shift+Alt+R',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.4.4',
-    reason: 'rulers are a future view feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.4.4 / Part 29 §29.9',
+    checked: () => loadViewPrefs().rulers,
+    run: (c) => {
+      const next = toggleViewFlag('rulers')
+      c.notify(next.rulers ? 'rulers: on' : 'rulers: off')
+    },
   },
   {
     id: 'view.grid',
     label: 'Show Grid',
     category: 'view',
     shortcut: "Ctrl+'",
-    status: 'DEFERRED',
-    source: '[BLUEPRINT + ADOBE] Part 01 §1.4.4',
-    reason: 'grid overlay is a future view feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT + ADOBE] Part 01 §1.4.4 (cell size = AMB-SYS04-001 PROVISIONAL 20)',
+    checked: () => loadViewPrefs().grid,
+    run: (c) => {
+      const next = toggleViewFlag('grid')
+      c.notify(next.grid ? 'grid: on' : 'grid: off')
+    },
   },
   {
     id: 'view.guides',
@@ -817,7 +859,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+;',
     status: 'DEFERRED',
     source: '[BLUEPRINT + ADOBE] Part 01 §1.4.4',
-    reason: 'guides are a future view feature',
+    reason: 'guide objects + ruler-drag creation is a later SYS-04 part (empty show-toggle would be a no-op — lesson #8)',
     run: () => {},
   },
   {
@@ -826,7 +868,7 @@ export const commands: Command[] = [
     category: 'view',
     status: 'DEFERRED',
     source: '[BLUEPRINT REQUIRED] Part 01 §1.4.4',
-    reason: 'snapping engine is a future view feature',
+    reason: 'SnapEngine (objects/grid/guides/pixels) is a later SYS-04 part',
     run: () => {},
   },
   {
@@ -834,20 +876,26 @@ export const commands: Command[] = [
     label: 'Hide Edges',
     category: 'view',
     shortcut: 'Ctrl+Shift+E',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 29 §29.3',
-    reason: 'selection-edge suppression is a future view feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.3 / WISH W6',
+    checked: () => loadViewPrefs().hideEdges,
+    run: (c) => {
+      const next = toggleViewFlag('hideEdges')
+      c.notify(next.hideEdges ? 'hide edges: on' : 'hide edges: off')
+    },
   },
   {
     id: 'view.workArea',
     label: 'Show Work Area (Pasteboard)',
     category: 'view',
     shortcut: 'Ctrl+Shift+W',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 01 §1.4.1',
-    reason: 'pasteboard toggle is a future view feature',
-    run: () => {},
+    checked: () => loadViewPrefs().workArea,
+    run: (c) => {
+      const next = toggleViewFlag('workArea')
+      c.notify(next.workArea ? 'work area: on' : 'work area: off')
+    },
   },
   {
     id: 'view.previewFull',
@@ -855,19 +903,23 @@ export const commands: Command[] = [
     category: 'view',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 01 §1.4.3',
-    // The renderer draws only full mode today; the command honestly reports
-    // the active mode rather than pretending to switch.
-    checked: () => true,
-    run: (c) => c.notify('preview mode: full (the only mode in this build)'),
+    checked: () => loadViewPrefs().preview === 'full',
+    run: (c) => {
+      setPreviewMode('full')
+      c.notify('preview mode: full')
+    },
   },
   {
     id: 'view.previewOutline',
     label: 'Outline Preview Mode',
     category: 'view',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 01 §1.4.3',
-    reason: 'outline rendering is a future renderer feature',
-    run: () => {},
+    checked: () => loadViewPrefs().preview === 'outline',
+    run: (c) => {
+      setPreviewMode('outline')
+      c.notify('preview mode: outline')
+    },
   },
 
   // ——— Insert (Part 01 §1.2.4) ———
@@ -927,10 +979,28 @@ export const commands: Command[] = [
     id: 'insert.classicTween',
     label: 'Classic Tween',
     category: 'insert',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 09',
-    reason: 'create classic tweens from the timeline (~ Tween button on a 2-keyframe selection)',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 09.2 — Insert ▸ Classic Tween between two same-object keyframes',
+    enabled: engineOk,
+    whyDisabled: () => NOT_ATTACHED,
+    run: (c) => {
+      if (timelineViewController.current) {
+        timelineViewController.current.createClassicTween()
+        return
+      }
+      const st = c.getStatus()
+      if (!st) return c.notify('classic tween: no document')
+      const layer = st.layers?.[st.active_layer ?? 0]
+      if (!layer || layer.locked) return c.notify('classic tween: locked layer — unlock to edit')
+      const keys = layer.keyframes.filter((k) => !k.blank).map((k) => k.frame).sort((a, b) => a - b)
+      const start = keys.filter((f) => f <= (st.playhead ?? 1)).pop()
+      const end = keys.find((f) => start !== undefined && f > start)
+      if (start === undefined || end === undefined) {
+        c.notify('classic tween: select two keyframes on the timeline (or place the playhead on a span)')
+        return
+      }
+      c.notify(setClassicTween(st.active_layer ?? 0, start, end, 0) ? `tween ${start} → ${end}` : 'tween: the two keyframes must hold the same object')
+    },
   },
   {
     id: 'insert.shapeTween',
@@ -1097,98 +1167,117 @@ export const commands: Command[] = [
     label: 'Rotate 90° CW',
     category: 'modify',
     shortcut: 'Ctrl+Shift+9',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.4',
-    reason: 'numeric transform is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(rotateSelection(90) ? 'rotate 90° CW' : 'rotate: nothing selected'),
   },
   {
     id: 'modify.transformRotate90ccw',
     label: 'Rotate 90° CCW',
     category: 'modify',
     shortcut: 'Ctrl+Shift+7',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.4',
-    reason: 'numeric transform is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(rotateSelection(-90) ? 'rotate 90° CCW' : 'rotate: nothing selected'),
   },
   {
     id: 'modify.transformFlipH',
     label: 'Flip Horizontal',
     category: 'modify',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 04',
-    reason: 'numeric transform is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(flipSelection(true) ? 'flip horizontal' : 'flip: nothing selected'),
   },
   {
     id: 'modify.transformFlipV',
     label: 'Flip Vertical',
     category: 'modify',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 04',
-    reason: 'numeric transform is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(flipSelection(false) ? 'flip vertical' : 'flip: nothing selected'),
   },
   {
     id: 'modify.transformRemove',
     label: 'Remove Transform',
     category: 'modify',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 04',
-    reason: 'transform flatten is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(removeTransform() ? 'transform removed' : 'remove transform: already identity'),
   },
   {
     id: 'modify.arrangeFront',
     label: 'Bring to Front',
     category: 'modify',
     shortcut: 'Ctrl+Shift+↑',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    reason: 'z-order ops are a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(arrangeSelection('front') ? 'bring to front' : 'arrange: nothing selected'),
   },
   {
     id: 'modify.arrangeForward',
     label: 'Bring Forward',
     category: 'modify',
     shortcut: 'Ctrl+↑',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    reason: 'z-order ops are a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(arrangeSelection('forward') ? 'bring forward' : 'arrange: nothing selected'),
   },
   {
     id: 'modify.arrangeBackward',
     label: 'Send Backward',
     category: 'modify',
     shortcut: 'Ctrl+↓',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    reason: 'z-order ops are a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(arrangeSelection('backward') ? 'send backward' : 'arrange: nothing selected'),
   },
   {
     id: 'modify.arrangeBack',
     label: 'Send to Back',
     category: 'modify',
     shortcut: 'Ctrl+Shift+↓',
-    status: 'DEFERRED',
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    reason: 'z-order ops are a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c) => c.notify(arrangeSelection('back') ? 'send to back' : 'arrange: nothing selected'),
   },
   {
     id: 'modify.align',
     label: 'Align…',
     category: 'modify',
-    // [OUR DESIGN DECISION] Ctrl+K is the command palette (C-04); the Align
-    // panel is a future unit, so it claims no shortcut yet.
-    status: 'DEFERRED',
+    // [OUR DESIGN DECISION] Ctrl+K is the command palette (C-04); Align is
+    // parameterized (input = left|centerH|right|top|middleV|bottom). Single
+    // object → Align to Stage (Part 24.5); multi → Align to Selection.
+    status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 24',
-    reason: 'align/distribute is a future unit',
-    run: () => {},
+    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    run: (c, input) => {
+      const op = typeof input === 'string' ? input : ''
+      const allowed = ['left', 'centerH', 'right', 'top', 'middleV', 'bottom'] as const
+      if (!allowed.includes(op as (typeof allowed)[number])) {
+        c.notify('align: pick an operation from Modify ▸ Align')
+        return
+      }
+      c.notify(alignSelection(op as (typeof allowed)[number]) ? `align ${op}` : 'align: nothing moved')
+    },
   },
   {
     id: 'modify.group',

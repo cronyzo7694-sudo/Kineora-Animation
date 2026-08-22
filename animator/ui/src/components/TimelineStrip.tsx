@@ -443,6 +443,32 @@ export function TimelineStrip({ status, notify, height }: Props) {
       convertBlank: () => doRangeRef.current(convertToBlankKeyframes, 'convert to blank keyframes'),
       loopEnabled: () => loopOnRef.current,
       toggleLoop: () => toggleLoopRef.current(),
+      createClassicTween: () => {
+        const l = selLayerRef.current
+        const fs = selFramesRef.current
+        const layer = l !== null ? layersRef.current[l] : undefined
+        if (l === null || !layer) {
+          notifyRef.current('classic tween: select two keyframes on the timeline')
+          return
+        }
+        if (layer.locked) {
+          notifyRef.current('classic tween: locked layer — unlock to edit')
+          return
+        }
+        const keys = layer.keyframes
+          .filter((k) => !k.blank && fs.has(k.frame))
+          .map((k) => k.frame)
+          .sort((a, b) => a - b)
+        if (keys.length !== 2) {
+          notifyRef.current('classic tween: select exactly two content keyframes')
+          return
+        }
+        notifyRef.current(
+          setClassicTween(l, keys[0], keys[1], 0)
+            ? `tween ${keys[0]} → ${keys[1]}`
+            : 'tween: the two keyframes must hold the same object',
+        )
+      },
     }
     return () => {
       timelineViewController.current = null

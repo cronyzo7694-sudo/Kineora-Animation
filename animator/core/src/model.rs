@@ -173,9 +173,8 @@ impl Node {
             _ => None,
         }
     }
-    /// Clone this node under a FRESH id — the deep-copy primitive for layer
-    /// duplication (F-20-02 "Duplicate = deep copy (frames+content)"). The
-    /// clone is bit-identical except for its id, so the copy is independent.
+    /// Clone this node under a FRESH id — SYS-03 paste/duplicate AND SYS-16
+    /// layer duplication (F-20-02 "Duplicate = deep copy (frames+content)").
     pub fn with_id(&self, id: NodeId) -> Node {
         match self {
             Node::Rect {
@@ -204,6 +203,41 @@ impl Node {
             } => Node::SymbolInstance {
                 id,
                 transform: transform.clone(),
+                symbol_id: *symbol_id,
+                loop_mode: *loop_mode,
+                first_frame: *first_frame,
+            },
+        }
+    }
+    /// Clone this node with a replacement transform (clipboard bake).
+    pub fn with_transform(&self, transform: Transform) -> Node {
+        match self {
+            Node::Rect {
+                id,
+                width,
+                height,
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => Node::Rect {
+                id: *id,
+                transform,
+                width: *width,
+                height: *height,
+                fill: fill.clone(),
+                stroke: stroke.clone(),
+                stroke_width: *stroke_width,
+            },
+            Node::SymbolInstance {
+                id,
+                symbol_id,
+                loop_mode,
+                first_frame,
+                ..
+            } => Node::SymbolInstance {
+                id: *id,
+                transform,
                 symbol_id: *symbol_id,
                 loop_mode: *loop_mode,
                 first_frame: *first_frame,

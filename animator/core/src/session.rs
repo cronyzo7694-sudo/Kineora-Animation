@@ -10,6 +10,10 @@ use crate::command::{
     SetLayerFlags, SetLayerLocked, SetLayerOutline, SetLayerOutlineColor, SetLayerVisible,
     SetNodeProps, SwapInstance, TransformSelection,
 };
+use crate::edit_ops::{
+    AlignOp, AlignSpace, ArrangeOp, ArrangeSelection, DeleteSelection, ObjectClip, PasteMode,
+    PasteObjects, DUPLICATE_OFFSET,
+};
 use crate::eval::{
     evaluate, hit_test, hits_in_rect, node_bounds, node_layer_index, node_transform_in_scene,
     RectItem,
@@ -70,6 +74,10 @@ pub struct Session {
     /// document, NOT persisted, NOT undoable (like the OS clipboard). Holds
     /// (frame number, record) pairs captured by copy/cut.
     pub frame_clipboard: Vec<(u32, Frame)>,
+    /// Stage-object clipboard (SYS-03 / Blueprint 1.2.2). Session state —
+    /// NOT persisted, NOT undoable. AMB-SYS03-002 PROVISIONAL = per-session
+    /// (matches the frame clipboard; cross-document paste is unspecified).
+    pub object_clipboard: Vec<ObjectClip>,
 }
 
 impl Session {
@@ -84,6 +92,7 @@ impl Session {
             active_layer: 0,
             event_log: vec!["session:new".into()],
             frame_clipboard: Vec::new(),
+            object_clipboard: Vec::new(),
         };
         s.log("document:created");
         s
@@ -1086,6 +1095,385 @@ impl Session {
             .collect()
     }
 
+    // ——— SYS-03 object clipboard + SYS-06 transform/arrange/align ———
+
+    /// Nodes in the current selection that live on a visible, unlocked layer
+    /// at the playhead (Part 20.2 — locked = not editable).
+    fn selected_editable(&self) -> Vec<NodeId> {
+        self.selection
+            .iter()
+            .copied()
+            .filter(
+                |id| match node_layer_index(&self.doc, self.active_scene, self.playhead, *id) {
+                    Some(lidx) => self
+                        .doc
+                        .layer(self.active_scene, lidx)
+                        .map(|l| l.visible && !l.locked)
+                        .unwrap_or(false),
+                    None => false,
+                },
+            )
+            .collect()
+    }
+
+    /// Nodes in the current selection that exist at the playhead (copy is
+    /// read-only — locked layers are allowed, matching copy_frames).
+    fn selected_present(&self) -> Vec<NodeId> {
+        self.selection
+            .iter()
+            .copied()
+            .filter(|id| {
+                node_layer_index(&self.doc, self.active_scene, self.playhead, *id).is_some()
+            })
+            .collect()
+    }
+
+    /// COPY objects: snapshot selected nodes with their EVALUATED transform
+    /// baked in. Session state only — no command, no dirty. Empty = no-op.
+    pub fn copy_objects(&mut self) -> bool {
+        let ids = self.selected_present();
+        if ids.is_empty() {
+            self.log("copy:nothing");
+            return false;
+        }
+        let mut clips = Vec::new();
+        for id in ids {
+            let Some(node) = self.doc.nodes.get(&id).cloned() else {
+                continue;
+            };
+            let t = self
+                .selected_transform(id)
+                .unwrap_or_else(|| node.transform().clone());
+            clips.push(ObjectClip {
+                node: node.with_transform(t),
+            });
+        }
+        if clips.is_empty() {
+            self.log("copy:nothing");
+            return false;
+        }
+        self.object_clipboard = clips;
+        self.log(&format!("copy:objects({})", self.object_clipboard.len()));
+        true
+    }
+
+    /// CUT objects: copy + delete from the current frame (one undoable
+    /// delete). Locked-layer nodes are copied but not deleted.
+    pub fn cut_objects(&mut self) -> bool {
+        if !self.copy_objects() {
+            return false;
+        }
+        if !self.delete_selection() {
+            // copy succeeded; delete may no-op if everything was locked
+            self.log("cut:copied-locked-only");
+            return true;
+        }
+        self.log("cut:objects");
+        true
+    }
+
+    /// DELETE the editable selection from the current frame. No-op when
+    /// nothing is editable. One undoable command.
+    pub fn delete_selection(&mut self) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            self.log("delete:nothing");
+            return false;
+        }
+        let cmd = DeleteSelection::new(self.active_scene, self.playhead, ids);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.prune_selection_existence();
+        self.log("delete:selection");
+        true
+    }
+
+    /// PASTE the object clipboard onto the active layer at the playhead.
+    /// `mode` = InPlace (same coords) or Center (AABB → stage center).
+    /// Blocked on locked/hidden active layer; empty clipboard = no-op.
+    pub fn paste_objects(&mut self, mode: PasteMode) -> bool {
+        if self.object_clipboard.is_empty() {
+            self.log("paste:empty");
+            return false;
+        }
+        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if !l.visible || l.locked {
+                self.log("paste:blocked(layer hidden/locked)");
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // compute AABB of clipboard items (using baked transforms)
+        let mut minx = f64::INFINITY;
+        let mut miny = f64::INFINITY;
+        let mut maxx = f64::NEG_INFINITY;
+        let mut maxy = f64::NEG_INFINITY;
+        for clip in &self.object_clipboard {
+            let t = clip.node.transform();
+            match &clip.node {
+                Node::Rect { width, height, .. } => {
+                    let w = width * t.scale_x;
+                    let h = height * t.scale_y;
+                    minx = minx.min(t.x);
+                    miny = miny.min(t.y);
+                    maxx = maxx.max(t.x + w);
+                    maxy = maxy.max(t.y + h);
+                }
+                Node::SymbolInstance { .. } => {
+                    minx = minx.min(t.x);
+                    miny = miny.min(t.y);
+                    maxx = maxx.max(t.x);
+                    maxy = maxy.max(t.y);
+                }
+            }
+        }
+        let (dx, dy) = match mode {
+            PasteMode::InPlace => (0.0, 0.0),
+            PasteMode::Center => {
+                if minx.is_finite() {
+                    let cx = (minx + maxx) / 2.0;
+                    let cy = (miny + maxy) / 2.0;
+                    (
+                        self.doc.settings.width / 2.0 - cx,
+                        self.doc.settings.height / 2.0 - cy,
+                    )
+                } else {
+                    (0.0, 0.0)
+                }
+            }
+        };
+
+        let mut items = Vec::new();
+        let mut new_sel = Vec::new();
+        for clip in &self.object_clipboard {
+            let nid = self.doc.alloc_node_id();
+            let mut node = clip.node.with_id(nid);
+            node.transform_mut().x += dx;
+            node.transform_mut().y += dy;
+            new_sel.push(nid);
+            items.push(node);
+        }
+        if items.is_empty() {
+            return false;
+        }
+        let cmd = PasteObjects::new(self.active_scene, self.active_layer, self.playhead, items);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.selection = new_sel;
+        self.log(&format!("paste:{mode:?}"));
+        true
+    }
+
+    /// DUPLICATE = copy + paste-in-place + offset (AMB-SYS03-001).
+    /// One undoable paste. The clipboard keeps the un-offset snapshot so a
+    /// subsequent Paste In Place still lands at the original coordinates.
+    pub fn duplicate_objects(&mut self) -> bool {
+        if !self.copy_objects() {
+            return false;
+        }
+        for clip in &mut self.object_clipboard {
+            clip.node.transform_mut().x += DUPLICATE_OFFSET;
+            clip.node.transform_mut().y += DUPLICATE_OFFSET;
+        }
+        let ok = self.paste_objects(PasteMode::InPlace);
+        for clip in &mut self.object_clipboard {
+            clip.node.transform_mut().x -= DUPLICATE_OFFSET;
+            clip.node.transform_mut().y -= DUPLICATE_OFFSET;
+        }
+        if ok {
+            self.log("duplicate:objects");
+        }
+        ok
+    }
+
+    /// Rotate the editable selection by `degrees` (SYS-06). One command.
+    pub fn rotate_selection(&mut self, degrees: f64) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            return false;
+        }
+        let mut after = Vec::new();
+        for id in ids {
+            let Some(mut t) = self.selected_transform(id) else {
+                continue;
+            };
+            t.rotation += degrees;
+            after.push((id, t));
+        }
+        if after.is_empty() {
+            return false;
+        }
+        let cmd =
+            TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("rotate:{degrees}"));
+        true
+    }
+
+    /// Flip the editable selection horizontally or vertically around each
+    /// object's visual center (rects) / registration (instances).
+    pub fn flip_selection(&mut self, horizontal: bool) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            return false;
+        }
+        let mut after = Vec::new();
+        for id in ids {
+            let Some(mut t) = self.selected_transform(id) else {
+                continue;
+            };
+            match self.doc.nodes.get(&id) {
+                Some(Node::Rect { width, height, .. }) => {
+                    if horizontal {
+                        let vis_w = *width * t.scale_x;
+                        let cx = t.x + vis_w / 2.0;
+                        t.scale_x = -t.scale_x;
+                        t.x = cx - (*width * t.scale_x) / 2.0;
+                    } else {
+                        let vis_h = *height * t.scale_y;
+                        let cy = t.y + vis_h / 2.0;
+                        t.scale_y = -t.scale_y;
+                        t.y = cy - (*height * t.scale_y) / 2.0;
+                    }
+                }
+                Some(Node::SymbolInstance { .. }) => {
+                    if horizontal {
+                        t.scale_x = -t.scale_x;
+                    } else {
+                        t.scale_y = -t.scale_y;
+                    }
+                }
+                None => continue,
+            }
+            after.push((id, t));
+        }
+        if after.is_empty() {
+            return false;
+        }
+        let cmd =
+            TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(if horizontal { "flip:h" } else { "flip:v" });
+        true
+    }
+
+    /// Remove Transform (Blueprint 1.2.5): reset scale/rotation/skew, keep x/y.
+    pub fn remove_transform(&mut self) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            return false;
+        }
+        let mut after = Vec::new();
+        for id in ids {
+            let Some(mut t) = self.selected_transform(id) else {
+                continue;
+            };
+            if t.scale_x == 1.0
+                && t.scale_y == 1.0
+                && t.rotation == 0.0
+                && t.skew_x == 0.0
+                && t.skew_y == 0.0
+            {
+                continue;
+            }
+            t.scale_x = 1.0;
+            t.scale_y = 1.0;
+            t.rotation = 0.0;
+            t.skew_x = 0.0;
+            t.skew_y = 0.0;
+            after.push((id, t));
+        }
+        if after.is_empty() {
+            return false;
+        }
+        let cmd =
+            TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log("transform:remove");
+        true
+    }
+
+    /// Arrange (z-order) the editable selection. One command.
+    pub fn arrange_selection(&mut self, op: ArrangeOp) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            return false;
+        }
+        let cmd = ArrangeSelection::new(self.active_scene, self.playhead, ids, op);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("arrange:{op:?}"));
+        true
+    }
+
+    /// Align the editable selection (Part 24). Single object → Align to Stage
+    /// (Part 24.5); two or more → Align to Selection unless `space` is Stage.
+    pub fn align_selection(&mut self, op: AlignOp, space: AlignSpace) -> bool {
+        let ids = self.selected_editable();
+        if ids.is_empty() {
+            return false;
+        }
+        let space = if ids.len() == 1 {
+            AlignSpace::Stage
+        } else {
+            space
+        };
+        let mut bounds: Vec<(NodeId, f64, f64, f64, f64)> = Vec::new();
+        for id in &ids {
+            if let Some(b) = node_bounds(&self.doc, self.active_scene, self.playhead, *id) {
+                bounds.push((*id, b.0, b.1, b.2, b.3));
+            }
+        }
+        if bounds.is_empty() {
+            return false;
+        }
+        let (ref_l, ref_t, ref_r, ref_b) = match space {
+            AlignSpace::Stage => (0.0, 0.0, self.doc.settings.width, self.doc.settings.height),
+            AlignSpace::Selection => {
+                let l = bounds.iter().map(|b| b.1).fold(f64::INFINITY, f64::min);
+                let t = bounds.iter().map(|b| b.2).fold(f64::INFINITY, f64::min);
+                let r = bounds.iter().map(|b| b.3).fold(f64::NEG_INFINITY, f64::max);
+                let b = bounds.iter().map(|b| b.4).fold(f64::NEG_INFINITY, f64::max);
+                (l, t, r, b)
+            }
+        };
+        let mut after = Vec::new();
+        for (id, l, t, r, btm) in bounds {
+            let Some(mut xf) = self.selected_transform(id) else {
+                continue;
+            };
+            let (dx, dy) = match op {
+                AlignOp::Left => (ref_l - l, 0.0),
+                AlignOp::CenterH => {
+                    let ref_c = (ref_l + ref_r) / 2.0;
+                    let obj_c = (l + r) / 2.0;
+                    (ref_c - obj_c, 0.0)
+                }
+                AlignOp::Right => (ref_r - r, 0.0),
+                AlignOp::Top => (0.0, ref_t - t),
+                AlignOp::MiddleV => {
+                    let ref_c = (ref_t + ref_b) / 2.0;
+                    let obj_c = (t + btm) / 2.0;
+                    (0.0, ref_c - obj_c)
+                }
+                AlignOp::Bottom => (0.0, ref_b - btm),
+            };
+            if dx == 0.0 && dy == 0.0 {
+                continue;
+            }
+            xf.x += dx;
+            xf.y += dy;
+            after.push((id, xf));
+        }
+        if after.is_empty() {
+            return false;
+        }
+        let cmd =
+            TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("align:{op:?}/{space:?}"));
+        true
+    }
+
     // ——— Layers (MOD-LAYER, Part 20) ———
 
     /// Layer snapshot for the UI (bottom → top, engine order).
@@ -1743,6 +2131,7 @@ impl Session {
             active_layer: 0,
             event_log: vec!["session:loaded".into()],
             frame_clipboard: Vec::new(),
+            object_clipboard: Vec::new(),
         }
     }
 }

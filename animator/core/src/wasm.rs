@@ -16,6 +16,7 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::doc_manager::DocManager;
+use crate::edit_ops::{AlignOp, AlignSpace, ArrangeOp, PasteMode};
 use crate::id::{NodeId, SymbolId};
 use crate::model::{Document, LoopMode, SymbolType};
 use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
@@ -208,6 +209,8 @@ struct StatusOut {
     duration: u32,
     /// number of records in the frame clipboard (session state, F-07-12)
     clipboard_len: usize,
+    /// number of records in the stage-object clipboard (SYS-03)
+    object_clipboard_len: usize,
     event_log: Vec<String>,
     // ——— SYS-02 document lifecycle ———
     /// Active document tab id (0 = no document open).
@@ -922,6 +925,87 @@ pub fn kineora_set_document_settings(json: String) -> bool {
     .unwrap_or(false)
 }
 
+// ——— SYS-03 object clipboard + SYS-06 transform / arrange / align ———
+
+#[wasm_bindgen]
+pub fn kineora_copy_objects() -> bool {
+    with_session(|s| s.copy_objects()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_cut_objects() -> bool {
+    with_session(|s| s.cut_objects()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_delete_selection() -> bool {
+    with_session(|s| s.delete_selection()).unwrap_or(false)
+}
+
+/// `mode` = "inplace" | "center" (Blueprint 1.2.2).
+#[wasm_bindgen]
+pub fn kineora_paste_objects(mode: String) -> bool {
+    let m = if mode == "center" {
+        PasteMode::Center
+    } else {
+        PasteMode::InPlace
+    };
+    with_session(|s| s.paste_objects(m)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_duplicate_objects() -> bool {
+    with_session(|s| s.duplicate_objects()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_rotate_selection(degrees: f64) -> bool {
+    with_session(|s| s.rotate_selection(degrees)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_flip_selection(horizontal: bool) -> bool {
+    with_session(|s| s.flip_selection(horizontal)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_remove_transform() -> bool {
+    with_session(|s| s.remove_transform()).unwrap_or(false)
+}
+
+/// `op` = "front" | "forward" | "back" | "backward".
+#[wasm_bindgen]
+pub fn kineora_arrange_selection(op: String) -> bool {
+    let a = match op.as_str() {
+        "front" => ArrangeOp::Front,
+        "forward" => ArrangeOp::Forward,
+        "back" => ArrangeOp::Back,
+        "backward" => ArrangeOp::Backward,
+        _ => return false,
+    };
+    with_session(|s| s.arrange_selection(a)).unwrap_or(false)
+}
+
+/// `op` = left|centerH|right|top|middleV|bottom; `space` = stage|selection.
+#[wasm_bindgen]
+pub fn kineora_align_selection(op: String, space: String) -> bool {
+    let a = match op.as_str() {
+        "left" => AlignOp::Left,
+        "centerH" => AlignOp::CenterH,
+        "right" => AlignOp::Right,
+        "top" => AlignOp::Top,
+        "middleV" => AlignOp::MiddleV,
+        "bottom" => AlignOp::Bottom,
+        _ => return false,
+    };
+    let sp = if space == "stage" {
+        AlignSpace::Stage
+    } else {
+        AlignSpace::Selection
+    };
+    with_session(|s| s.align_selection(a, sp)).unwrap_or(false)
+}
+
 /// Dev-mode observability: JSON status (Phase-4 manual-test requirement).
 /// Includes the SYS-02 document-lifecycle fields (doc_id/doc_title/dirty/
 /// doc_count/docs/units/platform) so the tab strip and dirty state stay live.
@@ -1161,6 +1245,7 @@ pub fn kineora_status() -> String {
             background_alpha: s.doc.settings.background_alpha,
             duration: s.timeline_duration(),
             clipboard_len: s.frame_clipboard.len(),
+            object_clipboard_len: s.object_clipboard.len(),
             event_log: s.event_log.clone(),
             doc_id,
             doc_title,

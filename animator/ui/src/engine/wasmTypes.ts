@@ -117,6 +117,8 @@ export interface StatusJson {
   background_alpha?: number
   duration: number
   clipboard_len: number
+  /** SYS-03 stage-object clipboard length (session state). */
+  object_clipboard_len?: number
   event_log: string[]
   /** SYS-02 document lifecycle (optional for legacy test fixtures) */
   doc_id?: number
@@ -248,6 +250,16 @@ export interface KineoraWasm {
   kineora_patch_transforms(json: string): void
   kineora_set_node_props(json: string): void
   kineora_set_document_settings(json: string): boolean
+  kineora_copy_objects?(): boolean
+  kineora_cut_objects?(): boolean
+  kineora_delete_selection?(): boolean
+  kineora_paste_objects?(mode: string): boolean
+  kineora_duplicate_objects?(): boolean
+  kineora_rotate_selection?(degrees: number): boolean
+  kineora_flip_selection?(horizontal: boolean): boolean
+  kineora_remove_transform?(): boolean
+  kineora_arrange_selection?(op: string): boolean
+  kineora_align_selection?(op: string, space: string): boolean
   /** wasm-bindgen --target web default init (accepts explicit wasm input). */
   default?: (input?: ArrayBuffer | Response | string | URL) => Promise<unknown>
 }

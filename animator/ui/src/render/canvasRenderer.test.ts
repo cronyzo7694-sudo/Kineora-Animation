@@ -9,6 +9,110 @@ import { SELECTION_STROKE, HANDLE_SIZE, PASTEBOARD_COLOR, STAGE_BORDER } from '.
  * cover document-side determinism.
  */
 describe('canvas renderer contract', () => {
+  it('hideEdges suppresses the selection overlay (SYS-04 / WISH W6)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const calls: string[] = []
+    const ctx = {
+      clearRect: () => calls.push('clear'),
+      fillRect: () => calls.push('fillRect'),
+      strokeRect: () => calls.push('strokeRect'),
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => calls.push('path-stroke'),
+      fill: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(_v: string) {},
+      set strokeStyle(_v: string) {},
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return ''
+      },
+      get strokeStyle() {
+        return ''
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [],
+        hideEdges: true,
+        overlay: {
+          box: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 10 },
+            { x: 0, y: 10 },
+          ],
+          handles: [['tl', { x: 0, y: 0 }]],
+          rotateHandle: { x: 5, y: -24 },
+          center: { x: 5, y: 5 },
+        },
+      },
+      100,
+      100,
+    )
+    expect(calls).not.toContain('path-stroke')
+  })
+
+  it('workArea off does not paint the pasteboard gray (SYS-04)', async () => {
+    const { render, PASTEBOARD_COLOR } = await import('./canvasRenderer')
+    const fillStyles: string[] = []
+    let current = ''
+    const ctx = {
+      clearRect: () => {},
+      fillRect: () => fillStyles.push(current),
+      strokeRect: () => {},
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) {
+        current = v
+      },
+      set strokeStyle(_v: string) {},
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return current
+      },
+      get strokeStyle() {
+        return ''
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      { background: '#ffffff', stageW: 1920, stageH: 1080, items: [], workArea: false },
+      100,
+      100,
+    )
+    expect(fillStyles).not.toContain(PASTEBOARD_COLOR)
+  })
+
   it('selection overlay uses the editor-only stroke color (never in export)', () => {
     expect(SELECTION_STROKE).toBe('#0a7cff')
     expect(HANDLE_SIZE).toBeGreaterThan(0)

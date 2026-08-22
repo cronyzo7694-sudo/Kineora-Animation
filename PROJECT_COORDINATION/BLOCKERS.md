@@ -123,3 +123,21 @@
 ### BLK-AIC-003 — `layer:changed` event (MASTER_EXECUTION_PLAN §C SYS-16) not implemented in the UI bus
 - **Status:** **OPEN (deferred)** — current UI refresh rides the locked `document:changed{type:'layer',targets:[]}` event (SYS-01 §27.1 / FOUNDATION_CONTRACT MOD-BUS) which is the architecture in production code. Introducing a `layer:changed` locked event is a SYS-01-registry change → must go through the Leader (INT) before implementation. No functional gap today (panels refresh via `document:changed`).
 - **Raised by:** AI-C, 2026-08-22
+
+---
+
+## PART 4 — AI-A 2026-08-22 (SYS-03 H02 alignment)
+
+Implementation landed for SYS-03 H02 object clipboard + SYS-04 view overlays + SYS-06 transform/arrange/align. After reading official SYS-03 H00/H02:
+
+| ID | Status vs H02 |
+|---|---|
+| AMB-S03-001 app-level clipboard | **FIX IN THIS REBASE** — first landing was per-session; corrected to application-level |
+| AMB-S03-002 +10px offset | matches H02 resolved decision |
+| AMB-S03-003 Paste Special | still OPEN — dialog not implemented (no invented format list) |
+| AMB-S03-004 edit.delete | **ADD IN THIS REBASE** |
+| INV-EDIT-2 prevSelection | **OPEN** — History/Command trait does not yet store prevSelection (H01) |
+| Unified object+frame clipboard slot | **OPEN** — object clipboard is now app-level; frame_clipboard remains on Session (SYS-15 handoff, not silently absorbed) |
+| `selection:changed` payload | **OPEN / partial** — bus event added if missing; full `{prevTargets,targets,kind,commonType,bounds}` may be incomplete until SYS-14 |
+| SYS-07 Text | still BLOCKED (no Node::Text) |
+| SYS-04 guides/snap | still BLOCKED (lesson #8) |

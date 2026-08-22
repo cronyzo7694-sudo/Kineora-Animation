@@ -609,3 +609,67 @@ export function setDocumentSettings(patch: SettingsPatchJson): boolean {
   if (ok) docChanged('settings')
   return ok
 }
+
+// ——— SYS-03 object clipboard + SYS-06 transform / arrange / align ———
+
+/** COPY is session state — never emits document:changed. */
+export function copyObjects(): boolean {
+  return mod?.kineora_copy_objects?.() ?? false
+}
+
+export function cutObjects(): boolean {
+  const ok = mod?.kineora_cut_objects?.() ?? false
+  if (ok) docChanged('edit')
+  return ok
+}
+
+export function deleteSelection(): boolean {
+  const ok = mod?.kineora_delete_selection?.() ?? false
+  if (ok) docChanged('edit')
+  return ok
+}
+
+export function pasteObjects(mode: 'inplace' | 'center'): boolean {
+  const ok = mod?.kineora_paste_objects?.(mode) ?? false
+  if (ok) docChanged('edit')
+  return ok
+}
+
+export function duplicateObjects(): boolean {
+  const ok = mod?.kineora_duplicate_objects?.() ?? false
+  if (ok) docChanged('edit')
+  return ok
+}
+
+export function rotateSelection(degrees: number): boolean {
+  const ok = mod?.kineora_rotate_selection?.(degrees) ?? false
+  if (ok) docChanged('transform')
+  return ok
+}
+
+export function flipSelection(horizontal: boolean): boolean {
+  const ok = mod?.kineora_flip_selection?.(horizontal) ?? false
+  if (ok) docChanged('transform')
+  return ok
+}
+
+export function removeTransform(): boolean {
+  const ok = mod?.kineora_remove_transform?.() ?? false
+  if (ok) docChanged('transform')
+  return ok
+}
+
+export function arrangeSelection(op: 'front' | 'forward' | 'back' | 'backward'): boolean {
+  const ok = mod?.kineora_arrange_selection?.(op) ?? false
+  if (ok) docChanged('transform')
+  return ok
+}
+
+export function alignSelection(
+  op: 'left' | 'centerH' | 'right' | 'top' | 'middleV' | 'bottom',
+  space: 'stage' | 'selection' = 'selection',
+): boolean {
+  const ok = mod?.kineora_align_selection?.(op, space) ?? false
+  if (ok) docChanged('transform')
+  return ok
+}

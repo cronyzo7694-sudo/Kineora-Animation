@@ -1,5 +1,15 @@
 # IMPLEMENTATION STATUS (Phase 4)
 
+## AI-A batch (2026-08-22) — SYS-03/04/05/06 (not COMPLETE)
+
+Object clipboard (Copy/Cut/Paste Center/In Place/Duplicate), view overlays
+(rulers/grid/hide-edges/work-area/outline), classic-tween menu wiring,
+transform rotate-90/flip/remove, arrange, align. SYS-07 Text **blocked**
+(no `Node::Text`). Provisional: AMB-SYS03-001/002, AMB-SYS04-001.
+Details: `PROJECT_COORDINATION/AI-A_REPORT.md`. Manual desktop QA PENDING.
+
+---
+
 | Unit | Module(s) | Status | Evidence |
 |---|---|---|---|
 | Tech baseline verification | — | COMPLETE | 00_IMPLEMENTATION_DECISIONS.md |

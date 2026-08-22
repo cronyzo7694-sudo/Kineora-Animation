@@ -62,6 +62,13 @@ export interface RenderState {
   previewRect?: { x: number; y: number; w: number; h: number } | null
   /** Editor-only live color preview (color/stroke-width field editing). */
   colorPreview?: ColorPreview | null
+  /** SYS-04 view flags (defaults preserve the previous always-on behavior). */
+  workArea?: boolean
+  hideEdges?: boolean
+  grid?: boolean
+  gridSize?: number
+  rulers?: boolean
+  preview?: 'full' | 'outline'
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -75,9 +82,18 @@ export const STAGE_BORDER = '#6a6a6a'
 export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderState, viewW: number, viewH: number): void {
   ctx.clearRect(0, 0, viewW, viewH)
 
-  // 1) pasteboard (work area) — gray surround, distinct from the stage
-  ctx.fillStyle = PASTEBOARD_COLOR
-  ctx.fillRect(0, 0, viewW, viewH)
+  const workArea = s.workArea !== false
+  const viewOutline = s.preview === 'outline'
+
+  // 1) pasteboard (work area) — gray surround, distinct from the stage.
+  //    View ▸ Work Area OFF (Part 01 §1.4.1 / Ctrl+Shift+W) hides the gray.
+  if (workArea) {
+    ctx.fillStyle = PASTEBOARD_COLOR
+    ctx.fillRect(0, 0, viewW, viewH)
+  } else {
+    ctx.fillStyle = s.colorPreview?.background ?? s.background
+    ctx.fillRect(0, 0, viewW, viewH)
+  }
 
   // 2) the document stage — the published frame (Part 01 §1.4.1), filled with
   //    the document background and outlined so the user sees "THIS is my page".
@@ -92,6 +108,10 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
   ctx.lineWidth = 1
   ctx.strokeRect(stage.x + 0.5, stage.y + 0.5, stage.w - 1, stage.h - 1)
 
+  if (s.grid) {
+    drawGrid(ctx, vp, s.stageW, s.stageH, s.gridSize && s.gridSize > 0 ? s.gridSize : 20)
+  }
+
   const preview = s.previewDelta ?? null
   const selected = new Set(s.selectedIds ?? [])
   const pv = s.colorPreview?.item ?? null
@@ -102,10 +122,12 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
     // strokes in the layer's outline color — a VIEW aid; `renderContent` (the
     // export rasterizer) builds its own styles and ignores this entirely, and
     // the Rust `exportSvg` never sees it either.
-    const outline = it.outline_color ?? null
-    const base: ItemStyle = outline
-      ? { fill: 'rgba(0,0,0,0)', stroke: outline, strokeWidth: 1 }
-      : { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width }
+    const layerOutline = it.outline_color ?? null
+    const base: ItemStyle = layerOutline
+      ? { fill: 'rgba(0,0,0,0)', stroke: layerOutline, strokeWidth: 1 }
+      : viewOutline
+        ? { fill: 'transparent', stroke: it.fill || '#888888', strokeWidth: it.stroke_width > 0 ? it.stroke_width : 1 }
+        : { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width }
     const style: ItemStyle = pv && pv.id === it.id
       ? {
           fill: pv.fill ?? base.fill,
@@ -126,9 +148,14 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
     drawRectPreview(ctx, vp, s.previewRect)
   }
 
-  // selection overlay (editor-only, never exported)
-  if (s.overlay) {
+  // selection overlay (editor-only, never exported). Hide Edges (Ctrl+Shift+E)
+  // suppresses it so the user can edit without seeing the highlight (WISH W6).
+  if (s.overlay && !s.hideEdges) {
     drawOverlay(ctx, vp, s.overlay)
+  }
+
+  if (s.rulers) {
+    drawRulers(ctx, vp, s.stageW, s.stageH, viewW, viewH)
   }
 }
 
@@ -202,6 +229,58 @@ export function rasterizeContent(s: ContentState, scale = 1): HTMLCanvasElement 
   if (!ctx) return null
   renderContent(ctx, { zoom: z, panX: 0, panY: 0 }, s)
   return canvas
+}
+
+function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, stageW: number, stageH: number, size: number): void {
+  ctx.save()
+  ctx.beginPath()
+  ctx.strokeStyle = 'rgba(120, 120, 120, 0.45)'
+  ctx.lineWidth = 1
+  for (let x = 0; x <= stageW + 0.001; x += size) {
+    const a = docToScreen(vp, x, 0)
+    const b = docToScreen(vp, x, stageH)
+    ctx.moveTo(a.x + 0.5, a.y)
+    ctx.lineTo(b.x + 0.5, b.y)
+  }
+  for (let y = 0; y <= stageH + 0.001; y += size) {
+    const a = docToScreen(vp, 0, y)
+    const b = docToScreen(vp, stageW, y)
+    ctx.moveTo(a.x, a.y + 0.5)
+    ctx.lineTo(b.x, b.y + 0.5)
+  }
+  ctx.stroke()
+  ctx.restore()
+}
+
+const RULER = 16
+
+function drawRulers(ctx: CanvasRenderingContext2D, vp: Viewport, stageW: number, stageH: number, viewW: number, viewH: number): void {
+  ctx.save()
+  ctx.fillStyle = '#1a1a1a'
+  ctx.fillRect(0, 0, viewW, RULER)
+  ctx.fillRect(0, 0, RULER, viewH)
+  ctx.strokeStyle = '#555'
+  ctx.fillStyle = '#888'
+  ctx.lineWidth = 1
+  ctx.font = '9px system-ui, sans-serif'
+  const step = vp.zoom >= 1 ? 50 : 100
+  ctx.beginPath()
+  for (let x = 0; x <= stageW; x += step) {
+    const p = docToScreen(vp, x, 0)
+    if (p.x < RULER) continue
+    ctx.moveTo(p.x + 0.5, 0)
+    ctx.lineTo(p.x + 0.5, RULER)
+    ctx.fillText(String(x), p.x + 2, 11)
+  }
+  for (let y = 0; y <= stageH; y += step) {
+    const p = docToScreen(vp, 0, y)
+    if (p.y < RULER) continue
+    ctx.moveTo(0, p.y + 0.5)
+    ctx.lineTo(RULER, p.y + 0.5)
+    ctx.fillText(String(y), 2, p.y + 10)
+  }
+  ctx.stroke()
+  ctx.restore()
 }
 
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {

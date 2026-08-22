@@ -80,6 +80,8 @@ const wireModule = {
   kineora_set_playhead: () => undefined,
   kineora_set_active_layer: () => true,
   kineora_export_svg: () => '<svg/>',
+  kineora_copy_objects: () => true,
+  kineora_cut_objects: () => true,
 }
 
 async function attach(): Promise<void> {

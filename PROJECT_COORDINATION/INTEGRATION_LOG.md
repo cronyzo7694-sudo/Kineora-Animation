@@ -28,3 +28,16 @@
 ---
 
 *Every cross-system change = new INT row. Leader verifies before any other AI's files are modified.*
+
+---
+
+## INT-AIA-001 — 2026-08-22 AI-A SYS-03/04/06 landing (rebased onto ca79555)
+
+| Field | Value |
+|---|---|
+| Change | Object clipboard + view overlays + transform/arrange/align |
+| Files | session.rs, edit_ops.rs, wasm.rs, commands.ts, menus.ts, client.ts, canvasRenderer.ts, Stage.tsx, viewPrefs.ts, bus.ts (selection:changed if added) |
+| Affects | SYS-01 menus/shortcuts, SYS-02 from_document (does not clear app clipboard), SYS-14 Stage view flags, SYS-15 frame clipboard (not absorbed) |
+| Spec | SYS-03 H00/H02, Blueprint 1.2.2/1.2.3/1.2.5, Part 24 |
+| Worker | AI-A |
+| Status | LANDED — Leader audit pending |

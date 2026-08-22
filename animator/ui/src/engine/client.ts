@@ -562,6 +562,40 @@ export function createLayer(): number {
   return idx
 }
 
+export function createFolder(): number {
+  if (!mod?.kineora_create_folder) return -1
+  const idx = mod.kineora_create_folder()
+  if (idx >= 0) {
+    docChanged('layer')
+    emitLayerChanged(layerIdAt(idx), 'added')
+  }
+  return idx
+}
+
+/** Nest `child` under folder `parent`. Pass parent = null to un-nest. */
+export function setLayerParent(child: number, parent: number | null): boolean {
+  if (!mod?.kineora_set_layer_parent) return false
+  const id = layerIdAt(child)
+  const p = parent === null ? 0xffffffff : parent
+  const ok = mod.kineora_set_layer_parent(child, p)
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'parented')
+  }
+  return ok
+}
+
+export function setFolderCollapsed(index: number, collapsed: boolean): boolean {
+  if (!mod?.kineora_set_folder_collapsed) return false
+  const id = layerIdAt(index)
+  const ok = mod.kineora_set_folder_collapsed(index, collapsed)
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'collapsed')
+  }
+  return ok
+}
+
 export function deleteLayer(index: number): boolean {
   const id = layerIdAt(index)
   const ok = mod?.kineora_delete_layer(index) ?? false

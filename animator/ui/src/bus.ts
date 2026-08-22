@@ -81,6 +81,8 @@ export type LayerOp =
   | 'outlineColor'
   | 'reordered'
   | 'duplicated'
+  | 'parented'
+  | 'collapsed'
 
 export type BusEventName = keyof BusEvents
 export type BusHandler<K extends BusEventName> = (payload: BusEvents[K]) => void

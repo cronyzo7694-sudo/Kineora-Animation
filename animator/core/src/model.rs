@@ -299,6 +299,17 @@ impl Frame {
     }
 }
 
+/// Layer type (F-20-04). Only `Normal` and `Folder` are implemented this
+/// increment (F-20-05 folders). Other types (mask/guide/pose/…) remain
+/// QUEUED — do not invent them here.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LayerKind {
+    #[default]
+    Normal,
+    Folder,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layer {
     pub id: LayerId,
@@ -323,6 +334,55 @@ pub struct Layer {
     /// per the F-20-01 reference model.
     #[serde(default = "default_outline_color")]
     pub outline_color: String,
+    /// F-20-04/05: `normal` | `folder`. Default `normal` so old files load.
+    #[serde(default)]
+    pub kind: LayerKind,
+    /// Folder parent (F-20-05). Organizational only — NOT transform parenting
+    /// (F-20-06 / WISH W2 is a separate increment). Default None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<LayerId>,
+    /// Folder collapse (F-20-05 triangle). Persisted so reopen remembers.
+    /// Ignored on non-folders. Default false (expanded).
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+impl Layer {
+    pub fn is_folder(&self) -> bool {
+        self.kind == LayerKind::Folder
+    }
+
+    pub fn new_normal(id: LayerId, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            keyframes: BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
+            tweens: BTreeMap::new(),
+            visible: true,
+            locked: false,
+            outline: false,
+            outline_color: default_outline_color(),
+            kind: LayerKind::Normal,
+            parent_id: None,
+            collapsed: false,
+        }
+    }
+
+    pub fn new_folder(id: LayerId, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            keyframes: BTreeMap::new(),
+            tweens: BTreeMap::new(),
+            visible: true,
+            locked: false,
+            outline: false,
+            outline_color: default_outline_color(),
+            kind: LayerKind::Folder,
+            parent_id: None,
+            collapsed: false,
+        }
+    }
 }
 
 /// F-20-01 reference layer model's default outline color.
@@ -506,6 +566,48 @@ impl Document {
 
     pub fn layer_mut(&mut self, scene: usize, layer: usize) -> Option<&mut Layer> {
         self.scenes.get_mut(scene)?.layers.get_mut(layer)
+    }
+
+    /// Depth of a layer in the folder tree (F-20-05). Unlimited nesting.
+    pub fn layer_depth(&self, scene: usize, layer_id: LayerId) -> usize {
+        let Some(sc) = self.scene(scene) else {
+            return 0;
+        };
+        let mut depth = 0;
+        let mut cur = sc.layers.iter().find(|l| l.id == layer_id).and_then(|l| l.parent_id);
+        let mut guard = 0;
+        while let Some(pid) = cur {
+            depth += 1;
+            cur = sc.layers.iter().find(|l| l.id == pid).and_then(|l| l.parent_id);
+            guard += 1;
+            if guard > sc.layers.len() {
+                break; // cycle guard
+            }
+        }
+        depth
+    }
+
+    /// Direct + nested descendants of `folder_id` (F-20-05 cascade).
+    pub fn layer_descendants(&self, scene: usize, folder_id: LayerId) -> Vec<LayerId> {
+        let Some(sc) = self.scene(scene) else {
+            return vec![];
+        };
+        let mut out = Vec::new();
+        let mut frontier = vec![folder_id];
+        while let Some(pid) = frontier.pop() {
+            for l in &sc.layers {
+                if l.parent_id == Some(pid) && !out.contains(&l.id) {
+                    out.push(l.id);
+                    frontier.push(l.id);
+                }
+            }
+        }
+        out
+    }
+
+    /// True if `maybe_ancestor` is an ancestor of `child` (cycle check).
+    pub fn layer_is_ancestor(&self, scene: usize, maybe_ancestor: LayerId, child: LayerId) -> bool {
+        self.layer_descendants(scene, maybe_ancestor).contains(&child) || maybe_ancestor == child
     }
 
     /// Hold rule: nearest keyframe (or blank) at or before `frame`.

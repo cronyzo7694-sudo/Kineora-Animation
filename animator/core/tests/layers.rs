@@ -533,3 +533,98 @@ fn outline_propagates_through_symbol_instances() {
     );
     assert!(sid.0 > 0, "conversion produced a real symbol");
 }
+
+#[test]
+fn create_folder_is_organizational_and_not_a_draw_target() {
+    let mut s = session();
+    let fi = s.create_folder().expect("folder");
+    let folder = &s.doc.scene(0).unwrap().layers[fi];
+    assert!(folder.is_folder());
+    assert!(folder.keyframes.is_empty(), "folders store no frames");
+    s.set_active_layer(fi);
+    let id = s.draw_rect(0.0, 0.0, 10.0, 10.0, "#fff");
+    assert_eq!(id, animator_core::NodeId(0), "draw blocked on folder");
+}
+
+#[test]
+fn nest_un_nest_and_cycle_blocked() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    assert_eq!(
+        s.doc.scene(0).unwrap().layers[li].parent_id,
+        Some(s.doc.scene(0).unwrap().layers[fi].id)
+    );
+    assert_eq!(s.doc.layer_depth(0, s.doc.scene(0).unwrap().layers[li].id), 1);
+    // nest folder under its own child → cycle
+    assert!(!s.set_layer_parent(fi, Some(li)));
+    assert!(s.set_layer_parent(li, None));
+    assert_eq!(s.doc.scene(0).unwrap().layers[li].parent_id, None);
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers[li].parent_id.is_some());
+}
+
+#[test]
+fn folder_visibility_cascades_one_undo() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    let n = s.history.undo_len();
+    assert!(s.set_layer_visible(fi, false));
+    assert_eq!(s.history.undo_len(), n + 1, "cascade = one command");
+    assert!(!s.doc.scene(0).unwrap().layers[fi].visible);
+    assert!(!s.doc.scene(0).unwrap().layers[li].visible);
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers[fi].visible);
+    assert!(s.doc.scene(0).unwrap().layers[li].visible);
+}
+
+#[test]
+fn delete_folder_removes_descendants_and_undoes() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#f00"); // keep a root draw layer
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    s.set_layer_parent(li, Some(fi));
+    let before = s.doc.scene(0).unwrap().layers.len();
+    assert!(s.delete_layer(fi));
+    assert!(
+        s.doc.scene(0).unwrap().layers.len() < before - 1
+            || s.doc.scene(0).unwrap().layers.iter().all(|l| !l.is_folder()),
+        "folder gone"
+    );
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.parent_id.is_none() || s.doc.scene(0).unwrap().layers.iter().any(|p| Some(p.id) == l.parent_id)));
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers.iter().any(|l| l.is_folder()));
+}
+
+#[test]
+fn folder_round_trip_serde_defaults() {
+    let mut s = session();
+    s.create_folder();
+    let json = serde_json::to_string(&s.doc).unwrap();
+    let doc: animator_core::Document = serde_json::from_str(&json).unwrap();
+    assert!(doc.scenes[0].layers.iter().any(|l| l.is_folder()));
+    // old file without kind still loads as Normal
+    let legacy = json.replace("\"kind\":\"folder\"", "");
+    let _ok: animator_core::Document = serde_json::from_str(&legacy).unwrap();
+}
+
+#[test]
+fn cannot_parent_to_normal_layer() {
+    let mut s = session();
+    s.create_layer();
+    assert!(!s.set_layer_parent(1, Some(0)), "normal is not a folder");
+}
+
+#[test]
+fn collapse_folder_is_undoable() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    assert!(s.set_folder_collapsed(fi, true));
+    assert!(s.doc.scene(0).unwrap().layers[fi].collapsed);
+    s.undo();
+    assert!(!s.doc.scene(0).unwrap().layers[fi].collapsed);
+}

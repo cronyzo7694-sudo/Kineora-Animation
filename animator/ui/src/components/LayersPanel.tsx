@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { bus } from '../bus'
 import {
+  createFolder,
   createLayer,
   deleteLayer,
   duplicateLayer,
   moveLayer,
   renameLayer,
   setActiveLayer,
+  setFolderCollapsed,
   setLayerLocked,
   setLayerOutline,
   setLayerOutlineColor,
+  setLayerParent,
   setLayerVisible,
   toggleOtherLayersLocked,
   toggleOtherLayersOutline,
@@ -111,6 +114,25 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
     if (idx >= 0) notify(`layer added (index ${idx})`)
   }
 
+  const addFolder = () => {
+    if (!guard('add folder')) return
+    const idx = createFolder()
+    if (idx >= 0) notify(`folder added (index ${idx})`)
+  }
+
+  const ancestorCollapsed = (l: LayerJson): boolean => {
+    let pid = l.parent_id ?? 0
+    const seen = new Set<number>()
+    while (pid > 0 && !seen.has(pid)) {
+      seen.add(pid)
+      const p = layers.find((x) => x.id === pid)
+      if (!p) break
+      if (p.collapsed) return true
+      pid = p.parent_id ?? 0
+    }
+    return false
+  }
+
   const duplicate = () => {
     if (!guard('duplicate layer')) return
     const activeIdx = layers.findIndex((l) => l.active)
@@ -145,8 +167,13 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
 
   const dropOn = (targetEngine: number) => {
     if (dragging !== null && dragging !== targetEngine) {
-      moveLayer(dragging, targetEngine)
-      notify('layer reordered')
+      const target = layers[targetEngine]
+      if (target?.kind === 'folder') {
+        if (setLayerParent(dragging, targetEngine)) notify('layer nested in folder')
+      } else {
+        moveLayer(dragging, targetEngine)
+        notify('layer reordered')
+      }
     }
     setDragging(null)
   }
@@ -252,6 +279,7 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
     <aside data-testid="layers-panel" aria-label="Layers" style={{ width: width ?? 200, background: '#1e1e1e', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <PanelHeader id="layers" title="Layers" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
         <button data-testid="layers-add" aria-label="Add layer" title="Add layer" disabled={!attached} onClick={add} style={btn}>+</button>
+        <button data-testid="layers-add-folder" aria-label="Add folder" title="Add folder (F-20-05)" disabled={!attached} onClick={addFolder} style={btn}>📁</button>
         <button data-testid="layers-dup" aria-label="Duplicate active layer" title="Duplicate active layer (deep copy of frames and content)" disabled={!attached || layers.length === 0} onClick={duplicate} style={btn}>⧉</button>
         <button data-testid="layers-delete" aria-label="Delete active layer" title="Delete active layer" disabled={!attached || layers.length <= 1} onClick={() => remove(layers.findIndex((l) => l.active))} style={btn}>🗑</button>
       </PanelHeader>
@@ -271,8 +299,10 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
 
       {!collapsed && (
         <ul style={{ listStyle: 'none', margin: 0, padding: 4, overflowY: 'auto', flex: 1 }}>
-        {rows.map((l) => {
+        {rows.filter((l) => !ancestorCollapsed(l)).map((l) => {
           const active = l.active
+          const depth = l.depth ?? 0
+          const isFolder = l.kind === 'folder'
           const blockedActive = active && (l.locked || !l.visible)
           const outlineColor = l.outline_color || DEFAULT_OUTLINE_COLOR
           const flashed = flash.has(l.id)
@@ -386,6 +416,36 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
                 />
               )}
 
+              <span style={{ width: 8 + depth * 12, flexShrink: 0 }} data-testid={`layer-indent-${l.engineIndex}`} />
+              {isFolder ? (
+                <button
+                  data-testid={`layer-collapse-${l.engineIndex}`}
+                  aria-label={l.collapsed ? `Expand ${l.name}` : `Collapse ${l.name}`}
+                  title={l.collapsed ? 'Expand folder' : 'Collapse folder'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFolderCollapsed(l.engineIndex, !l.collapsed)
+                  }}
+                  style={iconBtn}
+                >
+                  {l.collapsed ? '▸' : '▾'}
+                </button>
+              ) : (l.parent_id ?? 0) > 0 ? (
+                <button
+                  data-testid={`layer-unnest-${l.engineIndex}`}
+                  aria-label={`Remove ${l.name} from folder`}
+                  title="Move out of folder (F-20-05 left-edge un-nest)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (setLayerParent(l.engineIndex, null)) notify('layer un-nested')
+                  }}
+                  style={iconBtn}
+                >
+                  ↩
+                </button>
+              ) : (
+                <span style={{ width: 18 }} />
+              )}
               {editing === l.engineIndex ? (
                 <input
                   data-testid={`layer-rename-${l.engineIndex}`}

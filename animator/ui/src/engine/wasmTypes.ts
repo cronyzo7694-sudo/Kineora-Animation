@@ -89,6 +89,11 @@ export interface LayerJson {
   selected_objects: number
   keyframes: FrameMarkerJson[]
   tweens: TweenJson[]
+  /** F-20-04/05 — "normal" | "folder". Optional for legacy fixtures. */
+  kind?: string
+  parent_id?: number
+  collapsed?: boolean
+  depth?: number
 }
 
 /** One open document in the tab strip (SYS-02 multi-document). */
@@ -236,6 +241,9 @@ export interface KineoraWasm {
   kineora_load_json?(json: string, title: string): boolean
   kineora_set_active_layer(index: number): boolean
   kineora_create_layer(): number
+  kineora_create_folder?(): number
+  kineora_set_layer_parent?(child: number, parent: number): boolean
+  kineora_set_folder_collapsed?(index: number, collapsed: boolean): boolean
   kineora_delete_layer(index: number): boolean
   kineora_rename_layer(index: number, name: string): boolean
   kineora_set_layer_visible(index: number, visible: boolean): boolean

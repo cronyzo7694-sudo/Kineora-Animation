@@ -122,6 +122,13 @@ struct LayerOut {
     keyframes: Vec<FrameMarkerOut>,
     /// classic tween spans (ascending by start) for the timeline
     tweens: Vec<TweenOut>,
+    /// F-20-04/05: "normal" | "folder"
+    kind: String,
+    /// Folder parent id (0 = none).
+    parent_id: u64,
+    collapsed: bool,
+    /// Folder-tree depth (0 = root).
+    depth: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -797,6 +804,30 @@ pub fn kineora_create_layer() -> u32 {
 }
 
 #[wasm_bindgen]
+pub fn kineora_create_folder() -> u32 {
+    with_session(|s| s.create_folder().unwrap_or(0) as u32).unwrap_or(0)
+}
+
+/// Nest layer `child` under folder `parent`. parent = u32::MAX → un-nest.
+#[wasm_bindgen]
+pub fn kineora_set_layer_parent(child: u32, parent: u32) -> bool {
+    with_session(|s| {
+        let p = if parent == u32::MAX {
+            None
+        } else {
+            Some(parent as usize)
+        };
+        s.set_layer_parent(child as usize, p)
+    })
+    .unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_folder_collapsed(index: u32, collapsed: bool) -> bool {
+    with_session(|s| s.set_folder_collapsed(index as usize, collapsed)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
 pub fn kineora_delete_layer(index: u32) -> bool {
     with_session(|s| s.delete_layer(index as usize)).unwrap_or(false)
 }
@@ -958,29 +989,7 @@ pub fn kineora_duplicate_objects() -> bool {
     with_session(|s| s.duplicate_objects()).unwrap_or(false)
 }
 
-#[wasm_bindgen]
-pub fn kineora_rotate_selection(degrees: f64) -> bool {
-    with_session(|s| s.rotate_selection(degrees)).unwrap_or(false)
-}
-
-#[wasm_bindgen]
-pub fn kineora_flip_selection(horizontal: bool) -> bool {
-    with_session(|s| s.flip_selection(horizontal)).unwrap_or(false)
-}
-
-#[wasm_bindgen]
-pub fn kineora_remove_transform() -> bool {
-    with_session(|s| s.remove_transform()).unwrap_or(false)
-}
-
-/// `op` = "front" | "forward" | "back" | "backward".
-#[wasm_bindgen]
-pub fn kineora_arrange_selection(op: String) -> bool {
-    let a = match op.as_str() {
-        "front" => ArrangeOp::Front,
-        "forward" => ArrangeOp::Forward,
-        "back" => ArrangeOp::Back,
-        "backward" => ArrangeOp::Backward,
+#[wasm_bindngeOp::Backward,
         _ => return false,
     };
     with_session(|s| s.arrange_selection(a)).unwrap_or(false)
@@ -1221,6 +1230,14 @@ pub fn kineora_status() -> String {
                             selected_objects,
                             keyframes,
                             tweens,
+                            kind: if l.is_folder() {
+                                "folder".into()
+                            } else {
+                                "normal".into()
+                            },
+                            parent_id: l.parent_id.map(|p| p.0).unwrap_or(0),
+                            collapsed: l.collapsed,
+                            depth: s.doc.layer_depth(s.active_scene, l.id) as u32,
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1250,6 +1267,15 @@ pub fn kineora_status() -> String {
             doc_id,
             doc_title,
             dirty: s.is_dirty(),
+            doc_count,
+            docs,
+            units: s.doc.settings.units.clone(),
+            platform: s.doc.settings.platform.clone(),
+        };
+        serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())
+    })
+}
+           dirty: s.is_dirty(),
             doc_count,
             docs,
             units: s.doc.settings.units.clone(),

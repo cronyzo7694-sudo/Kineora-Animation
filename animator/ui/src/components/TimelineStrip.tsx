@@ -133,7 +133,19 @@ export function TimelineStrip({ status, notify, height }: Props) {
   const playhead = status?.playhead ?? 1
   const layers = status?.layers ?? []
   layersRef.current = layers
-  const rows = [...layers].reverse()
+  const ancestorCollapsed = (l: StatusJson['layers'][number]): boolean => {
+    let pid = l.parent_id ?? 0
+    const seen = new Set<number>()
+    while (pid > 0 && !seen.has(pid)) {
+      seen.add(pid)
+      const p = layers.find((x) => x.id === pid)
+      if (!p) break
+      if (p.collapsed) return true
+      pid = p.parent_id ?? 0
+    }
+    return false
+  }
+  const rows = [...layers].reverse().filter((l) => !ancestorCollapsed(l))
   const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
 
   // selected range + tween state (view state; the engine validates mutations)
@@ -695,8 +707,8 @@ export function TimelineStrip({ status, notify, height }: Props) {
             <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW, top: 0, width: cellW, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', pointerEvents: 'none' }} />
           </div>
 
-          {rows.map((l, ri) => {
-            const engineIndex = layers.length - 1 - ri
+          {rows.map((l) => {
+            const engineIndex = layers.findIndex((x) => x.id === l.id)
             const kinds = cellKinds(l.keyframes, cells)
             return (
               <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #242424', background: l.active ? '#232f3d' : 'transparent' }}>

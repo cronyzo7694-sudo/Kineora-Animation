@@ -2,13 +2,14 @@ use std::path::Path;
 
 use crate::command::{
     ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
-    CreateSymbol, DeleteFrames, DeleteLayer, DeleteSymbol, DrawRect, DuplicateFrames,
-    DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames, InsertKeyframe,
-    LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames, PlaceSymbol,
-    RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer, ResizeSpan,
-    ReverseFrames, SetClassicTween, SetDocumentSettings, SetFrameLabel, SetInstanceLoop,
-    SetLayerFlags, SetLayerLocked, SetLayerOutline, SetLayerOutlineColor, SetLayerVisible,
-    SetNodeProps, SwapInstance, TransformSelection,
+    CreateSymbol, DeleteFrames, DeleteLayer, DeleteLayerGroup, DeleteSymbol, DrawRect,
+    DuplicateFrames, DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames,
+    InsertKeyframe, LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
+    PlaceSymbol, RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer,
+    ResizeSpan, ReverseFrames, SetClassicTween, SetDocumentSettings, SetFolderCollapsed,
+    SetFrameLabel, SetInstanceLoop, SetLayerFlags, SetLayerLocked, SetLayerOutline,
+    SetLayerOutlineColor, SetLayerParent, SetLayerVisible, SetNodeProps, SwapInstance,
+    TransformSelection,
 };
 use crate::edit_ops::{
     app_object_clipboard, set_app_object_clipboard, AlignOp, AlignSpace, ArrangeOp,
@@ -109,6 +110,10 @@ impl Session {
         // Draw-target contract (REQ-DRW-003): a hidden or locked layer is not a
         // valid draw target. Blocked → no command, no node (returns NodeId(0)).
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+            if l.is_folder() {
+                self.log("draw:blocked(folder)");
+                return NodeId(0);
+            }
             if !l.visible || l.locked {
                 self.log("draw:blocked(layer hidden/locked)");
                 return NodeId(0);
@@ -867,19 +872,11 @@ impl Session {
         let instance_id = self.doc.alloc_node_id();
         let node_ids = self.selection.clone();
 
-        let inner_layer = Layer {
-            id: LayerId(1),
-            name: "Layer 1".into(),
-            keyframes: std::collections::BTreeMap::from([(
-                1u32,
-                Frame::keyframe(node_ids.clone()),
-            )]),
-            tweens: std::collections::BTreeMap::new(),
-            visible: true,
-            locked: false,
-            outline: false,
-            outline_color: crate::model::default_outline_color(),
-        };
+        let mut inner_layer = Layer::new_normal(LayerId(1), "Layer 1");
+        inner_layer.keyframes = std::collections::BTreeMap::from([(
+            1u32,
+            Frame::keyframe(node_ids.clone()),
+        )]);
         let symbol = Symbol {
             id: symbol_id,
             name: name.trim().to_string(),
@@ -924,16 +921,7 @@ impl Session {
             return SymbolId(0);
         }
         let id = self.doc.alloc_symbol_id();
-        let layer = Layer {
-            id: LayerId(1),
-            name: "Layer 1".into(),
-            keyframes: std::collections::BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
-            tweens: std::collections::BTreeMap::new(),
-            visible: true,
-            locked: false,
-            outline: false,
-            outline_color: crate::model::default_outline_color(),
-        };
+        let layer = Layer::new_normal(LayerId(1), "Layer 1");
         let symbol = Symbol {
             id,
             name: name.to_string(),
@@ -1507,16 +1495,7 @@ impl Session {
         let count = self.doc.scene(scene)?.layers.len();
         let index = (self.active_layer + 1).min(count);
         let name = self.next_layer_name();
-        let layer = Layer {
-            id: self.doc.alloc_layer_id(),
-            name,
-            keyframes: std::collections::BTreeMap::from([(1u32, Frame::keyframe(vec![]))]),
-            tweens: std::collections::BTreeMap::new(),
-            visible: true,
-            locked: false,
-            outline: false,
-            outline_color: crate::model::default_outline_color(),
-        };
+        let layer = Layer::new_normal(self.doc.alloc_layer_id(), name);
         let cmd = CreateLayer {
             scene,
             index,
@@ -1559,8 +1538,27 @@ impl Session {
         let Some(layer) = sc.layers.get(index).cloned() else {
             return false;
         };
-        let cmd = DeleteLayer::new(scene, index, layer);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        if layer.is_folder() {
+            let mut desc = self.doc.layer_descendants(scene, layer.id);
+            desc.push(layer.id);
+            if sc.layers.len() <= desc.len() {
+                self.log("layer:delete(blocked:would empty)");
+                return false;
+            }
+            let mut pack: Vec<(usize, Layer)> = sc
+                .layers
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| desc.contains(&l.id))
+                .map(|(i, l)| (i, l.clone()))
+                .collect();
+            pack.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
+            let cmd = DeleteLayerGroup::new(scene, pack);
+            self.history.execute(&mut self.doc, Box::new(cmd));
+        } else {
+            let cmd = DeleteLayer::new(scene, index, layer);
+            self.history.execute(&mut self.doc, Box::new(cmd));
+        }
         self.sanitize_indices();
         self.prune_selection_existence();
         self.log(&format!("layer:delete@{index}"));
@@ -1608,13 +1606,17 @@ impl Session {
         if l.visible == visible {
             return false;
         }
-        let cmd = SetLayerVisible {
-            scene: self.active_scene,
-            layer_id: l.id,
-            before: l.visible,
-            after: visible,
-        };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        if l.is_folder() {
+            self.cascade_flag(index, LayerFlagKind::Visible, visible);
+        } else {
+            let cmd = SetLayerVisible {
+                scene: self.active_scene,
+                layer_id: l.id,
+                before: l.visible,
+                after: visible,
+            };
+            self.history.execute(&mut self.doc, Box::new(cmd));
+        }
         if !visible {
             self.prune_selection_by_layer_state();
         }
@@ -1664,15 +1666,52 @@ impl Session {
         if l.outline == outline {
             return false;
         }
-        let cmd = SetLayerOutline {
-            scene: self.active_scene,
-            layer_id: l.id,
-            before: l.outline,
-            after: outline,
-        };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        if l.is_folder() {
+            self.cascade_flag(index, LayerFlagKind::Outline, outline);
+        } else {
+            let cmd = SetLayerOutline {
+                scene: self.active_scene,
+                layer_id: l.id,
+                before: l.outline,
+                after: outline,
+            };
+            self.history.execute(&mut self.doc, Box::new(cmd));
+        }
         self.log(&format!("layer:outline@{index}={outline}"));
         true
+    }
+
+    /// F-20-05: folder lock/hide/outline cascade to all descendants as ONE undo.
+    fn cascade_flag(&mut self, index: usize, kind: LayerFlagKind, after_val: bool) {
+        let scene = self.active_scene;
+        let Some(sc) = self.doc.scene(scene) else {
+            return;
+        };
+        let Some(root) = sc.layers.get(index) else {
+            return;
+        };
+        let mut ids = self.doc.layer_descendants(scene, root.id);
+        ids.insert(0, root.id);
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for id in ids {
+            if let Some(l) = sc.layers.iter().find(|l| l.id == id) {
+                let cur = match kind {
+                    LayerFlagKind::Visible => l.visible,
+                    LayerFlagKind::Locked => l.locked,
+                    LayerFlagKind::Outline => l.outline,
+                };
+                before.push((id, cur));
+                after.push((id, after_val));
+            }
+        }
+        let cmd = SetLayerFlags {
+            scene,
+            kind,
+            before,
+            after,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
     }
 
     /// Outline color (undoable; F-07-02 E6 "Layer Properties → outline color" /
@@ -1846,6 +1885,9 @@ impl Session {
             locked: src.locked,
             outline: src.outline,
             outline_color: src.outline_color.clone(),
+            kind: src.kind,
+            parent_id: src.parent_id,
+            collapsed: src.collapsed,
         };
         let cmd = DuplicateLayer {
             scene,
@@ -2151,6 +2193,83 @@ fn apply_transform_patch(t: &Transform, p: &TransformPatch) -> Transform {
 }
 
 /// Apply a base-property patch over a node (None = keep current). Dimensions
+/// are clamped ≥ 0; stroke_enabled drives whether a stroke exists at all.
+fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
+    match node {
+        Node::Rect {
+            id,
+            transform,
+            width,
+            height,
+            fill,
+            stroke,
+            stroke_width,
+        } => {
+            let mut w = *width;
+            let mut h = *height;
+            let mut f = fill.clone();
+            let mut s = stroke.clone();
+            let mut sw = *stroke_width;
+            if let Some(v) = p.width {
+                w = v.max(0.0);
+            }
+            if let Some(v) = p.height {
+                h = v.max(0.0);
+            }
+            if let Some(v) = &p.fill {
+                f = v.clone();
+            }
+            match p.stroke_enabled {
+                Some(true) => {
+                    s = Some(
+                        p.stroke
+                            .clone()
+                            .unwrap_or_else(|| s.clone().unwrap_or_else(|| "#000000".to_string())),
+                    );
+                }
+                Some(false) => {
+                    s = None;
+                }
+                None => {
+                    if let Some(v) = &p.stroke {
+                        s = Some(v.clone());
+                    }
+                }
+            }
+            if let Some(v) = p.stroke_width {
+                sw = v.max(0.0);
+            }
+            Node::Rect {
+                id: *id,
+                transform: transform.clone(),
+                width: w,
+                height: h,
+                fill: f,
+                stroke: s,
+                stroke_width: sw,
+            }
+        }
+        // instances have no base rect props — patch is a no-op for them
+        other => other.clone(),
+    }
+}
+
+/// Strip an Animate-style copy suffix ("arm copy", "arm copy 2") back to the
+/// original stem, so duplicating a copy keeps counting ("arm copy 2", …)
+/// instead of stacking "copy copy".
+fn strip_copy_suffix(name: &str) -> &str {
+    if let Some(rest) = name.strip_suffix(" copy") {
+        return rest;
+    }
+    if let Some(idx) = name.rfind(" copy ") {
+        let suffix = &name[idx + " copy ".len()..];
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return &name[..idx];
+        }
+    }
+    name
+}
+perty patch over a node (None = keep current). Dimensions
 /// are clamped ≥ 0; stroke_enabled drives whether a stroke exists at all.
 fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
     match node {

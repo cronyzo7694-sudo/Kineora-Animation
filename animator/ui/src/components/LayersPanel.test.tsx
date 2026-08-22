@@ -4,6 +4,9 @@ import { bus } from '../bus'
 
 vi.mock('../engine/client', () => ({
   createLayer: vi.fn(() => 2),
+  createFolder: vi.fn(() => 2),
+  setLayerParent: vi.fn(() => true),
+  setFolderCollapsed: vi.fn(() => true),
   deleteLayer: vi.fn(() => true),
   duplicateLayer: vi.fn(() => 2),
   renameLayer: vi.fn(() => true),
@@ -19,15 +22,18 @@ vi.mock('../engine/client', () => ({
 }))
 
 import {
+  createFolder,
   createLayer,
   deleteLayer,
   duplicateLayer,
   moveLayer,
   renameLayer,
   setActiveLayer,
+  setFolderCollapsed,
   setLayerLocked,
   setLayerOutline,
   setLayerOutlineColor,
+  setLayerParent,
   setLayerVisible,
   toggleOtherLayersLocked,
   toggleOtherLayersOutline,
@@ -45,6 +51,9 @@ const toggleOtherVisibleMock = vi.mocked(toggleOtherLayersVisible)
 const toggleOtherLockedMock = vi.mocked(toggleOtherLayersLocked)
 const toggleOtherOutlineMock = vi.mocked(toggleOtherLayersOutline)
 const createLayerMock = vi.mocked(createLayer)
+const createFolderMock = vi.mocked(createFolder)
+const setLayerParentMock = vi.mocked(setLayerParent)
+const setFolderCollapsedMock = vi.mocked(setFolderCollapsed)
 const deleteLayerMock = vi.mocked(deleteLayer)
 const duplicateLayerMock = vi.mocked(duplicateLayer)
 const renameLayerMock = vi.mocked(renameLayer)
@@ -262,6 +271,39 @@ describe('LayersPanel', () => {
   })
 
   // ——— Duplicate layer (F-20-01) ———
+
+  it('folder button creates a folder on the engine', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layers-add-folder'))
+    expect(createFolderMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides children of a collapsed folder and collapse toggles the engine', () => {
+    const st = makeStatus({
+      layers: [
+        { id: 1, name: 'Folder 1', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [], tweens: [], kind: 'folder', collapsed: true, depth: 0 },
+        { id: 2, name: 'Nested', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [], tweens: [], kind: 'normal', parent_id: 1, depth: 1 },
+      ],
+    })
+    render(<LayersPanel status={st} notify={notify} />)
+    expect(screen.queryByTestId('layer-row-1')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('layer-collapse-0'))
+    expect(setFolderCollapsedMock).toHaveBeenCalledWith(0, false)
+  })
+
+  it('drop onto a folder nests instead of reordering', () => {
+    const st = makeStatus({
+      layers: [
+        { id: 1, name: 'Folder 1', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [], tweens: [], kind: 'folder', depth: 0 },
+        { id: 2, name: 'Layer 2', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [], tweens: [], kind: 'normal', depth: 0 },
+      ],
+    })
+    render(<LayersPanel status={st} notify={notify} />)
+    fireEvent.dragStart(screen.getByTestId('layer-row-1'))
+    fireEvent.drop(screen.getByTestId('layer-row-0'))
+    expect(setLayerParentMock).toHaveBeenCalledWith(1, 0)
+    expect(moveLayerMock).not.toHaveBeenCalled()
+  })
 
   it('duplicate button deep-copies the ACTIVE layer on the engine', () => {
     render(<LayersPanel status={makeStatus()} notify={notify} />)

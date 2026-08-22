@@ -2291,3 +2291,130 @@ impl Command for ReorderLayer {
         }
     }
 }
+
+/// CMD-LAYER-PARENT — nest/un-nest a layer under a folder (F-20-05).
+/// Organizational only (no transform inheritance — that is F-20-06 / W2).
+pub struct SetLayerParent {
+    pub scene: usize,
+    pub layer_id: LayerId,
+    pub before: Option<LayerId>,
+    pub after: Option<LayerId>,
+}
+
+impl Command for SetLayerParent {
+    fn label(&self) -> String {
+        "Nest layer".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.parent_id = self.after;
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.parent_id = self.before;
+        }
+    }
+}
+
+/// CMD-FOLDER-COLLAPSE — triangle expand/collapse (F-20-05). Persisted.
+pub struct SetFolderCollapsed {
+    pub scene: usize,
+    pub layer_id: LayerId,
+    pub before: bool,
+    pub after: bool,
+}
+
+impl Command for SetFolderCollapsed {
+    fn label(&self) -> String {
+        "Collapse folder".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.collapsed = self.after;
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.collapsed = self.before;
+        }
+    }
+}
+
+/// CMD-LAYER-DEL-GROUP — delete a folder and its descendants as ONE undo
+/// (F-20-05). Snapshots each removed layer + orphaned nodes.
+pub struct DeleteLayerGroup {
+    pub scene: usize,
+    /// (original index, layer) in descending index order for apply.
+    pub layers: Vec<(usize, Layer)>,
+    removed_nodes: BTreeMap<NodeId, Node>,
+}
+
+impl DeleteLayerGroup {
+    pub fn new(scene: usize, layers: Vec<(usize, Layer)>) -> Self {
+        Self {
+            scene,
+            layers,
+            removed_nodes: BTreeMap::new(),
+        }
+    }
+}
+
+impl Command for DeleteLayerGroup {
+    fn label(&self) -> String {
+        "Delete folder".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        let ids: std::collections::BTreeSet<LayerId> =
+            self.layers.iter().map(|(_, l)| l.id).collect();
+        if let Some(sc) = doc.scenes.get_mut(self.scene) {
+            sc.layers.retain(|l| !ids.contains(&l.id));
+        }
+        let mut layer_ids: std::collections::BTreeSet<NodeId> = std::collections::BTreeSet::new();
+        for (_, layer) in &self.layers {
+            for f in layer.keyframes.values() {
+                if let Frame::Keyframe { content, .. } = f {
+                    layer_ids.extend(content.iter().copied());
+                }
+            }
+        }
+        let still = doc.referenced_node_ids();
+        for id in layer_ids {
+            if !still.contains(&id) {
+                if let Some(n) = doc.nodes.remove(&id) {
+                    self.removed_nodes.insert(id, n);
+                }
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        for (id, n) in &self.removed_nodes {
+            doc.nodes.insert(*id, n.clone());
+        }
+        let Some(sc) = doc.scenes.get_mut(self.scene) else {
+            return;
+        };
+        let mut restored = self.layers.clone();
+        restored.sort_by_key(|(i, _)| *i);
+        for (idx, layer) in restored {
+            let i = idx.min(sc.layers.len());
+            sc.layers.insert(i, layer);
+        }
+    }
+}

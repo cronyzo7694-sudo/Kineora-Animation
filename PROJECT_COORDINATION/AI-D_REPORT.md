@@ -117,3 +117,58 @@ Stopped pre-coding: mandatory reading pack absent (BLK-D-001..004 registered, `c
 
 ## SESSION 2 — 2026-08-22 (historical)
 Attendance check-in; standing by for AI01 (`f4feb42`).
+
+---
+
+## SESSION 4 — 2026-08-22 · Deep-completion order: SYS-22..28 audit + C-1 parity + SYS-27 slice 1
+
+**HEAD at start:** `da36772` (leader audit round 1 read in full; assignment = SYS-27 engines +
+C-1 sequencing recommendation).
+
+### 0. Full-range audit (deep inventory — evidence-based, per the completion order)
+
+| SYS | Existing implementation (EVIDENCE) | Spec sources | Status (honest scale) |
+|---|---|---|---|
+| SYS-22 Transform | pre-forensic slice: `editor/transformMath.ts` + `gesture.ts` (+14 tests) — move/scale gestures on rect selection; numeric Transform panel cells; engine `Transform{x,y,scale,rotation,skew,pivot}` | Blueprint 04/02a · C-15 · F-04-01 deep-research | **PARTIAL (pre-forensic)** — no distort/envelope (model gap: rect-only), no free-transform handles UI unit, no forensic spec |
+| SYS-23 Tweening | classic tween engine: `setClassicTween/removeClassicTween` + Penner easing seeded in `easing.rs` (MOD-EASING, Part 09.4.2); tween survives save/load (Rust test); interpolates scale/rotation shortest-path | Blueprint 09/10 · eng 08 · C-18/C-20 | **PARTIAL** — no motion tween object/graph editor/custom bézier UI; no shape tween (model gap); no motion path (SYS-14/20 dependency) |
+| SYS-24 Onion/FBF | FBF half exists in engine+UI: insert/blank/clear keyframe, insert/delete frame, move/duplicate keyframe, copy/cut/paste/remove/reverse frames, keyframe sequences | Blueprint 15 · C-19 | **PARTIAL (FBF) / MISSING (onion skin)** — zero onion-skin render path (needs SYS-14 stage overlay contract — INT before implementing) |
+| SYS-25 Camera | nothing (grep: only a HelpDialog mention) | Blueprint 16 · C-27 | **MISSING** — needs MOD-DOC camera entity (Part 33 `camera`) = foundation INT first |
+| SYS-26 Audio | nothing but SYS-09's honest `control.mute` handoff toast (AI-B, INT-0011) | Blueprint 17 · eng 10 · C-28 | **MISSING** — needs MOD-DOC audio assets (blocked with BLK-D-006 family) |
+| SYS-27 I/E/P | THIS SESSION: + real sequence export + HTML5 publish + export:done producer; image dialog pre-existing; video/GIF/movie/publishSettings/profiles = honest toasts; import BLOCKED | Blueprint 27/28 · eng 14 · C-30/31 | **PARTIAL+ (IMPLEMENTED/TESTED for image+sequence+publish slice)** |
+| SYS-28 Persistence | sessions 3+4: TS boundary + Rust core parity (C-1) — formatVersion/migrate/checksum/fsync/autosave/recovery | eng 13 · H10 · Part 33/36 | **IMPLEMENTED + AUTOMATED TESTED** (TS 36 + Rust 9 tests); manual desktop QA + real-crash REQ-PERSIST-A verification PENDING; AMB-002/003, AMB-D-001 open |
+
+### 1. Changes made (this session)
+- **`4a7152d` feat(sys28)** — C-1: `Document.format_version` (MOD-DOC, serde default) + Rust
+  MOD-PERSIST full parity (fsync in atomic write · FNV-1a checksum sidecar with PS-D2 ordering
+  that eliminates stale-sidecar false refusals · pure migrate · newer/corrupt refusals) + 9 tests
+  + slice.rs round-trip updated to stamped-on-write spec. **cargo test 306/306 · cargo check
+  wasm32 clean** (first Rust run of the project — toolchain installed in-session).
+- **`7e734b8` feat(sys27)** — slice 1: `export27.ts` (sequence builder + HTML5 publish builder +
+  delivery), ExportDialog sequence mode (range UI, refuse-keeps-open), `file.publish` → real
+  engine, `export:done` emitted (first producer). +24 tests. **UI 711/711 · tsc clean.**
+
+### 2. Tests executed (never reported unexecuted)
+- UI vitest: **711/711** (52 files) — full regression after both changes.
+- Rust: **306/306** native `cargo test`; `cargo check --target wasm32-unknown-unknown` clean.
+- NOT TESTED — TOOLCHAIN/ENVIRONMENT BLOCKER: Tauri desktop build (webkit2gtk system deps
+  absent) · real-crash autosave recovery (REQ-PERSIST-A end-to-end) · wasm artifact runtime
+  (artifact deployment-built, gitignored).
+
+### 3. Cross-SYS contracts recorded
+INT-AID-002 (MOD-DOC foundation field — leader-directed C-1) · INT-AID-003 (export:done producer +
+registry semantics of file.export('sequence')/file.publish + h12 assertion update). BLK-D-006
+(import blocked on asset entities — needs Leader-approved MOD-DOC schema + SYS-18/SYS-14
+coordination). No AI-A/B/C file touched beyond the two RECORDED test assertions in my own range's
+anticipated seams.
+
+### 4. Decisions required (Leader/human)
+1. MOD-DOC asset-entity schema (unblocks SYS-27 import + SYS-26 audio + SYS-18 real assets).
+2. Camera entity in MOD-DOC (unblocks SYS-25).
+3. Onion-skin overlay contract with SYS-14 stage (INT needed before SYS-24 onion work).
+4. AMB-D-001 (pathless autosave) + AMB-002/003 — still open, still not guessed.
+
+### 5. Final statuses (deep-completion scale)
+SYS-22 PARTIAL · SYS-23 PARTIAL · SYS-24 PARTIAL(FBF)/MISSING(onion) · SYS-25 MISSING (blocked) ·
+SYS-26 MISSING (blocked) · SYS-27 PARTIAL+ (image/sequence/publish = AUTOMATED TESTED; video/gif/
+movie/import = honest gaps) · SYS-28 IMPLEMENTED + AUTOMATED TESTED (manual QA pending).
+**No SYS claimed COMPLETE** — manual native QA is pending everywhere (FL-0019).

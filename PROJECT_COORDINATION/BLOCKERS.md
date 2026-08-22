@@ -221,3 +221,28 @@ Raised by AI-A after official check-in at `bc12025`. Spec-only session (`animato
 - **Recommendation (NOT authoritative):** overlays OFF; workArea ON.
 
 Full write-up: `FORENSIC_SPECS/SYS-04/H00_VIEW_CONSTITUTION.md` §12 · `PROJECT_COORDINATION/AI-A_REPORT.md`.
+
+### PART 5 UPDATE (2026-08-22, session 4) — BLK-D-005 + new BLK-D-006
+
+**BLK-D-005 — status → RESOLVED (actionable half) / RESIDUAL.** Rust toolchain installed
+in-session (rustup stable, minimal). C-1 LANDED: formatVersion in MOD-DOC + full Rust MOD-PERSIST
+(fsync/checksum/migrate) — cargo test 306/306, cargo check wasm32 clean (INT-AID-002).
+**RESIDUAL (recorded, not hidden):** (a) the committed runtime wasm artifact is NOT rebuilt here
+(wasm-pack not installed; artifacts are gitignored/deployment-built anyway — TS re-stamp keeps
+behavior correct either way); (b) the Tauri desktop shell is still not built (system webkit2gtk
+deps absent); (c) toolchain does NOT persist across worker sessions (sandbox snapshot excludes
+~/.cargo) — future Rust work must reinstall (~15s rustup + first-build time).
+
+### BLK-D-006 — SYS-27 IMPORT engines blocked on MOD-DOC asset entities
+- **Status:** OPEN
+- **Raised by:** AI-D, 2026-08-22
+- **Question/gap:** eng 14 import pipeline = "parse/decode → store (library asset + dataRef) →
+  place (to-stage instance)". The current MOD-DOC has ONLY rect nodes + rect-based symbols — no
+  bitmap/audio/vector-asset entity, no dataRef, no `assets/` folder handling. Import-to-stage/
+  library therefore has nothing to import INTO.
+- **Why not invented:** asset entities are foundation MOD-DOC/MOD-VECTOR schema (Part 33 §33.1
+  `library`, Part 27) — a foundation INT + Leader reconciliation across SYS-18 (library UI, AI-C)
+  and SYS-14 (stage render, AI-B) is required BEFORE any import engine can exist.
+- **Current honest behavior:** `file.import(stage|library)` keeps the H08 integration-gap toast.
+- **Needed to resolve:** Leader-approved MOD-DOC asset schema (INT), then coordinated SYS-27
+  (decode/store) + SYS-18 (library rows) + SYS-14 (render) increments.

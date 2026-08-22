@@ -61,3 +61,30 @@
 | Tests | +36 new (persist 13, autosave 18, RecoveryDialog 5); full suite 661/661 green; `tsc -b` clean |
 | Worker | AI-D |
 | Status | LANDED — Leader audit pending |
+
+---
+
+## INT-AID-002 — 2026-08-22 AI-D SYS-28 C-1 foundation parity (formatVersion → MOD-DOC)
+
+| Field | Value |
+|---|---|
+| Change | `Document.format_version` added to MOD-DOC (serde `formatVersion`, default 0) + full Rust MOD-PERSIST: fsync in the atomic write, FNV-1a checksum sidecar `<file>.checksum` (PS-D1..D3), pure `migrate(from,to)`, newer-version/corrupt refusal — mirrors the TS boundary exactly (same constant, chain, semantics) |
+| Foundation touch | MOD-DOC (`model.rs`) — ONE serde-defaulted field. Pre-directed by the Leader (INTEGRATED_AUDIT §3 C-1 "Owner: SYS-28 + foundation INT" + §9 "land C-1"). No other foundation surface touched; `tests/slice.rs` round-trip updated to the stamped-on-write spec |
+| Source/Dest | SYS-28 → MOD-DOC (field) · SYS-02 unaffected at its seams (persist::save/load signatures unchanged; session.rs untouched) |
+| Contract | writer = SYS-28 on write (H10 §6) · loaded doc carries the migrated version · in-memory new docs = 0 · wasm serializer will emit the field once the artifact is rebuilt (TS re-stamp is idempotent — same value) |
+| Evidence | cargo test 306/306 (native) · cargo check wasm32-unknown-unknown clean · toolchain installed in-session (rustup stable) |
+| Worker | AI-D |
+| Status | LANDED — Leader audit pending. BLK-D-005 actionable half RESOLVED (see BLOCKERS PART 5 update) |
+
+## INT-AID-003 — 2026-08-22 AI-D SYS-27 slice 1 (sequence + HTML5 publish + export:done)
+
+| Field | Value |
+|---|---|
+| Change | `export27.ts` MOD-EXPORT engines: SVG frame sequence (eng 14 range + fps sidecar) + self-contained HTML5 publish player (fps/loop, P-8 default). `export:done{format,path}` EMITTED for image/sequence/html5 — FIRST producer (contract §D, SYS-27-owned; SYS-02 still never emits) |
+| Cross-SYS touches | `commands.ts` registry: `file.export('sequence')` now opens the export dialog (real engine, toast removed) · `file.publish` runs the HTML5 engine — SEMANTICS of both commands are SYS-27-owned per H08 (registry file shared; entries untouched otherwise) · `h12.test.tsx` ONE assertion updated to engine behavior (spec-anticipated, recorded here) |
+| Unchanged (honest handoffs kept) | video/GIF/movie exports + publishSettings/publishProfiles = toasts (no fake encoders/settings UI — later increments) |
+| NEW blocker | BLK-D-006: SYS-27 IMPORT engines blocked on MOD-DOC asset entities (no bitmap/audio/vector-asset node types exist — importing would require inventing model schema = foundation INT first) |
+| Consumers | none yet subscribe to `export:done`; payload emitted verbatim per §D for future SYS-01 status/SYS-18 |
+| Evidence | +24 tests; UI suite 711/711; tsc clean |
+| Worker | AI-D |
+| Status | LANDED — Leader audit pending |

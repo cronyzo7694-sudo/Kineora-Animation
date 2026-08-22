@@ -1,5 +1,23 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — Timeline+Layers pre-code audit (docs only)
+
+- Added `12_AUDIT.md`. Fixed pack bugs D-1..D-4. Ship rules U-G7 (don’t show two layer lists), U-G8 (min height), U-G9 (nameW), B-8 (copyFrames event).
+- Still research-only. No `animator/` edits.
+
+## 2026-08-23 — Timeline+Layers research CONTINUE (onion / EMF / speed)
+
+- Added `08_ONION_SKIN.md` (P1 overlay; never export; no Rust), `09_EDIT_MULTIPLE_FRAMES.md` (blocked AMB-TL-020), `10_EXPOSURE_AND_ADOBE_SPEED.md` (**AMB-TL-005 RESOLVED** via eng 07), `11_WISH_W1_CEL_AND_REMAINING.md`.
+- Research-only. Pack is enough to start code: guards → unify → onion. EMF/W1/camera not in first wave.
+
+## 2026-08-23 — Timeline+Layers unified forensic pack (docs only)
+
+- New folder `PROJECT_COORDINATION/TIMELINE_LAYERS_RESEARCH/` (00_README … 07_CODING_PACKET).
+- Research-only. No `animator/` edits. Adobe Help “How to use the timeline” (2026-06-09) translated item-by-item; Blueprint wins.
+- Finding: LayersPanel (left) and TimelineStrip (bottom) are two views of one score — Blueprint 7.1.1 already requires one row. C-08/C-22 “UI COMPLETE” is paper.
+- Open AMBs AMB-TL-001..012. Engine bugs B-1..B-5 still owned by SYS-15/16. Coding not started.
+- Continue slice: onion / Edit Multiple Frames / Adobe speed tools (not specified → AMB).
+
 ## 2026-08-23 — SYS-13 Rectangle honesty (T2B.4 modifiers + Esc) + BUG-D-001
 
 - **One increment:** Rectangle tool Shift = square, Alt = from-center, Esc = discard in-progress (no command). Fill/stroke still hardcoded `#3f9bf5` / none — SYS-21 CurrentStyle not invented.

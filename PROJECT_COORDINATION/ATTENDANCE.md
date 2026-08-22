@@ -4,6 +4,9 @@
 > Format: one row per session. Leader (AI01) can use this to see who is active and who is blocked.
 
 | Date (IST) | Worker | Ownership | Session | Status | HEAD seen | Notes |
+| 2026-08-23 | Research | SYS-15+16 Timeline+Layers | 3 | RESEARCH AUDIT + PUSH | `29789e5` | Re-read 00–11 vs code. 12_AUDIT + pack fixes. No product code. |
+| 2026-08-23 | Research | SYS-15+16 Timeline+Layers | 2 | RESEARCH ONLY — PACK COMPLETE (first code wave) | `29789e5` | CONTINUE: 08 onion, 09 EMF (blocked 020), 10 exposure/fps (005 closed), 11 W1 out. No product code. |
+| 2026-08-23 | Research | SYS-15+16 Timeline+Layers (unified) | 1 | RESEARCH ONLY — PACK IN PROGRESS | `29789e5` | Folder PROJECT_COORDINATION/TIMELINE_LAYERS_RESEARCH/ (00–07). No product code. Adobe 2026 timeline page translated. Unify = Blueprint 7.1.1. Continue: onion/EMF/fps-scale. |
 | 2026-08-23 | AI-B | SYS-13 Tools (Rectangle increment) | 7 | ACTIVE — RECT MODIFIERS + ESC + BUG-D-001 | `656ae2d` | Line-by-line product read after tools research. Implemented T2B.4 Shift-square / Alt-from-center / Esc-cancel. Fixed BUG-D-001 test assertion (blocked paste must not *change* selection). Fill/stroke style NOT invented (SYS-21). SYS-13 not COMPLETE. |
 | 2026-08-23 | Research | SYS-13 Tools (forensic) | 1 | RESEARCH ONLY — DOCS | `7ab803a` | Phase-1 tools forensic. No product code. Document TOOLS_SYSTEM_FORENSIC_RESEARCH.md. |
 |---|---|---|---|---|---|---|

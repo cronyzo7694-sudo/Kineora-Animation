@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-22 — AI-A: SYS-03 C-2 — prevSelection restore + History bound 100
+
+- INTEGRATED_AUDIT C-2 (HIGH). Session captures prev/post selection around `History::execute`; undo restores prev, redo restores post (INV-EDIT-2). Command trait stays `{label,apply,revert}` — no 30-impl duplication.
+- History stack bounded at **100** (RSK-011 / eng 05). Oldest dropped first.
+- `client.ts` undo/redo emit locked `selection:changed{prevTargets,targets}` (H01 §9). No new event.
+- Not invented: canCoalesce / affected[] / History panel / Paste Special format list.
+- Rebased onto `d491b4e` (INT-AID-004/005 + SYS-23). SYS-16 folder Session methods kept; `history.execute` 2-arg sites converted to `Session::exec` (signature only).
+- Rust **331/331** (layers.rs 34/34 + undo_selection 11/11). UI **740/740** (+4 client undo/redo `selection:changed`). `tsc --noEmit` PASS. WASM/Tauri **NOT TESTED** (no wasm-pack rebuild). SYS-03 = AUTOMATED TESTED / PARTIAL.
+
 ## 2026-08-22 — AI-A: SYS-01 C-3 — panel.show/hide + F4 + honest st.snap
 
 - Human DEEP COMPLETION ORDER (implementation). BLK-AIA-001 posture: `d4b1861`/`bc12025` stay as evidence.

@@ -197,14 +197,23 @@ export function exportSvgScaled(frame: number, scale: number): string {
 }
 
 export function undo(): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_undo() ?? false
-  if (ok) docChanged('undo')
+  if (ok) {
+    docChanged('undo')
+    // H01 §9 / INV-EDIT-2: undo restores prevSelection — emit so panels rebind.
+    emitSelectionChanged(prev)
+  }
   return ok
 }
 
 export function redo(): boolean {
+  const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_redo() ?? false
-  if (ok) docChanged('redo')
+  if (ok) {
+    docChanged('redo')
+    emitSelectionChanged(prev)
+  }
   return ok
 }
 

@@ -336,3 +336,38 @@ No new event. `st.snap` **consumes** existing `snap:changed{mode}` (SYS-01 §27.
 - `PROJECT_BOARD.md` — SYS-01 IMPL note only.
 
 **Not modified:** `FOUNDATION_CONTRACT.md`, SYS-08..28 product code, other workers’ report bodies, SYS-01 LOCKED spec body.
+
+---
+
+# SESSION 3 — DEEP COMPLETION (SYS-03 C-2 prevSelection) — 2026-08-22
+
+**HEAD at check-in:** `dbf520e` (C-3 on origin/main).  
+**Priority chosen:** INTEGRATED_AUDIT C-2 (HIGH foundation) after C-1 landed by AI-D. SYS-01 leftovers (dock/float/scene/responsive) remain SPEC-ONLY — not started this increment.
+
+## S3.1 Research / audit
+
+- eng 05 + SYS-03 H00/H01 INV-EDIT-2: `prevSelection` captured before do; undo/redo restore it.
+- Existing `command.rs` comment already said Session captures/restores selection — **but Session only pruned deleted ids**. Comment ≠ impl (FL-0017).
+- Putting `prevSelection` on every Command struct would duplicate 30+ impls. Smallest correct change: **HistoryEntry `{cmd, prev_selection, post_selection}`** owned by Session `exec` / `exec_then`.
+- `affected[]` unused (dirty is snapshot H04). `canCoalesce` not invented (F5 coalesce specified but not this increment). History panel still SPEC-ONLY.
+- Bound **100** = RSK-011 / eng 05 (not invented).
+
+## S3.2 Implementation
+
+| File | Change |
+|---|---|
+| `animator/core/src/command.rs` | `HistoryEntry`; `execute(doc, cmd, prev)`; `seal_last_post_selection`; undo/redo return `Option<Vec<NodeId>>`; `HISTORY_BOUND=100` |
+| `animator/core/src/session.rs` | `exec` / `exec_then`; all 50 command sites; undo/redo restore snapshots |
+| `animator/core/src/lib.rs` | export `HISTORY_BOUND` |
+| `animator/core/tests/undo_selection.rs` | 8 tests (T-undo-selection / redo / view-only / delete / bound) |
+| `animator/ui/src/engine/client.ts` | undo/redo emit existing `selection:changed{prevTargets,targets}` (H01 §9) |
+
+## S3.3 Tests (updated session 4 after rebase onto `d491b4e`)
+
+- Rust **331/331** including layers.rs **34/34** (INT-AID-004 resolved by AI-C) and undo_selection **11/11**.
+- UI **740/740** (+4 `client.undoSelection.test.ts`). `tsc --noEmit` PASS.
+- WASM / Tauri / native desktop: **NOT TESTED** (no wasm-pack rebuild; BLK-008). Stale wasm artifact will not expose the new restore until `npm run wasm`.
+
+## S3.4 Status
+
+SYS-03 = **AUTOMATED TESTED / PARTIAL**. INV-EDIT-2 prevSelection **implemented at Session/History**. Not COMPLETE (no History panel, no canCoalesce, no affected[], Paste Special AMB, Find & Replace).

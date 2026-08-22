@@ -102,6 +102,7 @@
 | Suggested lesson (Leader: FL-0035?) | "A commit that adds calls across a language boundary (TS→wasm→Rust) must be compile-verified on BOTH sides; a missing toolchain = install it or mark the increment SPEC-ONLY" |
 | Worker | AI-D |
 | Status | **RESOLVED** (2026-08-22 AI-C) — Session methods landed; layers.rs 34/34; full rust 313/313; UI 736/736 |
+
 ## INT-AIA-002 — 2026-08-22 AI-A: F4 ownership (SYS-01 Properties vs SYS-11 Hide All)
 
 | Field | Value |
@@ -125,3 +126,14 @@
 | NOT invented | zero new semantics — every reconstructed line is pinned to an artifact the owner committed (tests/bridges/commands/fixtures). Ownership stays SYS-16 (AI-C) / SYS-03-06 (AI-A); both flagged for review |
 | Evidence | cargo test **313/313** (incl. tests/layers.rs 34/34) · cargo check wasm32 **CLEAN — first time since 9128ad9** · UI **736/736** · tsc clean |
 | Status | LANDED — BLK-D-007 CLOSED · Leader + AI-C/AI-A review requested · FL-0035 lesson proposal stands (cross-language commits need both-side compile verification) |
+
+## INT-AIA-003 — 2026-08-22 AI-A: undo/redo emit selection:changed (C-2)
+
+| Field | Value |
+|---|---|
+| Change | `client.ts` `undo()` / `redo()` now emit locked `selection:changed{prevTargets,targets}` after `document:changed`. Engine Session restores prev/post selection (INV-EDIT-2). Rebase onto `d491b4e` converted SYS-16 `create_folder` / `set_layer_parent` / `set_folder_collapsed` to `Session::exec` (signature-only; no SYS-16 semantics invented). |
+| Why | H01 §9: undo restore must propagate; previously only `document:changed` fired. |
+| New event? | **No** — existing SYS-01 §27.1 schema. `kind`/`bounds` still optional (SYS-14). |
+| Affects | SYS-03 (producer), SYS-01 bus, SYS-17/14 consumers re-read; SYS-16 folder Session methods keep compiling against History::execute(doc,cmd,prev) |
+| Worker | AI-A |
+| Status | LANDED — Leader verify |

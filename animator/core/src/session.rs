@@ -101,6 +101,24 @@ impl Session {
         }
     }
 
+    /// SYS-03 C-2 / INV-EDIT-2: capture prevSelection, apply, then seal the
+    /// post-command selection after any Session-side selection update.
+    fn exec(&mut self, cmd: Box<dyn crate::command::Command>) {
+        self.exec_then(cmd, |_| {});
+    }
+
+    fn exec_then(
+        &mut self,
+        cmd: Box<dyn crate::command::Command>,
+        after: impl FnOnce(&mut Self),
+    ) {
+        let prev = self.selection.clone();
+        self.history.execute(&mut self.doc, cmd, prev);
+        after(self);
+        self.history.seal_last_post_selection(self.selection.clone());
+    }
+
+
     pub fn set_playhead(&mut self, frame: u32) {
         self.playhead = frame.max(1);
         self.log(&format!("playhead:{frame}"));
@@ -139,8 +157,9 @@ impl Session {
             frame: self.playhead,
             node,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        self.selection = vec![id];
+        self.exec_then(Box::new(cmd), |s| {
+            s.selection = vec![id];
+        });
         self.log(&format!("draw:rect id={:?} @{}", id, self.playhead));
         id
     }
@@ -210,7 +229,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("transform:selection");
     }
 
@@ -238,7 +257,7 @@ impl Session {
             self.active_layer,
             self.playhead,
         );
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("move:selection({dx},{dy}) @{}", self.playhead));
     }
 
@@ -260,7 +279,7 @@ impl Session {
             }
         }
         let cmd = InsertKeyframe::new(self.active_scene, self.active_layer, frame);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.set_playhead(frame);
         self.log(&format!("keyframe:insert@{frame}"));
         true
@@ -278,7 +297,7 @@ impl Session {
             }
         }
         let cmd = InsertBlankKeyframe::new(self.active_scene, self.active_layer, frame);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("blank-keyframe@{frame}"));
         true
     }
@@ -298,7 +317,7 @@ impl Session {
             }
         }
         let cmd = ClearKeyframe::new(self.active_scene, self.active_layer, frame);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("clear-keyframe@{frame}"));
         true
     }
@@ -327,7 +346,7 @@ impl Session {
             return false;
         }
         let cmd = InsertFrames::new(scene, layer, frame);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("insert-frame@{frame}"));
         true
     }
@@ -353,7 +372,7 @@ impl Session {
             return false;
         }
         let cmd = DeleteFrames::new(scene, layer, frame);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("delete-frame@{frame}"));
         true
     }
@@ -383,7 +402,7 @@ impl Session {
             return false;
         }
         let cmd = MoveKeyframe::new(scene, layer, from, to);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("move-keyframe:{from}→{to}"));
         true
     }
@@ -412,7 +431,7 @@ impl Session {
             return false;
         }
         let cmd = DuplicateKeyframe::new(scene, layer, from, to);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("duplicate-keyframe:{from}→{to}"));
         true
     }
@@ -471,7 +490,7 @@ impl Session {
             return false;
         }
         let cmd = PasteFrames::new(self.active_scene, layer, at, self.frame_clipboard.clone());
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("paste-frames@{at}"));
         true
     }
@@ -492,7 +511,7 @@ impl Session {
             return false;
         }
         let cmd = RemoveFrames::new(self.active_scene, layer, start, end);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("remove-frames:{start}..{end}"));
         true
     }
@@ -518,7 +537,7 @@ impl Session {
             return false;
         }
         let cmd = ReverseFrames::new(self.active_scene, layer, start, end);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("reverse-frames:{start}..{end}"));
         true
     }
@@ -556,7 +575,7 @@ impl Session {
             return false;
         }
         let cmd = SetClassicTween::new(scene, layer, start, end, ease);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("tween:{start}→{end} ease={ease}"));
         true
     }
@@ -577,7 +596,7 @@ impl Session {
             return false;
         }
         let cmd = RemoveClassicTween::new(scene, layer, start);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("remove-tween@{start}"));
         true
     }
@@ -625,7 +644,7 @@ impl Session {
             }
         }
         let cmd = MoveKeyframeSequence::new(scene, layer, from, to, overwrite);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("seq-move:{from}→{to}"));
         true
     }
@@ -668,7 +687,7 @@ impl Session {
             return false;
         }
         let cmd = ResizeSpan::new(scene, layer, anchor, d);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("resize-span:{anchor} {d:+}"));
         true
     }
@@ -694,7 +713,7 @@ impl Session {
             return false;
         }
         let cmd = DuplicateFrames::new(scene, layer, start, end);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("duplicate-frames:{start}..{end}"));
         true
     }
@@ -733,7 +752,7 @@ impl Session {
             return false;
         }
         let cmd = ConvertToKeyframes::new(scene, layer, start, end);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("convert-keys:{start}..{end}"));
         true
     }
@@ -759,7 +778,7 @@ impl Session {
             return false;
         }
         let cmd = ConvertToBlankKeyframes::new(scene, layer, start, end);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("convert-blank:{start}..{end}"));
         true
     }
@@ -792,7 +811,7 @@ impl Session {
             return false; // unchanged → no command
         }
         let cmd = SetFrameLabel::new(scene, layer, frame, after);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("set-label@{frame}"));
         true
     }
@@ -907,8 +926,9 @@ impl Session {
             instance,
             node_ids,
         );
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        self.selection = vec![instance_id];
+        self.exec_then(Box::new(cmd), |s| {
+            s.selection = vec![instance_id];
+        });
         self.log(&format!("convert-to-symbol:{symbol_id:?}"));
         instance_id
     }
@@ -930,7 +950,7 @@ impl Session {
             timeline: vec![layer],
         };
         let cmd = CreateSymbol { symbol };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("new-symbol:{id:?}"));
         id
     }
@@ -964,8 +984,9 @@ impl Session {
             self.playhead,
             instance,
         );
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        self.selection = vec![instance_id];
+        self.exec_then(Box::new(cmd), |s| {
+            s.selection = vec![instance_id];
+        });
         self.log(&format!("place-symbol:{symbol_id:?}"));
         instance_id
     }
@@ -987,7 +1008,7 @@ impl Session {
             before: s.name,
             after: name.to_string(),
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("rename-symbol:{symbol_id:?}"));
         true
     }
@@ -1005,9 +1026,9 @@ impl Session {
             return false;
         }
         let cmd = DeleteSymbol::new(symbol_id, break_apart);
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        // prune selection of any now-removed instance nodes
-        self.prune_selection_existence();
+        self.exec_then(Box::new(cmd), |s| {
+            s.prune_selection_existence();
+        });
         self.log(&format!("delete-symbol:{symbol_id:?}"));
         true
     }
@@ -1028,7 +1049,7 @@ impl Session {
             before,
             after: symbol_id,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("swap-instance:{instance_id:?}"));
         true
     }
@@ -1056,7 +1077,7 @@ impl Session {
             before,
             after: (loop_mode, first_frame.max(1)),
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("set-instance-loop:{instance_id:?}"));
         true
     }
@@ -1164,8 +1185,9 @@ impl Session {
             return false;
         }
         let cmd = DeleteSelection::new(self.active_scene, self.playhead, ids);
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        self.prune_selection_existence();
+        self.exec_then(Box::new(cmd), |s| {
+            s.prune_selection_existence();
+        });
         self.log("delete:selection");
         true
     }
@@ -1242,8 +1264,9 @@ impl Session {
             return false;
         }
         let cmd = PasteObjects::new(self.active_scene, self.active_layer, self.playhead, items);
-        self.history.execute(&mut self.doc, Box::new(cmd));
-        self.selection = new_sel;
+        self.exec_then(Box::new(cmd), |s| {
+            s.selection = new_sel;
+        });
         self.log(&format!("paste:{mode:?}"));
         true
     }
@@ -1293,7 +1316,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("rotate:{degrees}"));
         true
     }
@@ -1340,7 +1363,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(if horizontal { "flip:h" } else { "flip:v" });
         true
     }
@@ -1376,7 +1399,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("transform:remove");
         true
     }
@@ -1388,7 +1411,7 @@ impl Session {
             return false;
         }
         let cmd = ArrangeSelection::new(self.active_scene, self.playhead, ids, op);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("arrange:{op:?}"));
         true
     }
@@ -1457,7 +1480,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("align:{op:?}/{space:?}"));
         true
     }
@@ -1501,7 +1524,7 @@ impl Session {
             index,
             layer,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.active_layer = index;
         self.log(&format!("layer:create@{index}"));
         Some(index)
@@ -1520,7 +1543,7 @@ impl Session {
             index,
             layer,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.active_layer = index;
         self.log(&format!("folder:create@{index}"));
         Some(index)
@@ -1578,7 +1601,7 @@ impl Session {
             before: child_l.parent_id,
             after,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("layer:parent");
         true
     }
@@ -1601,7 +1624,7 @@ impl Session {
             before: l.collapsed,
             after: collapsed,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("folder:collapsed@{index}={collapsed}"));
         true
     }
@@ -1654,13 +1677,14 @@ impl Session {
                 .collect();
             pack.sort_by_key(|(i, _)| std::cmp::Reverse(*i));
             let cmd = DeleteLayerGroup::new(scene, pack);
-            self.history.execute(&mut self.doc, Box::new(cmd));
+            self.exec(Box::new(cmd));
         } else {
             let cmd = DeleteLayer::new(scene, index, layer);
-            self.history.execute(&mut self.doc, Box::new(cmd));
+            self.exec(Box::new(cmd));
         }
         self.sanitize_indices();
         self.prune_selection_existence();
+        self.history.seal_last_post_selection(self.selection.clone());
         self.log(&format!("layer:delete@{index}"));
         true
     }
@@ -1688,7 +1712,7 @@ impl Session {
             before: l.name,
             after: name.to_string(),
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("layer:rename@{index}"));
         true
     }
@@ -1715,10 +1739,11 @@ impl Session {
                 before: l.visible,
                 after: visible,
             };
-            self.history.execute(&mut self.doc, Box::new(cmd));
+            self.exec(Box::new(cmd));
         }
         if !visible {
             self.prune_selection_by_layer_state();
+            self.history.seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:visible@{index}={visible}"));
         true
@@ -1744,9 +1769,10 @@ impl Session {
             before: l.locked,
             after: locked,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         if locked {
             self.prune_selection_by_layer_state();
+            self.history.seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:locked@{index}={locked}"));
         true
@@ -1775,7 +1801,7 @@ impl Session {
                 before: l.outline,
                 after: outline,
             };
-            self.history.execute(&mut self.doc, Box::new(cmd));
+            self.exec(Box::new(cmd));
         }
         self.log(&format!("layer:outline@{index}={outline}"));
         true
@@ -1811,7 +1837,7 @@ impl Session {
             before,
             after,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
     }
 
     /// Outline color (undoable; F-07-02 E6 "Layer Properties → outline color" /
@@ -1838,7 +1864,7 @@ impl Session {
             before: l.outline_color,
             after: color.to_string(),
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log(&format!("layer:outline-color@{index}={color}"));
         true
     }
@@ -1886,9 +1912,10 @@ impl Session {
             before,
             after,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         if kind == LayerFlagKind::Visible {
             self.prune_selection_by_layer_state();
+            self.history.seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:batch-{kind:?}:exclude={exclude}"));
         true
@@ -1995,7 +2022,7 @@ impl Session {
             layer,
             copied_nodes,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.active_layer = index + 1;
         self.log(&format!("layer:duplicate@{index}"));
         Some(index + 1)
@@ -2047,7 +2074,7 @@ impl Session {
             before,
             after,
         };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         if let Some(aid) = active_id {
             if let Some(new_idx) = self
                 .doc
@@ -2081,7 +2108,7 @@ impl Session {
             return;
         }
         let cmd = SetNodeProps { updates };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("props:node");
     }
 
@@ -2109,7 +2136,7 @@ impl Session {
         }
         let cmd =
             TransformSelection::new(after, self.active_scene, self.active_layer, self.playhead);
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("transform:patch");
     }
 
@@ -2137,7 +2164,7 @@ impl Session {
             return false;
         }
         let cmd = SetDocumentSettings { before, after };
-        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.exec(Box::new(cmd));
         self.log("document:settings");
         true
     }
@@ -2202,14 +2229,15 @@ impl Session {
     }
 
     pub fn undo(&mut self) -> bool {
-        let ok = self.history.undo(&mut self.doc);
-        self.log(if ok { "undo" } else { "undo:(empty)" });
-        if ok {
-            // indices/selection may reference entities the command removed
-            self.sanitize_indices();
-            self.prune_selection_existence();
-        }
-        ok
+        let Some(sel) = self.history.undo(&mut self.doc) else {
+            self.log("undo:(empty)");
+            return false;
+        };
+        self.sanitize_indices();
+        self.selection = sel;
+        self.prune_selection_existence();
+        self.log("undo");
+        true
     }
 
     /// STM-DIRTY / H00 §7: has the document unsaved edits — i.e. does the
@@ -2225,13 +2253,15 @@ impl Session {
     }
 
     pub fn redo(&mut self) -> bool {
-        let ok = self.history.redo(&mut self.doc);
-        self.log(if ok { "redo" } else { "redo:(empty)" });
-        if ok {
-            self.sanitize_indices();
-            self.prune_selection_existence();
-        }
-        ok
+        let Some(sel) = self.history.redo(&mut self.doc) else {
+            self.log("redo:(empty)");
+            return false;
+        };
+        self.sanitize_indices();
+        self.selection = sel;
+        self.prune_selection_existence();
+        self.log("redo");
+        true
     }
 
     pub fn evaluate(&self, frame: u32) -> Vec<RectItem> {

@@ -36,16 +36,29 @@ fn shift_tweens(tweens: &mut BTreeMap<u32, ClassicTween>, gt: u32, delta: i64) {
 }
 
 /// All document mutations are Commands (REQ-SYS-002). Selection/view state is
-/// not commanded; it is captured/restored by the Session around execute/undo.
+/// not commanded; it is captured/restored by the Session around execute/undo
+/// (INV-EDIT-2 / eng 05 prevSelection). The Command trait stays mutation-only
+/// so every existing impl remains valid — Session owns the snapshot.
 pub trait Command {
     fn label(&self) -> String;
     fn apply(&mut self, doc: &mut Document);
     fn revert(&mut self, doc: &mut Document);
 }
 
+/// RSK-011 / eng 05: default History bound. Oldest entries drop first.
+pub const HISTORY_BOUND: usize = 100;
+
+struct HistoryEntry {
+    cmd: Box<dyn Command>,
+    /// Selection captured BEFORE apply (restored on undo).
+    prev_selection: Vec<NodeId>,
+    /// Selection after the Session method finished (restored on redo).
+    post_selection: Vec<NodeId>,
+}
+
 pub struct History {
-    undo: Vec<Box<dyn Command>>,
-    redo: Vec<Box<dyn Command>>,
+    undo: Vec<HistoryEntry>,
+    redo: Vec<HistoryEntry>,
     /// The last-saved snapshot (H00 §7: dirty = "differs from last-saved
     /// snapshot"). `Some` from construction (New/Open start CLEAN against their
     /// own initial state) and refreshed by `mark_clean` on a successful write.
@@ -68,31 +81,57 @@ impl History {
         }
     }
 
-    pub fn execute(&mut self, doc: &mut Document, mut cmd: Box<dyn Command>) {
+    /// Apply `cmd` and push it. `prev_selection` is the Session selection
+    /// immediately before apply. Call `seal_last_post_selection` after the
+    /// Session method has finished any post-command selection update.
+    pub fn execute(
+        &mut self,
+        doc: &mut Document,
+        mut cmd: Box<dyn Command>,
+        prev_selection: Vec<NodeId>,
+    ) {
         cmd.apply(doc);
-        self.undo.push(cmd);
+        self.undo.push(HistoryEntry {
+            cmd,
+            prev_selection,
+            post_selection: Vec::new(),
+        });
         self.redo.clear(); // redo invalidation (Phase-3 Part 12)
         self.dirty_hint = true;
+        while self.undo.len() > HISTORY_BOUND {
+            self.undo.remove(0);
+        }
     }
 
-    pub fn undo(&mut self, doc: &mut Document) -> bool {
-        let Some(mut c) = self.undo.pop() else {
-            return false;
-        };
-        c.revert(doc);
-        self.redo.push(c);
-        self.dirty_hint = true;
-        true
+    pub fn seal_last_post_selection(&mut self, post: Vec<NodeId>) {
+        if let Some(e) = self.undo.last_mut() {
+            e.post_selection = post;
+        }
     }
 
-    pub fn redo(&mut self, doc: &mut Document) -> bool {
-        let Some(mut c) = self.redo.pop() else {
-            return false;
+    /// Revert the top command. Returns the selection to restore (prev), or
+    /// `None` when the stack is empty.
+    pub fn undo(&mut self, doc: &mut Document) -> Option<Vec<NodeId>> {
+        let Some(mut e) = self.undo.pop() else {
+            return None;
         };
-        c.apply(doc);
-        self.undo.push(c);
+        e.cmd.revert(doc);
+        let restore = e.prev_selection.clone();
+        self.redo.push(e);
         self.dirty_hint = true;
-        true
+        Some(restore)
+    }
+
+    /// Re-apply the top redo command. Returns the post-command selection.
+    pub fn redo(&mut self, doc: &mut Document) -> Option<Vec<NodeId>> {
+        let Some(mut e) = self.redo.pop() else {
+            return None;
+        };
+        e.cmd.apply(doc);
+        let restore = e.post_selection.clone();
+        self.undo.push(e);
+        self.dirty_hint = true;
+        Some(restore)
     }
 
     /// H00 §7 (INV-DIRTY-1/2): dirty = "the document CONTENT differs from the
@@ -132,7 +171,7 @@ impl History {
         self.redo.len()
     }
     pub fn undo_labels(&self) -> Vec<String> {
-        self.undo.iter().map(|c| c.label()).collect()
+        self.undo.iter().map(|e| e.cmd.label()).collect()
     }
 }
 

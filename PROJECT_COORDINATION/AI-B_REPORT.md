@@ -111,9 +111,9 @@ keyboard/accessibility/state-transitions/command-event ownership/cross-SYS integ
   specced).
 
 ## 10. Commit hashes
-- `f13bbc6` — `docs(coordination): AI-B session 1 — attendance + blockers BLK-B-001..005 + report`
-  (3 files changed, 202 insertions; pushed to origin/main).
-- HEAD at end of session: `f13bbc6` (parent `f4feb42` = AI-D session 2 attendance).
+- `d5085d8` — `docs(coordination): AI-B session 1 — attendance + blockers BLK-B-001..005 + report`
+  (3 files changed, 204 insertions; pushed to origin/main).
+- HEAD at end of session: `d5085d8` (parent `f4feb42` = AI-D session 2 attendance).
 
 ## 11. Remaining risks
 - Same as AI-D risk: if AI-A/B/C each invent conventions without the CROSS_SYSTEM_CONTRACT,

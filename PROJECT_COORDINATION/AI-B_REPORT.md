@@ -129,3 +129,106 @@ While waiting for AI01, AI-B commits **docs-only** coordination updates (attenda
 this report). No SYS implementation, no test changes, no modification of any other worker's
 files. AI-B re-fetches origin before every push per parallel-git rules. Ready to start immediately
 on unblock.
+
+---
+
+# SESSION 2 — 2026-08-22 (Leader orders: SYS-09 then SYS-12)
+
+HEAD at start: `bc12025`. Read the full mandatory pack (FL-0001..0034, MASTER_EXECUTION_PLAN,
+CROSS_SYSTEM_CONTRACT, FOUNDATION_CONTRACT, AI_ASSIGNMENTS, DECISIONS, BLOCKERS,
+INTEGRATION_LOG, CHANGELOG, PROJECT_BOARD) + eng 04 STM-PLAYBACK + blueprint 01 §1.2.7–1.2.11.
+
+## 1. SYSs implemented
+- **SYS-09 Control/Playback hardening** (Leader first deliverable).
+- **SYS-12 Help** local docs + troubleshooting (Leader second deliverable).
+SYS-08/10/11/13/14 not touched this session (narrow scope per Leader; no silent expansion, FL-0001).
+
+## 2. Exact changes
+- `animator/ui/src/engine/actions.ts`: rewrote transport as the STM-PLAYBACK machine
+  (IDLE/PLAYING/PAUSED). `togglePlay` = IDLE/PAUSED→PLAYING, PLAYING→PAUSED (emits
+  `playback:paused`, stops tick). New `pausePlayback()`, `playbackState()`, `isPaused()`,
+  `seekPlayhead(frame)`. `stopPlayback` idempotent; tick uses raw `setPlayheadEngine` (no
+  per-frame event flood, INT-0012). `startTick` clears any prior interval (no stack).
+  Stop halts at the current frame; Rewind is a separate command (Blueprint separates them —
+  authority over eng-04's combined "stop→first" note; recorded, not a silent decision).
+- `animator/ui/src/bus.ts`: added `playback:paused` (empty payload) per INT-0011.
+- `animator/ui/src/commands.ts`:
+  - control seek commands (rewind/first/last/stepFwd/stepBack/nextKeyframe/prevKeyframe) route
+    through `seekPlayhead` so every user seek emits `playhead:moved{frame}`.
+  - `control.mute` DEFERRED→FUNCTIONAL (SYS-26 audio handoff toast, never fakes mute).
+  - `control.test` DEFERRED→FUNCTIONAL (SYS-27 publish/preview handoff toast).
+  - `control.stop` disabled while IDLE ("playback is stopped"), enabled while playing/paused.
+  - `help.docs` / `help.troubleshoot` DEFERRED→FUNCTIONAL → `openHelp(section)`.
+  - CommandContext gained `openHelp(section)`; makeCommandContext default no-op added.
+- `animator/ui/src/shortcuts.ts`: Ctrl+Enter context-scoping (D-6/INT-0013): inside a symbol
+  edit (`editDepth()>0`) it runs `edit.exitRoot`; at document root it runs `control.test`.
+  Hardened the target null-check (getAttribute guard for synthetic targets).
+- `animator/ui/src/components/StatusBar.tsx`: playback cell re-renders on started/stopped/paused
+  and shows ▶ playing / ⏸ paused / ⏹ stopped (was binary playing/stopped).
+- `animator/ui/src/components/HelpDialog.tsx` (NEW): offline Documentation + Troubleshooting
+  (Esc / outside-click / Close dismiss; future systems honestly labelled).
+- `animator/ui/src/App.tsx`: wires `openHelp`, renders `<HelpDialog>`, adds `control.test` to
+  the global shortcut scope so Ctrl+Enter fires at root.
+- Tests: `sys09-sys12.test.tsx` (16 new). Updated `TimelineStrip.test.tsx`/`MenuBar.test.tsx`
+  mocks/assertions to the new seekPlayhead boundary.
+
+## 3. Source evidence
+- STM-PLAYBACK states/transitions/forbidden: `engineering/04_state_machines.md`.
+- Control menu (Play/Stop/Rewind/Step/Mute/Loop/Test Movie; Enter, Ctrl+Alt+R, ., ,):
+  Blueprint `01_application_map.md` §1.2.8; shortcuts Part 29 §29.6.
+- Mute Sounds belongs to audio (SYS-26); Test Movie belongs to publish/preview (SYS-27):
+  CROSS_SYSTEM_CONTRACT §A/H; H08 handoff pattern (`file.ts` import/export/publish toasts).
+- Help = "local docs + shortcut reference + version/about": Blueprint §1.2.11 (offline-first W7).
+- D-6 (Ctrl+Enter context-scoped): DECISIONS.md; EditBar tooltip; STM-EDIT (eng 04).
+- `playhead:moved` / `playback:*` declared in bus.ts + MASTER_EXECUTION_PLAN §C (SYS-09).
+
+## 4. Decisions (recorded, not silent)
+- **D-AIB-4:** Stop = halt at current frame; Rewind is separate (Blueprint authority > eng-04
+  combined note). Both remain on the Control menu as distinct items.
+- **D-AIB-5:** `playback:paused` added as a bus event (empty payload) rather than overloading
+  `playback:stopped` (FL-0007: an event must carry the exact semantic that changed).
+- **D-AIB-6:** Only user-initiated seeks emit `playhead:moved`; playback ticks do not
+  (advisory event; per-frame flood would be wrong; consumers re-read the engine per §27.0).
+- Ctrl+Alt+M (Mute) retained as a pre-existing [ADOBE REFERENCE] binding; it is not a
+  Blueprint-required shortcut but removing it would be a behavior change — left intact.
+
+## 5. Blockers
+None new for SYS-09/12. The SYS-09 Test/Mute items are handoffs (SYS-26/27) by design.
+SYS-13 Tools remains the largest cross-SYS surface and awaits ownership boundaries (not started).
+
+## 6. Tests
+- 16 new tests in `sys09-sys12.test.tsx`: STM happy/pause/resume/stop/idempotency/forbidden
+  transition/loop-wrap/loop-off-stop; seekPlayhead clamp + event; mute/test handoff toasts;
+  stop enablement; all seek commands route through seekPlayhead; Ctrl+Enter depth-0 vs depth-2;
+  Help dialog docs/troubleshoot/Esc/outside-click.
+- Full UI suite after rebase onto other workers: **693 passed / 693** (51 files).
+- `npx tsc -b` clean; `vite build` clean (358 kB bundle).
+
+## 7. Builds
+- TypeScript: pass. Vite production build: pass. (Rust/WASM/native desktop not rebuilt this
+  session — no core/ changes; AI-D's SYS-28 core changes present and compile in their commit.)
+
+## 8. Runtime verification
+Automated only this session (jsdom + Vitest). **Manual native-desktop QA is PENDING**
+(FL-0019: automated green ≠ product acceptance). User must verify on Linux Mint:
+Enter play/pause, Stop disabled-while-idle, Ctrl+Enter (root = Test toast; in symbol = exit),
+Mute toast, Help ▸ Documentation/Troubleshooting.
+
+## 9. Integration risks / INTs registered
+- INT-0011 `playback:paused`, INT-0012 `playhead:moved{frame}`, INT-0013 Ctrl+Enter context —
+  all three rows added to INTEGRATION_LOG before code; status PROPOSED (landed with SYS-09),
+  awaiting Leader verification.
+- Rebased onto origin `b247b21` (AI-A SYS-04 spec, AI-C `layer:changed`, AI-D SYS-28
+  persistence). `bus.ts` auto-merged with AI-C's `layer:changed`; no semantic conflict.
+  `App.tsx`/`commands.ts` auto-merged with AI-D's autosave wiring. Re-ran full suite: green.
+- No other worker's SYS implementation was modified.
+
+## 10. Commit hashes
+- `9064b70` — `feat(sys09-12): STM-PLAYBACK hardening + mute/test handoff toasts + Ctrl+Enter
+  context + local Help docs` (pushed to origin/main; rebased onto `b247b21`, no force-push).
+
+## 11. Next
+Stand by for Leader review of INT-0011/0012/0013 and the SYS-09/12 increment. On approval,
+next independently-unblocked candidates in range: SYS-11 Window panel-presets/panel-handoffs or
+SYS-10 Dev-panel hardening (low collision); SYS-13 Tools requires the cross-worker ownership
+contract (drawing ↔ SYS-20, camera ↔ SYS-25, rig ↔ SYS-19) and is NOT started.

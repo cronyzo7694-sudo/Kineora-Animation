@@ -15,10 +15,10 @@
 | 06 | Modify | AI-A | QUEUED | — | — | — | SYS-20, 22, 15 | 2026-08-22 | await naming |
 | 07 | Text | AI-A | QUEUED | — | — | — | SYS-14, 20, 21 | 2026-08-22 | await naming |
 | 08 | Commands | AI-B | QUEUED | palette absent | — | — | SYS-01 | 2026-08-22 | await naming |
-| 09 | Control/Playback | AI-B | QUEUED | partial | — | — | SYS-15 | 2026-08-22 | await naming |
-| 10 | Debug | AI-B | QUEUED | — | — | — | SYS-01 | 2026-08-22 | await naming |
-| 11 | Window | AI-B | QUEUED | — | — | — | SYS-01 | 2026-08-22 | await naming |
-| 12 | Help | AI-B | QUEUED | — | — | — | SYS-01 | 2026-08-22 | await naming |
+| 09 | Control/Playback | AI-B | QUEUED | **partial (STM-PLAYBACK + handoffs `9064b70`)** | — | — | SYS-15, 26, 27 | 2026-08-22 | STM-PLAYBACK IDLE/PLAYING/PAUSED; mute→SYS-26 + test→SYS-27 handoff toasts; playhead:moved; Ctrl+Enter D-6; manual desktop QA PENDING |
+| 10 | Debug | AI-B | QUEUED | Dev panel FUNCTIONAL | — | — | SYS-01 | 2026-08-22 | await next increment |
+| 11 | Window | AI-B | QUEUED | panel toggles/workspaces FUNCTIONAL | — | — | SYS-01 | 2026-08-22 | await next increment (presets deferred) |
+| 12 | Help | AI-B | QUEUED | **partial (local docs + troubleshooting `9064b70`)** | — | — | SYS-01 | 2026-08-22 | offline HelpDialog (docs/troubleshoot); about/shortcuts already FUNCTIONAL; manual QA PENDING |
 | 13 | Tools | AI-B | QUEUED | 5 tools | — | — | SYS-14, 03 | 2026-08-22 | await naming |
 | 14 | Stage | AI-B | QUEUED | partial | — | — | SYS-01, MOD-VECTOR | 2026-08-22 | await naming |
 | 15 | Timeline | AI-C | QUEUED | partial (AI-C: hidden-layer ✕ marker added `a562052`) | — | **RSK-001 (high)** | SYS-14, 16 | 2026-08-22 | await naming |

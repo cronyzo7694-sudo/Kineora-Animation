@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-08-22 — AI-B: SYS-09 Control/Playback hardening + SYS-12 Help (Leader orders, `9064b70`)
+
+- Read FL-0001..0034 + full corpus; executed the AI-B section of `LEADER_ORDERS.md` (SYS-09 then SYS-12).
+- **SYS-09:** STM-PLAYBACK machine (IDLE/PLAYING/PAUSED) with forbidden-transition no-ops; Enter toggles play/pause (`playback:paused` new event, INT-0011); `seekPlayhead()` emits `playhead:moved{frame}` on user seeks only (INT-0012); `control.mute`→FUNCTIONAL SYS-26 handoff toast; `control.test`→FUNCTIONAL SYS-27 handoff toast; Ctrl+Enter context-scoped via D-6 (in-symbol = `edit.exitRoot`, root = Test Movie, INT-0013); Stop disabled while idle; StatusBar shows ▶/⏸/⏹.
+- **SYS-12:** offline HelpDialog (Documentation + Troubleshooting); `help.docs`/`help.troubleshoot` DEFERRED→FUNCTIONAL; Esc/outside-click/Close dismiss.
+- Tests +16 (693 total UI green); tsc + vite build green; rebased onto `b247b21` (AI-A/C/D) with no conflicts; bus `playback:paused` auto-merged with AI-C's `layer:changed`. Manual native-desktop QA PENDING.
+
 ## 2026-08-22 — AI-C turn 2: layer:changed event (INT-0010) + drag-through column toggle (Leader order executed)
 
 - **Read `LEADER_ORDERS.md`** (AI-01 `c648fbf`) and executed the AI-C section exactly: FL-0026 citation fix (F-20-02/03 → canonical F-20-01/F-20-04 across AI-C's code/tests/docs) · INT-0010 `layer:changed{layerId,op}` emission (bus + all layer-mutation facades; per-layer events for batch ops; `setActiveLayer` never emits) with consumers (App immediate re-read, LayersPanel 900ms row flash) · SYS-16 deferred increment = drag-through column multi-toggle (F-07-02 E1/E2: pointer-down + pointerenter, once per row per gesture, row-click suppression, Esc cancel, keyboard preserved, no row-reorder hijack).

@@ -1,13 +1,21 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+> Records every meaningful coordination/spec/decision change. SYS-level detail lives in the SYS's own final-report; this is the project-level timeline.
+
+---
+
 ## 2026-08-22 — AI-B: Edit ▸ Find and Replace (H03)
 
 - `edit.findReplace` DEFERRED → FUNCTIONAL. Dialog + find/replace/replace-all for Color (one undo via setNodeProps) and Symbol (swapInstance). Text/font/sound honest 0 matches. UI 767/767.
 
+## 2026-08-22 — AI-A: File ▸ Save — browser File-System-Access overwrite (H05 P-1)
 
-> Records every meaningful coordination/spec/decision change. SYS-level detail lives in the SYS's own final-report; this is the project-level timeline.
-
----
+- Human FILE-MENU DEEP COMPLETION. One feature: Save (not a batch of File items).
+- **H05 P-1:** after a first Save that remembers a session identity, subsequent Ctrl+S overwrites that identity with no picker. Desktop already did this; browser now does when the File System Access API is present (handle stored as a session token, same `docPaths` map). No FSA → honest prompt+download fallback (H05 F3, not invented).
+- Cancel of a shown picker is silent (no second prompt). Untitled / Save As still pick-THEN-write so INV-IDENT-4 can block before bytes land.
+- App re-reads on `saving:changed` so the dirty ● / title do not wait for the 120ms poll (H05 §7.1).
+- No new event, no new commandId, no Save All, AMB-H05-001 still OPEN (provisional filename title).
+- UI **760/760** · `tsc --noEmit` PASS · `vite build` PASS. Rust/WASM/Tauri/native **NOT TESTED**. SYS-02 File = AUTOMATED TESTED / PARTIAL. **Not COMPLETE.**
 
 ## 2026-08-22 — AI-B: forensic repair round 2 — complete SYS-14 selection:changed payload (`eac6e7b`)
 

@@ -35,6 +35,7 @@ import {
   createDocument,
   createFromTemplate,
   isTitled,
+  titleFromSavedPath,
   listRecent,
   listTemplates,
   openFromRecent,
@@ -56,6 +57,12 @@ describe('SYS-02 file — identity + New', () => {
   it('isTitled distinguishes Untitled-N from a real name', () => {
     expect(isTitled('Untitled-1')).toBe(false)
     expect(isTitled('my-project')).toBe(true)
+  })
+
+  it('titleFromSavedPath strips .json and File-System-Access session tokens', () => {
+    expect(titleFromSavedPath('/home/u/my-project.json', 'x')).toBe('my-project')
+    expect(titleFromSavedPath('fsa:3:shot', 'x')).toBe('shot')
+    expect(titleFromSavedPath('fsa:3:shot.json', 'x')).toBe('shot')
   })
 
   it('createDocument creates a doc and emits openSet{added} → activeDoc (H02 §14 ST1 order)', () => {

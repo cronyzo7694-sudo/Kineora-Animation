@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./engine/actions', () => ({ downloadBlob: vi.fn() }))
 import { downloadBlob } from './engine/actions'
-import { platform } from './platform'
+import { __resetFsaHandlesForTests, FSA_PATH_PREFIX, platform } from './platform'
 
 afterEach(() => {
   vi.clearAllMocks()
   delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+  delete (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker
+  __resetFsaHandlesForTests()
 })
 
 describe('PlatformAdapter — browser mode (no Tauri runtime)', () => {
@@ -32,6 +34,55 @@ describe('PlatformAdapter — browser mode (no Tauri runtime)', () => {
     const ok = await platform.writeProject(null, 'scene1', '{}')
     expect(ok).toBe(true)
     expect(downloadBlob).toHaveBeenCalledWith('scene1.json', '{}', 'application/json')
+  })
+
+  it('without File System Access, pickSavePath is unavailable (not a fake cancel)', async () => {
+    expect(platform.hasSavePicker()).toBe(false)
+    expect(await platform.pickSavePath('Untitled-1')).toBeNull()
+  })
+
+  it('File System Access: pick then write; second Save overwrites the same handle (P-1)', async () => {
+    const writes: string[] = []
+    const handle = {
+      name: 'shot.json',
+      createWritable: async () => ({
+        write: async (d: string) => {
+          writes.push(d)
+        },
+        close: async () => {},
+      }),
+      queryPermission: async () => 'granted',
+      isSameEntry: async (other: { name: string }) => other === handle,
+    }
+    const picker = vi.fn(async () => handle)
+    ;(window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = picker
+
+    expect(platform.hasSavePicker()).toBe(true)
+    const token = await platform.pickSavePath('Untitled-1')
+    expect(token).toMatch(new RegExp(`^${FSA_PATH_PREFIX}\\d+:shot$`))
+    expect(picker).toHaveBeenCalledTimes(1)
+    expect(await platform.writeProject(token, 'shot', '{"a":1}')).toBe(true)
+    expect(writes).toEqual(['{"a":1}'])
+    expect(downloadBlob).not.toHaveBeenCalled()
+
+    // P-1: second Save writes the SAME handle — no second picker.
+    expect(await platform.writeProject(token, 'shot', '{"a":2}')).toBe(true)
+    expect(picker).toHaveBeenCalledTimes(1)
+    expect(writes).toEqual(['{"a":1}', '{"a":2}'])
+    expect(downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('File System Access: picking the same file again returns the existing token', async () => {
+    const handle = {
+      name: 'dup.json',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      queryPermission: async () => 'granted',
+      isSameEntry: async (other: unknown) => other === handle,
+    }
+    ;(window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = vi.fn(async () => handle)
+    const a = await platform.pickSavePath('a')
+    const b = await platform.pickSavePath('a')
+    expect(a).toBe(b)
   })
 
   it('browser has no shell status / identity', async () => {

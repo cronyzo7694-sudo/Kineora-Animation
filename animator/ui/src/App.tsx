@@ -245,6 +245,12 @@ export default function App() {
     return bus.on('selection:changed', () => setTick((t) => t + 1))
   }, [])
 
+  // H05 §7.1 / H04 §10: save success/fail must clear or keep the dirty ●
+  // and refresh the title immediately — do not wait for the 120ms poll.
+  useEffect(() => {
+    return bus.on('saving:changed', () => setTick((t) => t + 1))
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])

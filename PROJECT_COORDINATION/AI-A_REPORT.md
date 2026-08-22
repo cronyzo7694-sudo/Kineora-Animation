@@ -399,3 +399,52 @@ SYS-03 = **AUTOMATED TESTED / PARTIAL**. INV-EDIT-2 prevSelection **implemented 
 - WASM / wasm-pack / Tauri / native: **NOT TESTED — TOOLCHAIN/ENVIRONMENT**.
 
 No SYS COMPLETE.
+
+---
+
+# SESSION 6 — FILE MENU DEEP COMPLETION (Save first) — 2026-08-22
+
+**HEAD at check-in:** `5b2f09d` (local forensic). Fetched; origin had moved +2 (AI-B SYS-14 `eac6e7b` + docs `0101fbb`). Fast-forwarded. No rebase conflict.
+
+**Human order:** File menu, one feature at a time, quality > speed. Do not invent. Blueprint wins.
+
+## S6.1 Inventory (H09 / Blueprint §1.2.1) — classification only
+
+| Feature | commandId | Classification |
+|---|---|---|
+| New… | `file.new` | ⚠️ Partial (wired; AMB-H01-002/003 OPEN) |
+| New from Template | `file.newFromTemplate` | ⚠️ Partial (AMB-H01-003 provisional UNTITLED) |
+| Open / Open Recent | `file.open` | ⚠️ Partial (wired; AMB-003 store OPEN) |
+| Open from Libraries | `file.openExternalLibrary` | ⏸️ Handoff SYS-18 |
+| Close / Close All / Exit | `file.close` / `closeAll` / `exit` | ⚠️ Partial (AMB-H07-001 next-active OPEN) |
+| **Save / Save As** | `file.save` / `file.saveAs` | **this increment** |
+| Save as Template | `file.saveAsTemplate` | ⚠️ Partial (AMB-H01-002 OPEN) |
+| Import / Export / Publish* | handoff | ⏸️ Handoff SYS-27 (some engines exist) |
+| AIR / Print / Page Setup | none | ⏸️ HIDDEN (no commandId) |
+
+## S6.2 Feature chosen: File ▸ Save
+
+**SPEC:** H05 + H04 + Blueprint §1.2.1 + Adobe helpx “Save a Animate document” (overwrite current / Save As for new name). Blueprint P-1 (no overwrite confirm) wins.
+
+**CURRENT (before):** desktop pick→validate→write CORRECT. Browser first Save could use FSA but discarded the handle; every later Ctrl+S called `writeProject(null)` → download. Titled overwrite required `isDesktop()`. App did not tick on `saving:changed` (dirty ● lagged ≤120ms).
+
+**REAL GAP:** a real user in Chrome could not update the same file with Ctrl+S.
+
+**FIX (minimal):**
+- Browser `pickSavePath` uses `showSaveFilePicker` (no write); remembers `FileSystemFileHandle` under a session token (`fsa:N:name`).
+- `writeProject(token)` writes that handle (permission request). Pathless `null` still downloads.
+- `file.ts` untitled/Save As: picker if `hasSavePicker?.() ?? isDesktop()`, else prompt+download. Cancel ≠ fallback prompt.
+- Titled + known session path overwrites on **both** platforms (P-1).
+- App `setTick` on `saving:changed`.
+
+**Not invented:** Save All, new events, AMB-H05-001 close, browser path after reload (SESSION — same as desktop `docPaths`).
+
+## S6.3 Tests (executed)
+
+- Focused: platform/file/h05/h11/h04-ui **72/72**.
+- Full UI: **760/760** (56 files). `tsc --noEmit` PASS. `vite build` PASS (80 modules, `dist/assets/index-Cdu6V7ih.js`).
+- Rust / wasm-pack / Tauri / native desktop: **NOT TESTED — TOOLCHAIN/ENVIRONMENT**.
+
+## S6.4 Status
+
+File ▸ Save = **AUTOMATED TESTED / PARTIAL**. Not COMPLETE (no native QA; no-FSA browser still downloads; handle lost on reload = honest SESSION). SYS-02 File menu **not COMPLETE**. Did not start Open/New/Close this increment.

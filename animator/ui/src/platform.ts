@@ -68,10 +68,14 @@ export interface PlatformAdapter {
   saveProjectAs(suggestedName: string, content: string): Promise<SaveResult | 'cancelled' | 'failed'>
   /** H05 — pick a Save/Save-As path WITHOUT writing (the editor validates
    *  the path — e.g. against already-open documents — before any write).
-   *  null = cancelled or pathless (browser dev mode). */
+   *  null = cancelled or pathless (browser without a picker). */
   pickSavePath(suggestedName: string): Promise<string | null>
+  /** True when pickSavePath will show a real picker (desktop always; browser
+   *  when the File System Access API is present). Cancel ≠ "no picker". */
+  hasSavePicker(): boolean
   /** Overwrite an existing document (P-1, no prompt). Desktop: atomic write to
-   *  the known `path`; browser: re-download (pathless write). Returns success. */
+   *  the known `path`; browser: write the remembered File-System-Access
+   *  handle when `path` is a session token, else pathless re-download. */
   writeProject(path: string | null, name: string, content: string): Promise<boolean>
   /** Read a file by path (desktop Open Recent re-open). */
   readProject(path: string): Promise<string | null>
@@ -102,6 +106,7 @@ function nameWithoutExt(name: string): string {
 const tauriAdapter: PlatformAdapter = {
   kind: 'desktop',
   isDesktop: () => true,
+  hasSavePicker: () => true,
 
   async openProject() {
     const r = tauriInvoke<OpenResult | null>('open_project_file')
@@ -196,7 +201,90 @@ const tauriAdapter: PlatformAdapter = {
   },
 }
 
-// ——— Browser implementation (existing web fallbacks, unchanged behavior) ———
+// ——— Browser implementation ———
+//
+// H05 identity is a SESSION path map (file.ts). The File System Access API
+// is the browser equivalent of a native path: pick WITHOUT writing, then
+// write to the remembered handle on subsequent Save (P-1 overwrite). When
+// the API is absent, Save stays the honest pathless prompt+download fallback
+// (H05 F3: downloadBlob = dev-only gap). Handles do not survive reload —
+// same SESSION rule as the desktop path map.
+
+interface FsaWritable {
+  write: (d: string) => Promise<void>
+  close: () => Promise<void>
+}
+interface FsaFileHandle {
+  name: string
+  createWritable: () => Promise<FsaWritable>
+  queryPermission?: (o: { mode: string }) => Promise<string>
+  requestPermission?: (o: { mode: string }) => Promise<string>
+  isSameEntry?: (other: FsaFileHandle) => Promise<boolean>
+}
+
+const fsaHandles = new Map<string, FsaFileHandle>()
+let fsaSeq = 1
+
+/** Session-token prefix for a remembered File System Access handle. */
+export const FSA_PATH_PREFIX = 'fsa:'
+
+function showSaveFilePickerFn():
+  | ((o: unknown) => Promise<FsaFileHandle>)
+  | undefined {
+  return (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FsaFileHandle> })
+    .showSaveFilePicker
+}
+
+function browserHasSavePicker(): boolean {
+  return typeof showSaveFilePickerFn() === 'function'
+}
+
+async function rememberFsaHandle(handle: FsaFileHandle): Promise<string> {
+  for (const [token, existing] of fsaHandles) {
+    try {
+      if (existing.isSameEntry && (await existing.isSameEntry(handle))) return token
+    } catch {
+      /* isSameEntry can throw if the handle is stale — treat as distinct */
+    }
+  }
+  const token = `${FSA_PATH_PREFIX}${fsaSeq++}:${nameWithoutExt(handle.name)}`
+  fsaHandles.set(token, handle)
+  return token
+}
+
+async function ensureFsaWritable(handle: FsaFileHandle): Promise<boolean> {
+  try {
+    if (handle.queryPermission) {
+      const state = await handle.queryPermission({ mode: 'readwrite' })
+      if (state === 'granted') return true
+    }
+    if (handle.requestPermission) {
+      return (await handle.requestPermission({ mode: 'readwrite' })) === 'granted'
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function writeFsaHandle(handle: FsaFileHandle, content: string): Promise<boolean> {
+  if (!(await ensureFsaWritable(handle))) return false
+  try {
+    const w = await handle.createWritable()
+    await w.write(content)
+    await w.close()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Test-only: drop remembered File System Access handles (jsdom has no session). */
+export function __resetFsaHandlesForTests(): void {
+  fsaHandles.clear()
+  fsaSeq = 1
+}
+
 function browserName(current: string): string | null {
   const name = window.prompt('Save as (filename):', current || 'kineora-project')
   return name ? nameWithoutExt(name) : null
@@ -205,10 +293,22 @@ function browserName(current: string): string | null {
 const browserAdapter: PlatformAdapter = {
   kind: 'browser',
   isDesktop: () => false,
+  hasSavePicker: () => browserHasSavePicker(),
 
-  /** Browser dev mode is pathless — the H05 path validation (already-open
-   *  path BLOCK) only applies natively; Save falls back to prompt+download. */
-  pickSavePath: async () => null,
+  async pickSavePath(suggestedName) {
+    const picker = showSaveFilePickerFn()
+    if (typeof picker !== 'function') return null
+    try {
+      const handle = await picker({
+        suggestedName: `${suggestedName}.json`,
+        types: [{ description: 'Kineora project', accept: { 'application/json': ['.json'] } }],
+      })
+      return rememberFsaHandle(handle)
+    } catch {
+      // AbortError = user cancelled (H05 T-save-dialog → no change).
+      return null
+    }
+  },
 
   openProject() {
     return new Promise((resolve) => {
@@ -231,22 +331,16 @@ const browserAdapter: PlatformAdapter = {
   },
 
   async saveProjectAs(suggestedName, content) {
-    const picker = (window as unknown as {
-      showSaveFilePicker?: (o: unknown) => Promise<{
-        name: string
-        createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }>
-      }>
-    }).showSaveFilePicker
+    const picker = showSaveFilePickerFn()
     if (typeof picker === 'function') {
       try {
         const handle = await picker({
           suggestedName: `${suggestedName}.json`,
           types: [{ description: 'Kineora project', accept: { 'application/json': ['.json'] } }],
         })
-        const w = await handle.createWritable()
-        await w.write(content)
-        await w.close()
-        return { path: '', name: nameWithoutExt(handle.name) }
+        if (!(await writeFsaHandle(handle, content))) return 'failed'
+        const token = await rememberFsaHandle(handle)
+        return { path: token, name: nameWithoutExt(handle.name) }
       } catch (e) {
         return (e as DOMException)?.name === 'AbortError' ? 'cancelled' : 'failed'
       }
@@ -261,9 +355,13 @@ const browserAdapter: PlatformAdapter = {
     }
   },
 
-  async writeProject(_path, name, content) {
-    // Browser has no filesystem path → the honest equivalent is a re-download
-    // of the project JSON (P-1 overwrite semantics, pathless).
+  async writeProject(path, name, content) {
+    if (path) {
+      const handle = fsaHandles.get(path)
+      if (!handle) return false
+      return writeFsaHandle(handle, content)
+    }
+    // Pathless fallback (no File System Access API / session handle lost).
     try {
       downloadBlob(`${name}.json`, content, 'application/json')
       return true
@@ -272,8 +370,16 @@ const browserAdapter: PlatformAdapter = {
     }
   },
 
-  async readProject() {
-    return null
+  async readProject(path) {
+    const handle = fsaHandles.get(path)
+    if (!handle) return null
+    try {
+      const file = await (handle as FsaFileHandle & { getFile?: () => Promise<Blob> }).getFile?.()
+      if (!file) return null
+      return await file.text()
+    } catch {
+      return null
+    }
   },
 
   async getShellStatus() {

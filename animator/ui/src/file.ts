@@ -76,6 +76,16 @@ export function isTitled(title: string): boolean {
   return !title.startsWith('Untitled')
 }
 
+/** Display title from a saved path or a browser File-System-Access session token. */
+export function titleFromSavedPath(path: string, fallback: string): string {
+  const leaf = path.split(/[\\/]/).pop() || fallback
+  if (leaf.startsWith('fsa:')) {
+    const name = leaf.slice(4).split(':').slice(1).join(':')
+    return name.replace(/\.json$/i, '') || fallback
+  }
+  return leaf.replace(/\.json$/i, '') || fallback
+}
+
 export function activeDocTitle(): string {
   return statusJson()?.doc_title ?? ''
 }
@@ -261,8 +271,12 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
 
   if (opts.saveAs || !isTitled(title)) {
     // New path: Save As, or a first save of an untitled document.
-    if (platform.isDesktop()) {
-      // H05: pick the path WITHOUT writing, validate it, then write.
+    // A real picker (desktop native, or browser File System Access) is
+    // pick-THEN-write so INV-IDENT-4 can block before any bytes land.
+    // Cancel of a shown picker is silent (H05 §11). Absence of a picker
+    // (browser without File System Access) falls back to prompt+download.
+    const canPick = platform.hasSavePicker?.() ?? platform.isDesktop()
+    if (canPick) {
       const path = await platform.pickSavePath(title)
       if (!path) {
         saveCancelled()
@@ -285,11 +299,9 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       // AMB-H05-001 PROVISIONAL (= the spec's recommendation, pending a
       // product decision): the tab title derives from the filename on first
       // save. Identity is never the title (H00 §5).
-      title = path.split(/[\\/]/).pop()?.replace(/\.json$/i, '') || title
+      title = titleFromSavedPath(path, title)
     } else {
-      // Browser dev mode: prompt + pathless download (F3: native = spec,
-      // download = dev-only). The collision rule is path-based and only
-      // meaningful natively — no path here, so no check (honest gap).
+      // Pathless fallback (H05 F3: downloadBlob = dev-only gap).
       const res = await platform.saveProjectAs(title, stamped)
       if (res === 'cancelled') {
         saveCancelled()
@@ -300,15 +312,19 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         return false
       }
       title = res.name
+      if (res.path) setDocPath(docId, res.path)
     }
-  } else if (platform.isDesktop() && knownPath) {
-    // Titled + known path → overwrite in place (P-1: no prompt, no confirm).
+  } else if (knownPath) {
+    // Titled + known session path → overwrite in place (P-1: no prompt).
+    // Works for a desktop filesystem path AND a browser File-System-Access
+    // session token — the adapter owns the write.
     if (!(await platform.writeProject(knownPath, title, stamped))) {
       saveError()
       return false
     }
   } else {
-    // Browser: P-1 overwrite (pathless re-download).
+    // Titled but no session path (browser download-only previous save, or
+    // the session map was dropped on reload) — honest pathless re-download.
     if (!(await platform.writeProject(null, title, stamped))) {
       saveError()
       return false

@@ -182,3 +182,42 @@ Implementation landed for SYS-03 H02 object clipboard + SYS-04 view overlays + S
 BLK-D-001/002 RESOLVED (canonical pack committed by AI-01). BLK-D-003 PARTIALLY RESOLVED for
 implementation purposes by the LEADER_ORDERS "OVERRIDING UNLOCK" (Blueprint + Phase 2/2.5/3 +
 engineering outrank the missing SYS-22..28 specs); the formal spec docs remain AI-01's QUEUED backlog.
+
+---
+
+## PART 6 — AI-A 2026-08-22 session 2 (Leader-orders audit + SYS-04 spec)
+
+Raised by AI-A after official check-in at `bc12025`. Spec-only session (`animator/` not modified).
+
+### BLK-AIA-001 — Prior AI-A session wrote `animator/` contrary to AI_ASSIGNMENTS
+- **Status:** **OPEN (informational — Leader review)**
+- **Evidence:** `d4b1861`, `bc12025` implement SYS-03/04/06 code. `AI_ASSIGNMENTS.md` + `LEADER_ORDERS.md` restrict AI-A writes to `FORENSIC_SPECS/SYS-01..07` and forbid `animator/`.
+- **Needed:** Leader confirms those commits stay as **evidence** (this audit's posture) or require an INT. AI-A will not revert another session's commits.
+
+### AMB-S04-001 — Default grid cell size
+- **Status:** **OPEN — product decision**
+- **Evidence:** Part 01 §1.4.4 “configurable”; no number in Blueprint / F-01-17 / C-03 / Part 33.
+- **Recommendation (NOT authoritative):** 20 document units.
+
+### AMB-S04-002 — Zoom In / Out / wheel step
+- **Status:** **OPEN — product decision (implementation-critical for zoom-in/out)**
+- **Evidence:** commands named; factor silent.
+
+### AMB-S04-003 — Ruler-guide persistence store
+- **Status:** **OPEN — product decision**
+- **Binding already:** DOCUMENT is **forbidden** (Part 33 has no guides field; §1.4.4 = view overlays).
+- **Remaining question:** SESSION vs PREFERENCES.
+
+### AMB-S04-004 — SnapEngine distance / tolerance
+- **Status:** **OPEN — product decision (implementation-critical)**
+- **Note:** SYS-01 D-9 (3px/12px) is panel-drag, **not** snap.
+
+### AMB-S04-005 — Pasteboard color UI + default hex
+- **Status:** **OPEN — product decision**
+- **Evidence:** §1.2.3 “Pasteboard color”; §1.4.1 “gray surround”; no hex / picker.
+
+### AMB-S04-006 — Default ON/OFF for rulers, grid, guides, work area
+- **Status:** **OPEN — product decision (non-blocking for the toggle)**
+- **Recommendation (NOT authoritative):** overlays OFF; workArea ON.
+
+Full write-up: `FORENSIC_SPECS/SYS-04/H00_VIEW_CONSTITUTION.md` §12 · `PROJECT_COORDINATION/AI-A_REPORT.md`.

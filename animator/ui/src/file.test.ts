@@ -182,7 +182,10 @@ describe('SYS-02 file — recent files (unbounded, most-recent-first)', () => {
     await openFromRecent({ title: 'proj', name: 'proj.json', savedAt: Date.now(), json: '{"settings":{}}' }, vi.fn())
     off1()
     off2()
-    expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{}}', 'proj')
+    // SYS-28 read boundary (H10 §5.2, wired): the engine receives the
+    // MIGRATED content — a legacy (v0) snapshot is stamped to the current
+    // formatVersion before the engine parse (eng 13 loader order).
+    expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{},"formatVersion":1}', 'proj')
     expect(clientMock.loadProjectJson).not.toHaveBeenCalled() // Open never replaces the active doc (H02 §3)
     expect(seen).toEqual([
       { name: 'openSet', payload: { change: 'added', docId: 8 } },

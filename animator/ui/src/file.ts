@@ -11,6 +11,10 @@
 
 import { bus } from './bus'
 import { platform } from './platform'
+// SYS-28 boundary (H10 §5.1/§5.2 — the handoff seams below call INTO these;
+// SYS-02 still owns every trigger + UI outcome; INV-PERS-1 preserved):
+import { onManualSaveSuccess } from './autosave'
+import { prepareForLoad, stampFormatVersion } from './persist'
 import {
   activeDocId,
   closeDoc,
@@ -127,6 +131,14 @@ export function __resetDocPathsForTests(): void {
   docPaths.clear()
 }
 
+/** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
+ *  its project path — the same session map Open/Save-As use, so every
+ *  identity rule (INV-IDENT-1/2/4, duplicate-path detection) applies
+ *  unchanged. Called only by the recovery accept flow. */
+export function adoptDocPathForRecovery(docId: number, path: string): void {
+  setDocPath(docId, path)
+}
+
 /** The open document that already holds `path`, if any (H02 D-AMB-001:
  *  path = location, used ONLY for duplicate-open detection — never identity). */
 export function findDocByPath(path: string): number | undefined {
@@ -158,13 +170,25 @@ export function openDocument(notify: Notify): void {
     }
     // H02 §3 (ST2): Open ADDS a document to the open-set — it never replaces
     // the active document. The previous document stays open, untouched.
-    const id = openDocJson(opened.content, opened.name)
+    // SYS-28 READ BOUNDARY (H10 §5.2: validate → migrate BEFORE the engine
+    // parse). A newer-version file is REFUSED (H10 §6 unmigratable → refuse);
+    // corrupt = the same H06 error outcome as before (CASE A/B unchanged).
+    const prepared = prepareForLoad(opened.content)
+    if (!prepared.ok) {
+      notify(
+        prepared.reason === 'newer-version'
+          ? `open failed: ${prepared.detail}`
+          : 'open failed: invalid or corrupt project file',
+      )
+      return
+    }
+    const id = openDocJson(prepared.content, opened.name)
     if (id === 0) {
       notify('open failed: invalid or corrupt project file')
       return
     }
     setDocPath(id, opened.path)
-    addRecent(opened.name, opened.content, opened.path)
+    addRecent(opened.name, prepared.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
     bus.emit('openSet:changed', { change: 'added', docId: id })
     bus.emit('activeDoc:changed', { docId: id })
@@ -201,6 +225,15 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   }
   const json = projectJson()
   if (!json) {
+    notify('save: serialization failed')
+    return false
+  }
+  // SYS-28 WRITE BOUNDARY (H10 §6: formatVersion writer = SYS-28, on write —
+  // P-9 closed at the persistence boundary). A stamp failure means the
+  // serializer produced non-object JSON — refuse before any write
+  // (INV-ERR-1: surfaced, nothing partially written).
+  const stamped = stampFormatVersion(json)
+  if (!stamped) {
     notify('save: serialization failed')
     return false
   }
@@ -244,7 +277,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         saveError('Save blocked: that file is already open as another document — choose a different path')
         return false
       }
-      if (!(await platform.writeProject(path, title, json))) {
+      if (!(await platform.writeProject(path, title, stamped))) {
         saveError()
         return false
       }
@@ -257,7 +290,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       // Browser dev mode: prompt + pathless download (F3: native = spec,
       // download = dev-only). The collision rule is path-based and only
       // meaningful natively — no path here, so no check (honest gap).
-      const res = await platform.saveProjectAs(title, json)
+      const res = await platform.saveProjectAs(title, stamped)
       if (res === 'cancelled') {
         saveCancelled()
         return false
@@ -270,13 +303,13 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     }
   } else if (platform.isDesktop() && knownPath) {
     // Titled + known path → overwrite in place (P-1: no prompt, no confirm).
-    if (!(await platform.writeProject(knownPath, title, json))) {
+    if (!(await platform.writeProject(knownPath, title, stamped))) {
       saveError()
       return false
     }
   } else {
     // Browser: P-1 overwrite (pathless re-download).
-    if (!(await platform.writeProject(null, title, json))) {
+    if (!(await platform.writeProject(null, title, stamped))) {
       saveError()
       return false
     }
@@ -290,7 +323,12 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   setDocTitle(docId, title)
   markClean()
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-  addRecent(title, json, docPath(docId))
+  addRecent(title, stamped, docPath(docId))
+  // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the
+  // `.autosave` slot — MOD-AUTOSAVE clears it (the slot only ever holds
+  // changes NEWER than the last manual save). Fire-and-forget: slot upkeep
+  // never blocks or fails the save that already succeeded.
+  void onManualSaveSuccess(docId, docPath(docId))
   notify(`saved "${title}"`)
   return true
 }
@@ -473,13 +511,23 @@ export async function openFromRecent(entry: RecentEntry, notify: Notify): Promis
     notify(`recent "${entry.title}" is stale or unavailable — use File ▸ Open to re-select it`)
     return
   }
-  const id = openDocJson(content, entry.title)
+  // SYS-28 READ BOUNDARY (H10 §5.2) — same validate → migrate step as Open.
+  const prepared = prepareForLoad(content)
+  if (!prepared.ok) {
+    notify(
+      prepared.reason === 'newer-version'
+        ? `recent "${entry.title}": ${prepared.detail}`
+        : `recent "${entry.title}": invalid project data`,
+    )
+    return
+  }
+  const id = openDocJson(prepared.content, entry.title)
   if (id === 0) {
     notify(`recent "${entry.title}": invalid project data`)
     return
   }
   if (entry.path) setDocPath(id, entry.path)
-  addRecent(entry.title, content, entry.path)
+  addRecent(entry.title, prepared.content, entry.path)
   // H02 §14: open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })

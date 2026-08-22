@@ -4,7 +4,16 @@ import { getCommand } from './commands'
 import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
-import { openDocument, saveDocument } from './file'
+import { adoptDocPathForRecovery, docPath, listRecent, openDocument, saveDocument } from './file'
+import {
+  acceptRecovery,
+  checkRecovery,
+  discardRecovery,
+  initAutosave,
+  type AutosaveDeps,
+  type RecoveryCandidate,
+} from './autosave'
+import { RecoveryDialog } from './components/RecoveryDialog'
 import { platform, type Identity, type ShellStatus } from './platform'
 import { bus } from './bus'
 import {
@@ -61,6 +70,17 @@ import type { ColorPreview } from './render/canvasRenderer'
 
 const VERSION = '0.2'
 
+// SYS-28 seams injected into MOD-AUTOSAVE (SYS-02 keeps ownership of the
+// path map + recent list; autosave only LOOKS UP through these — INV-PERS-1).
+const AUTOSAVE_DEPS: AutosaveDeps = {
+  getDocPath: (docId) => docPath(docId),
+  listRecentPaths: () =>
+    listRecent()
+      .filter((r): r is typeof r & { path: string } => typeof r.path === 'string' && r.path !== '')
+      .map((r) => ({ title: r.title, path: r.path })),
+  adoptDocPath: (docId, path) => adoptDocPathForRecovery(docId, path),
+}
+
 export default function App() {
   // ——— boot: load workspace prefs (layout + visibility + collapse + name) ———
   const initialPrefs = useRef(loadWorkspacePrefs())
@@ -99,6 +119,9 @@ export default function App() {
   const [guardBusy, setGuardBusy] = useState(false)
   const [seqGuardBusy, setSeqGuardBusy] = useState(false)
   const [exited, setExited] = useState(false)
+  // ——— SYS-28 launch recovery (H00 T12–T14): transient RECOVERED state ———
+  const [recovery, setRecovery] = useState<RecoveryCandidate | null>(null)
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
   // ——— desktop shell diagnostics (Dev panel; desktop only) ———
   const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null)
   const [identity, setIdentity] = useState<Identity | null>(null)
@@ -150,11 +173,28 @@ export default function App() {
   // attach the WASM core once
   useEffect(() => {
     let alive = true
+    // SYS-28 MOD-AUTOSAVE armed for the whole app session (document:changed
+    // driven — view/session actions can never trigger an autosave).
+    const disposeAutosave = initAutosave(AUTOSAVE_DEPS)
     loadEngine().then((s) => {
-      if (alive) setEngine({ ...s })
+      if (!alive) return
+      setEngine({ ...s })
+      // SYS-28 T12 (H00 §6.3): launch-time recovery scan. INV-AS-1 makes the
+      // check equivalent to eng 13's ".autosave newer than project".
+      if (s.kind === 'ok') {
+        void checkRecovery(AUTOSAVE_DEPS).then((scan) => {
+          if (!alive) return
+          if (scan.corruptSkipped > 0) {
+            // H10 §10: corrupt .autosave → skip + toast (state unchanged).
+            notify('recovery: a corrupt autosave was skipped — use File ▸ Open')
+          }
+          if (scan.candidate) setRecovery(scan.candidate)
+        })
+      }
     })
     return () => {
       alive = false
+      disposeAutosave()
     }
   }, [])
 
@@ -681,6 +721,30 @@ export default function App() {
       <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
       <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
       <CloseConfirmationDialog request={closeReq} busy={guardBusy} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
+      {/* SYS-28 T12–T14 — launch recovery prompt (Accept → T13, Discard → T14) */}
+      <RecoveryDialog
+        candidate={recovery}
+        busy={recoveryBusy}
+        onAccept={() => {
+          if (!recovery) return
+          setRecoveryBusy(true)
+          void acceptRecovery(recovery, AUTOSAVE_DEPS).then((id) => {
+            setRecoveryBusy(false)
+            setRecovery(null)
+            notify(
+              id !== 0
+                ? `recovered "${recovery.title}"`
+                : 'recovery failed: autosaved data is invalid — use File ▸ Open',
+            )
+          })
+        }}
+        onDiscard={() => {
+          if (!recovery) return
+          void discardRecovery(recovery)
+          setRecovery(null)
+          notify('autosaved changes discarded')
+        }}
+      />
       {/* H07 §6 — sequential Close All guard (one dirty document at a time) */}
       <CloseConfirmationDialog
         request={seqGuard ? { what: 'this document', dirtyCount: 1 } : null}

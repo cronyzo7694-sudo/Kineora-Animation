@@ -10,9 +10,12 @@
 
 | 2026-08-22 | AI-B | SYS-08..SYS-14 | 1 | PRESENT — WAITING FOR AI01 | `f4feb42` | Attendance check-in. Mandatory reading pack + SYS-08..14 specs missing (BLK-B-001..003). Audited existing foundations (command registry/menus/playback/Dev panel/window/help/tools/stage — see AI-B_REPORT §5). No implementation code written. Standing by per human coordinator instruction ("attendance de, leader ke order ka wait kar"). Docs-only commits; will re-fetch before every push. |
 
-## AI-D standing-by contract
-While waiting, AI-D commits **docs-only** coordination updates (attendance, blockers, report).
-No SYS implementation, no test changes, no modification of any other worker's files.
+| 2026-08-22 | AI-D | SYS-22..SYS-28 | 3 | ACTIVE — SYS-28 increment 1 LANDED | `bc12025` | Leader orders read (FL-0001..0034 + corpus). Delivered SYS-28 first deliverable: formatVersion (P-9) + migration seam + autosave (2s/30s → .autosave slot) + launch recovery prompt (T12–T14) + checksum. 661/661 tests green, tsc clean. INT-AID-001 filed; AMB-D-001 + BLK-D-005 registered. Next: SYS-27 or SYS-28 Rust parity (toolchain permitting). |
+
+## AI-D status note (updated session 3)
+Standing-by phase ended by LEADER_ORDERS (OVERRIDING UNLOCK). AI-D is now ACTIVE on SYS-22..28
+implementation; writes stay inside SYS-22..28 surfaces + the leader-pre-authorized SYS-02/H10
+handoff seams (each such touch = INT row).
 
 ## AI-B standing-by contract
 While waiting, AI-B commits **docs-only** coordination updates (attendance, blockers, report).

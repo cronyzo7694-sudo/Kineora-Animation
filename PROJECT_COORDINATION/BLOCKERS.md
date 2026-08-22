@@ -145,3 +145,40 @@ Implementation landed for SYS-03 H02 object clipboard + SYS-04 view overlays + S
 ### BLK-AIC-003 — `layer:changed` event (MASTER_EXECUTION_PLAN §C SYS-16) not implemented in the UI bus
 - **Status:** **RESOLVED (2026-08-22, AI-C)** — implemented per Leader INT-0010 (VERIFIED): `layer:changed{layerId, op}` added to `bus.ts`, emitted by every layer-mutation facade in `engine/client.ts` (added/removed/renamed/visible/locked/outline/outlineColor/reordered/duplicated) alongside `document:changed{type:'layer'}`; batch ops emit one event per affected layer; `setActiveLayer` (view state) never emits. Consumers: App immediate re-read + LayersPanel row flash. Tests: `client.layerEvents.test.ts` (+7), `bus.test.ts` (+2), LayersPanel flash (+1). See AI-C_REPORT turn 2.
 - **Raised by:** AI-C, 2026-08-22
+
+---
+
+## PART 5 — AI-D 2026-08-22 (SYS-28 Persistence increment 1)
+
+### BLK-D-005 — No Rust toolchain in the AI-D worker environment
+- **Status:** OPEN (scoped — does not block TS-side work)
+- **Raised by:** AI-D, 2026-08-22
+- **Evidence:** `cargo`/`rustc` not installed in the execution sandbox (verified: `command not found`).
+- **Impact:** Rust-side SYS-28 parity is QUEUED, not implemented: moving `formatVersion` into
+  MOD-DOC (`model.rs` — would also need an INT, foundation module), adding fsync + checksum to
+  `persist.rs::save`, and desktop-shell autosave commands cannot be compile-verified here, so they
+  were NOT written (writing unverifiable Rust risks breaking the desktop build — worse than the gap).
+- **Mitigation shipped instead:** the TS persistence boundary (`persist.ts`) owns
+  formatVersion/migration/checksum at the write/read seams; the desktop shell's existing
+  `atomic_write` (tmp→rename) remains the atomic layer (read-verified, not modified).
+- **Needed to resolve:** a worker session with a Rust toolchain (or AI-01 delegates the parity
+  increment to an environment that has one).
+
+### AMB-D-001 — Desktop autosave for an UNTITLED/pathless document
+- **Status:** OPEN (registered, NOT invented)
+- **Raised by:** AI-D, 2026-08-22
+- **Question:** eng 13 defines the `.autosave` slot relative to "the project" file ("if `.autosave`
+  newer than project → prompt"). A never-saved desktop document has NO project file, hence no
+  defined slot location. Where (if anywhere) does an untitled desktop document autosave?
+- **Cross-file evidence exhausted (FL-0033):** eng 13 (slot is project-relative) · H10 §5.3/§5.4
+  (same) · Part 36 §36.0.10 / W11 (crash-safety goal, no slot mechanics) · H00 T12 (recovery
+  premise = ".autosave newer", i.e. a project exists). No source defines a pathless slot.
+- **Current behavior (honest):** desktop pathless docs are NOT autosaved until their first manual
+  save (`autosave.ts` — explicit guard + test). Browser dev-harness slot covers pathless docs in
+  dev mode only (H10 §11: browser = dev harness, never authoritative).
+- **Needed to resolve:** product decision (e.g. an app-data recovery directory for untitled docs).
+
+### Note — BLK-D-001/002/003 from AI-D's view
+BLK-D-001/002 RESOLVED (canonical pack committed by AI-01). BLK-D-003 PARTIALLY RESOLVED for
+implementation purposes by the LEADER_ORDERS "OVERRIDING UNLOCK" (Blueprint + Phase 2/2.5/3 +
+engineering outrank the missing SYS-22..28 specs); the formal spec docs remain AI-01's QUEUED backlog.

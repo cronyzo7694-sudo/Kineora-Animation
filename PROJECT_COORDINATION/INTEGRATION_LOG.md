@@ -41,3 +41,19 @@
 | Spec | SYS-03 H00/H02, Blueprint 1.2.2/1.2.3/1.2.5, Part 24 |
 | Worker | AI-A |
 | Status | LANDED — Leader audit pending |
+
+---
+
+## INT-AID-001 — 2026-08-22 AI-D SYS-28 Persistence increment 1 (formatVersion + autosave + recovery)
+
+| Field | Value |
+|---|---|
+| Change | SYS-28 MOD-PERSIST TS boundary (`persist.ts`: formatVersion P-9 stamp-on-write, pure `migrate(from,to)`, newer-version refusal, FNV-1a checksum) · MOD-AUTOSAVE (`autosave.ts`: 2s debounce + 30s cap → `.autosave` slot, INV-AS-1 manual-save-supersedes, launch recovery scan) · recovery prompt UI (`components/RecoveryDialog.tsx`, H00 T12–T14) |
+| Cross-SYS touches (leader-pre-authorized in LEADER_ORDERS AI-D §FIRST deliverable) | `file.ts` (SYS-02): wiring ONLY at the H10 §5.1/§5.2 seams the spec marked "wired when SYS-28 ships" — stamp before write, validate→migrate before `openDocJson` (Open + Open-Recent), `onManualSaveSuccess` after markClean, `adoptDocPathForRecovery` export · `App.tsx` (SYS-01 chrome): initAutosave + launch recovery scan + RecoveryDialog render · `file.test.ts`: ONE assertion updated — `openDocJson` now receives MIGRATED content (spec-anticipated behavior, eng 13 loader order), recorded here per no-silent-drift |
+| NOT touched | SYS-02 spec files (FORENSIC_SPECS/SYS-02/) · MOD-DOC/model.rs (formatVersion lives at the SYS-28 boundary — envelope stamp, serde-ignored by the engine; core parity queued, BLK-D-005) · persist.rs / desktop shell Rust (read-verified only, BLK-D-005) |
+| Events | `saving:changed` NEVER emitted by autosave (H10 §5.3, FL-0030 payload untouched) · recovery accept emits `openSet:changed{added}` FIRST then `activeDoc:changed` (H02 §14 / D-AMB-004) — verified by test |
+| Dirty/undo | autosave never clears DIRTY (FL-0014) · save still never clears undo (untouched) · recovered doc starts CLEAN (H00 T13 / H10 §13 F3) |
+| AMBs | AMB-002/AMB-003 remain OPEN (not touched) · NEW: AMB-D-001 (pathless desktop autosave — registered, behavior = no autosave until first save) |
+| Tests | +36 new (persist 13, autosave 18, RecoveryDialog 5); full suite 661/661 green; `tsc -b` clean |
+| Worker | AI-D |
+| Status | LANDED — Leader audit pending |

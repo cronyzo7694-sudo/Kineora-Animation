@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-08-22 — AI-C session: SYS-16 Layers increment implemented + pushed (human-authorized)
+
+- **AI-C present** — human coordinator's direct order ("push after writing further code") authorized implementation before the coordination corpus landed; the corpus was absent at session start (`e3690f7`), so AI-C worked on Blueprint + Phase-2 deep-research authority (F-07-02, F-20-01..03) + engineering. Registered BLK-AIC-001 (resolved by the `ca79555` corpus commit) + BLK-AIC-002/003 (open, informational/deferred).
+- **SYS-16 implemented** (`a562052`): outline mode (`Layer.outline/outline_color`, `SetLayerOutline(_Color)` commands, swatch column + inline color picker, strokes-only stage rendering via `RectItem.outline_color` propagated through symbol instances, export stays full per F-20-03) · duplicate layer (`DuplicateLayer` command, deep copy frames+content with fresh node ids, Animate-style names) · Alt+click eye/lock/outline = toggle all others as ONE undo step (`SetLayerFlags`, M.3 all-hidden rescue) · red-X hidden + pencil/pencil-with-slash indicators (panel + timeline row).
+- **Quality gates:** Rust 20 suites (layers.rs 12→27), clippy 0, fmt clean, wasm-pack build ✓, UI 606 tests (+13), `npm run build` ✓, `verify-wasm-path.sh` ✓. Manual acceptance still PENDING (user-side native desktop).
+- **Coordination:** rebased onto `ca79555` (no conflicts, no force-push); INT-0009 filed (timeline marker projection, pending Leader); BLOCKERS AI-C section added; ATTENDANCE + PROJECT_BOARD updated. Full forensic report: `PROJECT_COORDINATION/AI-C_REPORT.md`.
+
 ## 2026-08-22 — MASTER BASELINE RECONCILIATION (AI-01 Leader)
 
 - **Fast-forwarded local `f59f1a5` → remote `b4c4ae2`** (22 worker commits preserved: SYS-01/SYS-02 implementation + tests, AI-D + AI-B reports, ATTENDANCE, worker BLOCKERS).

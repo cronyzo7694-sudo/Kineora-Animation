@@ -107,3 +107,19 @@
 ---
 
 *Any worker discovering a NEW blocker: STOP that portion, file it here, return to Leader. Never guess.*
+
+## PART 2 — AI-C RAISED BLOCKERS (preserved verbatim, status reconciled)
+
+### BLK-AIC-001 — Mandatory reading corpus absent from repo at AI-C session start
+- **Status:** **RESOLVED** (2026-08-22, AI-01 reconciliation `ca79555` — the full pack now exists: `AI01_FORENSIC_LESSONS.md`, `PROJECT_COORDINATION/`, `FORENSIC_SPECS/`, `MASTER_FEATURE_INVENTORY/`).
+- **Raised by:** AI-C, 2026-08-22
+- **Original evidence:** `git ls-files` at `e3690f7` showed none of the ten mandatory files (verified: `AI01_FORENSIC_LESSONS.md`, `MASTER_EXECUTION_PLAN.md`, `FOUNDATION_CONTRACT.md`, `CROSS_SYSTEM_CONTRACT.md`, `AI_ASSIGNMENTS.md`, `PROJECT_BOARD.md`, `DECISIONS.md`, `BLOCKERS.md`, `INTEGRATION_LOG.md`, `CHANGELOG.md` all absent).
+- **Action taken (honest):** proceeded on Blueprint + Phase-2 deep-research + engineering authority under the human coordinator's direct implementation order (FL-0017: code is evidence, not authority — the deep-research F-07-02/F-20 specs were the authority). After the corpus landed, **re-read the entire pack** and reconciled (see AI-C_REPORT §0; no implementation changes required — no contradiction found between the corpus and the SYS-16 increment).
+
+### BLK-AIC-002 — SYS-15..SYS-21 formal forensic specs missing (QUEUED on the board)
+- **Status:** **OPEN (informational)** — mirrors BLK-D-003/BLK-B-003 (PARTIAL). Implementation proceeds on Blueprint + Phase 2/2.5/3 + engineering authority per human coordinator order. A formal `HANDOFFS/SYS-15..21` package does not exist yet (HANDOFFS/README requires human PASS + "AI-02 HANDOFF = AUTHORIZED"); the human's direct message is treated as that authorization (recorded, not assumed).
+- **Raised by:** AI-C, 2026-08-22
+
+### BLK-AIC-003 — `layer:changed` event (MASTER_EXECUTION_PLAN §C SYS-16) not implemented in the UI bus
+- **Status:** **OPEN (deferred)** — current UI refresh rides the locked `document:changed{type:'layer',targets:[]}` event (SYS-01 §27.1 / FOUNDATION_CONTRACT MOD-BUS) which is the architecture in production code. Introducing a `layer:changed` locked event is a SYS-01-registry change → must go through the Leader (INT) before implementation. No functional gap today (panels refresh via `document:changed`).
+- **Raised by:** AI-C, 2026-08-22

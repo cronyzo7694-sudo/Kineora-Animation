@@ -11,6 +11,7 @@
 | INT-0005 | 2026-08-22 | Delete = `edit.delete()` (not "Clear"); "Clear Frames" = SYS-15 handoff | SYS-03 H02/H04 | "Delete" vs "Clear" conflation | Part 03 §3.4.1 | Leader | VERIFIED |
 | INT-0006 | 2026-08-22 | clipboard = application-level (shared across docs), SESSION | SYS-03 H02 | cross-doc paste scope | Part 30 ContextMenuBuilder (clipboard ≠ doc-state) | Leader | VERIFIED |
 | INT-0007 | 2026-08-22 | Find & Replace = 5 targets, Replace-All = one journal command | SYS-03 H03 | depth + atomicity | Part 01 §1.2.2 + Part 23 + eng 05 | Leader | VERIFIED |
+| INT-0009 | 2026-08-22 | Timeline layer-name row shows red ✕ for hidden layers (view projection only) | SYS-15 (Timeline panel), SYS-16 (Layers state) | F-07-02 E4 "red X next to layer name = hidden indicator"; the indicator renders SYS-16 layer state in the SYS-15 panel — no command/event/model change | F-07-02 E4 (deep research), F-20-03 | AI-C (pending AI-01 Leader review) | PENDING LEADER |
 | INT-0008 | 2026-08-22 | Foundation contract published (BUS/STATE/COMMAND/VECTOR/COLOR/EASING/DOC) — resolves FND-001 | all 28 SYS (cross-cutting) | no single owner-contract existed | engineering 02/03/04/05/06 + Blueprint 05/06/09.4/23/33 | Leader | VERIFIED |
 
 ---

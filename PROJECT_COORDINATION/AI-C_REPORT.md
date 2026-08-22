@@ -3,26 +3,38 @@
 - **Role:** AI-C (parallel implementation worker)
 - **Ownership assigned:** SYS-15 · SYS-16 · SYS-17 · SYS-18 · SYS-19 · SYS-20 · SYS-21
 - **Branch:** `main` · **Base commit:** `e3690f767f7b7a5d97577a021de19ac3eef19b53` (HEAD at start)
-- **This turn's deliverable:** SYS-16 (Layers) — outline mode, duplicate layer, Alt+click batch toggles, state indicators + timeline hidden marker. Implementation committed as **`d94466a`**; this report is the follow-up commit.
+- **This turn's deliverable:** SYS-16 (Layers) — outline mode, duplicate layer, Alt+click batch toggles, state indicators + timeline hidden marker. Implementation committed as **`a562052`** (rebased onto `ca79555`; originally `d94466a`); this report + coordination updates are the follow-up commit (hash at push time — see `git log`).
 
 ---
 
-## 0. MANDATORY-READING REGISTRATION (forensic honesty — DO NOT SKIP)
+## 0. MANDATORY-READING REGISTRATION + POST-CORPUS RECONCILIATION
 
-The assignment lists ten mandatory files: `AI01_FORENSIC_LESSONS.md`, `PROJECT_COORDINATION/MASTER_EXECUTION_PLAN.md`, `FOUNDATION_CONTRACT.md`, `CROSS_SYSTEM_CONTRACT.md`, `AI_ASSIGNMENTS.md`, `PROJECT_BOARD.md`, `DECISIONS.md`, `BLOCKERS.md`, `INTEGRATION_LOG.md`, `CHANGELOG.md`.
+### 0.1 Initial state (honest)
+At session start (HEAD `e3690f7`) **none of the ten mandatory files existed in the repo** (verified via `git ls-files`). Registered as **BLK-AIC-001** → now **RESOLVED**: AI-01 committed the full corpus in `ca79555` (this report is the first `PROJECT_COORDINATION/` artifact from AI-C).
 
-**None of these files exist in the repository** (verified against `git ls-files` at base `e3690f7`; the `PROJECT_COORDINATION/` directory does not exist). Per the forensic rule ("if source evidence does not define behavior — DO NOT GUESS; register a blocker/decision"), this is registered as:
+### 0.2 Post-corpus reconciliation (completed after `ca79555`)
+After AI-01's push landed, this report's author **re-read the complete corpus in the assignment's order**:
+1. `FORENSIC_SPECS/AI01_FORENSIC_LESSONS.md` (FL-0001..0034) — pre-flight completed; relevant lessons applied below.
+2. `PROJECT_COORDINATION/MASTER_EXECUTION_PLAN.md`
+3. `PROJECT_COORDINATION/FOUNDATION_CONTRACT.md`
+4. `PROJECT_COORDINATION/CROSS_SYSTEM_CONTRACT.md`
+5. `PROJECT_COORDINATION/AI_ASSIGNMENTS.md`
+6. `PROJECT_COORDINATION/PROJECT_BOARD.md`
+7. `PROJECT_COORDINATION/DECISIONS.md`
+8. `PROJECT_COORDINATION/BLOCKERS.md`
+9. `PROJECT_COORDINATION/INTEGRATION_LOG.md`
+10. `PROJECT_COORDINATION/CHANGELOG.md`
+Plus `FINAL_GATE_REPORT.md`, `HANDOFFS/README.md`, `FORENSIC_SPECS/00_SYSTEM_QUEUE.md`.
 
-> **BLOCKER AI-C-001 (documentation):** the coordination corpus referenced by the AI-C assignment is absent from the repo. This report is the first `PROJECT_COORDINATION/` artifact. Other AIs (AI-A/AI-B/AI-D) must create their own reports here; AI-01's final audit should reconcile against the actual docs instead of the assumed names.
+**Reconciliation verdict: NO implementation changes required.** The corpus confirms the SYS-16 increment's authorities (F-07-02/F-20 deep research = Phase-2 knowledge base; Blueprint Part 07/20) and introduces **no contradiction** with any implemented behavior. Audit points:
+- **AI_ASSIGNMENTS.md** confirms AI-C = SYS-15..21; **animator/ code is implementation-worker territory** — this work is human-authorized (direct user order to implement + push; recorded in ATTENDANCE). A formal `HANDOFFS/SYS-15..21` package does not yet exist (BLK-AIC-002 — informational).
+- **CROSS_SYSTEM_CONTRACT §B** ("Commands are the ONLY writer to MOD-DOC; panels never write directly") — satisfied: every panel action resolves to an engine **Command** (SetLayerOutline/SetLayerOutlineColor/SetLayerFlags/DuplicateLayer) via the client facade; no direct model mutation.
+- **§D / FOUNDATION_CONTRACT MOD-BUS** — UI refresh rides the locked `document:changed{type:'layer'}` event (existing architecture). The `layer:changed` event listed in MASTER_EXECUTION_PLAN §C SYS-16 is **not implemented** → registered **BLK-AIC-003** (deferred; needs Leader INT before adding a locked event).
+- **FL-0001 (scope)** — all added fields/controls are Layer-owned (F-07-02/F-20); the timeline ✕ is a view projection, filed as **INT-0009** (pending Leader).
+- **FL-0019** — automated green ≠ acceptance: manual native-desktop QA remains **PENDING** (user-side).
 
-Actual authoritative sources read this turn (repo truth):
-1. `KINEORA_AI1_CONTINUITY_HANDOFF.md` (Sections 1–26; §9 warns "never trust this doc over the live repo" — the repo has since advanced SYS-02 through H14, so the handoff's SYS-02 status is stale by design).
-2. `ANIMATE_BLUEPRINT_MASTER.md` (460 KB blueprint; Part 07/11/12/20/33 referenced).
-3. `phase2-knowledge-base/deep-research/F-07-02_layer_row_controls`, `F-20-01_layer_model_lifecycle` (the authoritative forensic specs for this unit).
-4. `phase2.5-ui/01_UI_CONTRACT_QUEUE.md` + `contracts/C-22_layers_masks.md` (status marked UI COMPLETE for the contract-doc; actual panel implementation is what this unit extends).
-5. `engineering/00_engineering_decisions.md`, `animator/00_IMPLEMENTATION_DECISIONS.md`, `animator/STATUS.md`, `docs/TEST_REPORT.md`, `docs/BUGS.md`.
-
-Authority chain honored: **Blueprint → forensic spec (F-xx) → design decisions → Adobe evidence → inference**. Where the F-07-02 evidence was internally inconsistent, the resolution was registered as an explicit decision (see §4), never silent.
+### 0.3 Authority chain honored
+**Blueprint → Phase-2 forensic specs (F-07-02/F-20-01..03) → engineering → approved decisions → Adobe evidence → inference.** Where the F-07-02 evidence was internally inconsistent, the resolution was registered as an explicit decision (§4), never silent. (Code is evidence only — FL-0017.)
 
 ---
 
@@ -86,7 +98,10 @@ Authority chain honored: **Blueprint → forensic spec (F-xx) → design decisio
 
 ## 5. UNRESOLVED BLOCKERS / DEFERRED (honest)
 
-- **BLOCKER AI-C-001** — coordination docs absent (see §0). Needs AI-01/user reconciliation.
+- **BLK-AIC-001** — RESOLVED (corpus landed in `ca79555`; re-read + reconciled, §0.2).
+- **BLK-AIC-002** — SYS-15..21 formal specs QUEUED + no `HANDOFFS/SYS-15..21` package; implementation runs on human order + Blueprint/Phase-2 authority (OPEN, informational; mirrors BLK-D-003/BLK-B-003).
+- **BLK-AIC-003** — `layer:changed` locked event unimplemented (OPEN, deferred; refresh rides `document:changed`; needs Leader INT to add).
+- **INT-0009** — timeline hidden-✕ = SYS-16 view projection (PENDING LEADER review).
 - **Deferred (not in this unit, spec-registered):** full Layer Properties dialog (F-07-02 E6 beyond color) · layer folders + cascade (E8/E9) · drag-through-column multi-toggle (E1/E2 "drag through") · Shift+eye transparent mode (E5) + numeric layer opacity (L.2) · outline-mode on *symbol-timeline* layers is modeled but not UI-exposed · delete-with-dependents prompt (F-20-02; no masks/guides exist yet) · object-level lock/hide · SYS-15..21 remainder (Timeline/Properties/Library/Symbols/Drawing/Color forensic increments) — untouched this turn, per the depth-over-breadth rule.
 - **Manual acceptance:** NOT run by the user (native desktop QA is user-side; Linux Mint webkit2gtk status remains UNVERIFIED per handoff §15 — unchanged by this work).
 
@@ -116,9 +131,9 @@ Baseline at base commit was verified green before changes (Rust ✓, UI 593/593)
 
 ## 8. COMMIT HASHES
 
-- **AI-C implementation commit:** `d94466a` (parent `e3690f7`).
-- **AI-C report commit:** this file (see `git log` for its hash).
-- Pushed to `origin/main`. No force-push, no destructive reset, no rewrite of other AIs' commits.
+- **AI-C implementation commit:** `a562052` (originally `d94466a`; clean-rebased onto AI-01's `ca79555`).
+- **AI-C report/coordination commit:** this file + ATTENDANCE/BLOCKERS/INTEGRATION_LOG/CHANGELOG/PROJECT_BOARD updates (see `git log` at push time).
+- Pushed to `origin/main`. No force-push, no destructive reset, no rewrite of other AIs' commits. A parallel AI-01 push (`ca79555`) was integrated via **rebase** (the prompt's "update before starting / never overwrite / never force-push" rule).
 
 ## 9. KNOWN RISKS
 
@@ -127,7 +142,7 @@ Baseline at base commit was verified green before changes (Rust ✓, UI 593/593)
 3. **`collect_items` grew to 8 params** — a documented `#[allow(clippy::too_many_arguments)]`; refactor into an options struct if the recursion payload grows again.
 4. **Batch toggles are one undo step**, but a *sequence* of separate Alt+clicks remains separate undo entries (expected).
 5. WASM glue is regenerated at runtime from `npm run wasm`; the sandbox build validated facade names, but final runtime check is user-side (native desktop / browser dev).
-6. Parallel-AI race: only `main` exists; if AI-A/AI-B/AI-D push concurrently, `git pull --rebase` before the next AI-C turn (this push succeeded without conflict at time of writing).
+6. Parallel-AI race: AI-01/AI-B/AI-D push concurrently to `main` (observed: AI-01's `ca79555` landed mid-turn → clean rebase). Always `git fetch && git rebase origin/main` before pushing (never force-push).
 
 ---
 

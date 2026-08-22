@@ -630,3 +630,45 @@ Formal spec `H01_NEW_DOCUMENT_TEMPLATES.md` (v2) audited against the build; gaps
 | 8 | change selection / scrub playhead / resize a panel on a dirty doc | ● stays (view/workspace never clears dirty) |
 | 9 | dirty doc → Close → dialog → Save fails → retry → succeeds | close proceeds only after success |
 | 10 | no-document state | no ● anywhere; New starts CLEAN |
+
+## SYS-02 H05 — Save + Save As + File Identity (H05-RELEASE spec)
+- **Desktop save flow restructured (H05 §8/edge 15):** new Tauri command `pick_save_path` (dialog only, NO write) → the editor VALIDATES the path before any write → `write_project_file` (atomic). The old pick+write-in-one command is kept but no longer used by the save flow.
+- **Save As to an already-open path = BLOCKED (INV-IDENT-4 / D-AMB-001, edge 15):** if the picked path is owned by ANOTHER open document → explicit "Save blocked" error BEFORE any write; source doc stays DIRTY with History/session untouched; no snapshot advance; no path taken. Browser dev mode is pathless → the rule applies natively (honest gap, F3).
+- **`modifiedAt` ownership (H05, FL-0004):** new engine facade `kineora_set_modified_at(epoch)` (wasm has no wall clock). The save flow stamps it in the BINDING §7.1 order: write ok → modifiedAt ← now → `setDocTitle` → `markClean` (snapshot advance, now includes the stamp) → CLEAN → `saving:changed{saved}`. On failure: stamp NOT written, snapshot NOT advanced, dirty preserved.
+- **P-1 / P-6:** titled + known path → overwrite in place, no picker, no confirm; Save on a CLEAN doc is an idempotent write (still writes + "Saved hh:mm").
+- **Identity:** Document ID survives Save As (only path + tab title change). **AMB-H05-001 PROVISIONAL** (= spec's recommendation): tab title derives from the filename on first save — flagged, never silently finalized.
+- **Events:** `saving:changed` canonical `{saving|saved|error}` (plus the pre-existing `{idle}` for cancelled pickers — documented, not a new schema); NO fake `activeDoc:changed` / `document:changed` on save. The tab strip re-reads title/dirty on `saving:changed` (DocumentTabs now subscribes).
+- **Tests:** NEW `h05.test.tsx` (13 — T-save-untitled/titled/as/as-overwrite/**as-open-path-block**/fail/clean/dialog/same + §7.1 order proof via a call-order record + undo-preserved + event-hygiene + title-derivation-PROVISIONAL) + 2 native Rust tests (stamp-before-snapshot → undo-to-snapshot still CLEAN; failed write leaves stamp+snapshot untouched).
+
+## SYS-02 H06 — Open + Open Recent (H06-RELEASE spec)
+- **Single canonical commandId (H06 §8, no drift):** `file.openRecent` command REMOVED — Open Recent reuses `file.open` with the recent entry as input. The File ▸ Open Recent submenu rows now run `file.open(entry)`.
+- **H06 §6 flow for known entries:** step 1 = already-open check FIRST (before the guard): entry.path already owned by an open doc → activate it, NO guard, NO load, `activeDoc:changed` only (D-AMB-001). step 2 = dirty guard on the active doc (H04 handoff, via `confirmClose`). step 4 = load: stored snapshot first, else `read_project_file` on desktop. stale/missing → toast + skip (H06 §11).
+- **Interactive Open unchanged in semantics** (guard → picker → already-open check → ADD): Open still ADDS a document (H02 ST2), never replaces; failed load (CASE A) leaves the active doc's dirty/History/selection/playhead EXACTLY intact; recent entries now carry `path?` (desktop) for the already-open check + native re-open.
+- **Session reset + duplicate-ID impossibility:** engine invariants — `Session::from_document` = History::new/selection empty/playhead 1 (from_document_resets_selection_playhead_history) and fresh monotonic ids per load (h02_document_ids_are_never_duplicated_in_the_open_set). **AMB-002 collision-RECOVERY stays deferred to H10 — NOT falsely closed.**
+- **Tests:** NEW `h06.test.tsx` (11 — T-open-valid/tab/event, cancel, corrupt CASE A, dirty-guard (cancel+proceed), already-open no-reload, recent valid-snapshot / valid-path / stale / removed / **already-open-skips-guard**, single-commandId registry check, distinct-ids smoke) + file.test.ts updated to the `openFromRecent(entry)` contract.
+- **Manual acceptance: PENDING** for both H05/H06 (matrices below).
+
+### Manual acceptance matrix — H05 (report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | new doc → Save (Ctrl+S) | native save dialog → write → tab title = filename, ● clears, "Saved hh:mm" |
+| 2 | edit again → Save | NO dialog (overwrite its own path), ● clears |
+| 3 | Save As (Ctrl+Shift+S) | picker → new path; tab title updates; doc identity same |
+| 4 | open file A; with another doc, Save As onto A's path | **"Save blocked"** error, nothing written, your doc still dirty, A untouched |
+| 5 | Save As to a NEW existing file on disk | overwrites it, no confirm |
+| 6 | Save to a read-only path | "Save error", ● stays, retry works |
+| 7 | Save → Cancel in the dialog | nothing written, doc unchanged |
+| 8 | clean doc → Save | still writes + "Saved hh:mm" (idempotent) |
+| 9 | Save, then Undo | undo still works (history preserved) |
+
+### Manual acceptance matrix — H06 (report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | Open a valid file while another doc is open | new tab added + active; old doc untouched |
+| 2 | Open → Cancel in the picker | nothing changed |
+| 3 | Open a corrupt/non-JSON file | "open failed" toast; active doc (dirty etc.) EXACTLY intact |
+| 4 | active doc dirty → Open | Save/Discard/Cancel guard FIRST; Cancel = nothing |
+| 5 | Open a file that is ALREADY open (pick the same path again) | activates the existing tab, no second tab, no reload, its edits intact |
+| 6 | File ▸ Open Recent → an entry for an already-open file | activates it WITHOUT the dirty guard, no reload |
+| 7 | File ▸ Open Recent → entry whose file was deleted | "no longer available" toast, nothing opens |
+| 8 | Open Recent with the active doc dirty (not already-open) | guard applies; Cancel = nothing |

@@ -261,3 +261,61 @@ fn h04_save_success_clears_dirty_but_keeps_history() {
     );
     std::fs::remove_file(&path).ok();
 }
+
+// ————————————————————————————————————————————————————————————————
+// H05 — SAVE + SAVE AS + FILE IDENTITY (engine side).
+// The UI save flow (file.ts) orchestrates: pick → validate → write (SYS-28)
+// → modifiedAt stamp → snapshot advance (mark_clean) → CLEAN.
+// ————————————————————————————————————————————————————————————————
+
+#[test]
+fn h05_modified_at_is_stamped_before_the_snapshot_advance() {
+    // H05 §7.1 binding order: write SUCCEEDS → modifiedAt ← now (H05) →
+    // saved snapshot advances → CLEAN. The stamp lands BEFORE mark_clean so
+    // the snapshot includes it — a later content-equality dirty comparison
+    // (T6) is unaffected by the metadata stamp.
+    let mut s = Session::new(Settings::default());
+    let path = std::env::temp_dir().join("h05-modified-at.json");
+    s.save(&path).unwrap(); // 1: the write of the current (empty) state (SYS-28)
+    s.doc.meta.modified_at = Some(1_755_800_000); // 3: H05 stamp (via kineora_set_modified_at)
+    s.history.mark_clean(&s.doc); // 4+5: snapshot advance → CLEAN
+    assert!(!s.is_dirty());
+    assert_eq!(s.doc.meta.modified_at, Some(1_755_800_000));
+
+    // an edit leaves the saved snapshot → DIRTY
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
+    assert!(s.is_dirty());
+    // undo back to the exact saved state → CLEAN (the stamp is INSIDE the
+    // snapshot, so the equality comparison is unaffected by the metadata)
+    s.undo();
+    assert!(!s.is_dirty(), "undo to snapshot → CLEAN despite the stamp");
+    // redo away from the snapshot → DIRTY again
+    s.redo();
+    assert!(s.is_dirty());
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn h05_failed_save_does_not_stamp_modified_at_or_advance_snapshot() {
+    // H05 §7.2: on write failure the previous good state stands — modifiedAt
+    // is NOT updated, the snapshot is NOT advanced, dirty stays DIRTY.
+    let mut s = Session::new(Settings::default());
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
+    let path = std::env::temp_dir().join("h05-fail-modified-at.json");
+    s.save(&path).unwrap();
+    s.doc.meta.modified_at = Some(1_755_800_000);
+    s.history.mark_clean(&s.doc);
+    assert!(!s.is_dirty());
+
+    // a failed second write must leave modifiedAt + snapshot exactly as they
+    // were — the UI flow simply never calls the stamp/mark_clean on failure.
+    let bad = std::env::temp_dir().join("h05-fail-no-such-dir/x.json");
+    assert!(s.save(&bad).is_err());
+    assert_eq!(
+        s.doc.meta.modified_at,
+        Some(1_755_800_000),
+        "stamp unchanged on failure"
+    );
+    assert!(!s.is_dirty(), "snapshot untouched → still CLEAN");
+    std::fs::remove_file(&path).ok();
+}

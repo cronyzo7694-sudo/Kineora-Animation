@@ -18,6 +18,7 @@ import {
   redo,
   renameLayer,
   renameSymbol,
+  setDocModifiedAt,
   selectAt,
   selectAll,
   setDocumentSettings,
@@ -74,6 +75,7 @@ const wireModule = {
   kineora_set_layer_locked: () => true,
   kineora_select_at: () => true,
   kineora_select_all: () => undefined,
+  kineora_set_modified_at: () => true,
   kineora_clear_selection: () => undefined,
   kineora_set_playhead: () => undefined,
   kineora_set_active_layer: () => true,
@@ -202,6 +204,14 @@ describe('H04 §6.1 — VIEW/SESSION/FILE-SYSTEM ops NEVER emit document:changed
     const { events, stop } = captureDocEvents()
     expect(exportSvg(1)).toBe('<svg/>')
     expect(evaluate(1)).toEqual([])
+    stop()
+    expect(events).toEqual([])
+  })
+
+  it('setDocModifiedAt / markClean are FILE-SYSTEM ops (H05 save flow) — no document:changed', async () => {
+    await attach()
+    const { events, stop } = captureDocEvents()
+    setDocModifiedAt(1_755_800_000)
     stop()
     expect(events).toEqual([])
   })

@@ -483,6 +483,13 @@ export function openDocJson(json: string, title: string): number {
   return asNum(mod?.kineora_open_json?.(json, title))
 }
 
+/** H05 — stamp `meta.modifiedAt` on the active document (epoch seconds).
+ *  FILE-SYSTEM class: never emits `document:changed` (save is not a document
+ *  mutation). The save flow orders it BEFORE markClean (H05 §7.1). */
+export function setDocModifiedAt(epochSecs: number): boolean {
+  return mod?.kineora_set_modified_at?.(epochSecs) ?? false
+}
+
 /** Mark the active document clean (Save success → STM-DIRTY CLEAN). */
 export function markClean(): boolean {
   return mod?.kineora_mark_clean?.() ?? false

@@ -30,6 +30,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::open_project_file,
             commands::save_project_file_as,
+            commands::pick_save_path,
             commands::write_project_file,
             commands::read_project_file,
             commands::file_exists,

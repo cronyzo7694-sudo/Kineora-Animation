@@ -17,6 +17,7 @@ const clientMock = vi.hoisted(() => ({
   docList: vi.fn(() => []),
   loadProjectJson: vi.fn(() => true),
   markClean: vi.fn(() => true),
+  setDocModifiedAt: vi.fn(() => true),
   newDocFull: vi.fn(() => 7),
   openDocJson: vi.fn(() => 8),
   projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
@@ -36,7 +37,7 @@ import {
   isTitled,
   listRecent,
   listTemplates,
-  openRecent,
+  openFromRecent,
   saveDocument,
   saveTemplate,
 } from './file'
@@ -173,12 +174,12 @@ describe('SYS-02 file — recent files (unbounded, most-recent-first)', () => {
     expect(listRecent().find((r) => r.title === 'proj')).toBeTruthy()
   })
 
-  it('openRecent ADDS a document to the open-set (H02 §3) with the locked event order', () => {
+  it('openFromRecent ADDS a document to the open-set with the locked event order (H06)', async () => {
     addRecent('proj', '{"settings":{}}')
     const seen: Array<{ name: string; payload: unknown }> = []
     const off1 = bus.on('openSet:changed', (p) => seen.push({ name: 'openSet', payload: p }))
     const off2 = bus.on('activeDoc:changed', (p) => seen.push({ name: 'activeDoc', payload: p }))
-    openRecent('proj', vi.fn())
+    await openFromRecent({ title: 'proj', name: 'proj.json', savedAt: Date.now(), json: '{"settings":{}}' }, vi.fn())
     off1()
     off2()
     expect(clientMock.openDocJson).toHaveBeenCalledWith('{"settings":{}}', 'proj')
@@ -189,9 +190,9 @@ describe('SYS-02 file — recent files (unbounded, most-recent-first)', () => {
     ])
   })
 
-  it('openRecent reports a stale/missing entry honestly', () => {
+  it('openFromRecent reports a stale/missing entry honestly', async () => {
     const notify = vi.fn()
-    openRecent('ghost', notify)
+    await openFromRecent({ title: 'ghost', name: 'ghost.json', savedAt: Date.now() }, notify)
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('stale or unavailable'))
     expect(clientMock.loadProjectJson).not.toHaveBeenCalled()
   })

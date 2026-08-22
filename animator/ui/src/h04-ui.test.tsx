@@ -114,6 +114,7 @@ const platformStub = vi.hoisted(() => ({
   kind: 'desktop' as const,
   isDesktop: () => true,
   openProject: vi.fn(),
+  pickSavePath: vi.fn(async () => null),
   saveProjectAs: vi.fn(async () => 'cancelled' as const),
   writeProject: vi.fn(async () => true),
   readProject: vi.fn(async () => null),
@@ -199,7 +200,8 @@ beforeEach(() => {
   __resetDocPathsForTests()
   bus.clear()
   vi.clearAllMocks()
-  vi.mocked(platform.saveProjectAs).mockResolvedValue('cancelled' as never)
+  vi.mocked(platform.pickSavePath).mockResolvedValue('/p/doc.json')
+  vi.mocked(platform.writeProject).mockResolvedValue(true)
   try {
     localStorage.clear()
   } catch {
@@ -288,7 +290,7 @@ describe('H04 §7.1/§12 — saving:changed transitions (T2/T3/T4/T5)', () => {
   it('T-dirty-save-ok: save success → saving{saving} → saving{saved}; dirty clears', async () => {
     newDoc()
     fake.state.docs[0].dirty = true
-    vi.mocked(platform.saveProjectAs).mockResolvedValue({ name: 'a.json', path: '/p/a.json' } as never)
+    // default mocks: pickSavePath → /p/doc.json, writeProject → true
     const { events, stop } = capture('saving:changed')
     const ok = await saveDocument(vi.fn())
     stop()
@@ -300,7 +302,7 @@ describe('H04 §7.1/§12 — saving:changed transitions (T2/T3/T4/T5)', () => {
   it('T-dirty-save-fail: write failure → saving{saving} → saving{error}; dirty PRESERVED', async () => {
     newDoc()
     fake.state.docs[0].dirty = true
-    vi.mocked(platform.saveProjectAs).mockResolvedValue('failed' as never)
+    vi.mocked(platform.writeProject).mockResolvedValue(false)
     const notify = vi.fn()
     const { events, stop } = capture('saving:changed')
     const ok = await saveDocument(notify)
@@ -314,9 +316,9 @@ describe('H04 §7.1/§12 — saving:changed transitions (T2/T3/T4/T5)', () => {
   it('T-dirty-save-retry: a retry after failure resolves ok → saved + CLEAN', async () => {
     newDoc()
     fake.state.docs[0].dirty = true
-    vi.mocked(platform.saveProjectAs)
-      .mockResolvedValueOnce('failed' as never)
-      .mockResolvedValue({ name: 'a.json', path: '/p/a.json' } as never)
+    vi.mocked(platform.writeProject)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
     const { events, stop } = capture('saving:changed')
     expect(await saveDocument(vi.fn())).toBe(false)
     expect(await saveDocument(vi.fn())).toBe(true)
@@ -328,7 +330,7 @@ describe('H04 §7.1/§12 — saving:changed transitions (T2/T3/T4/T5)', () => {
   it('cancelled save → saving{idle}; document unchanged', async () => {
     newDoc()
     fake.state.docs[0].dirty = true
-    vi.mocked(platform.saveProjectAs).mockResolvedValue('cancelled' as never)
+    vi.mocked(platform.pickSavePath).mockResolvedValue(null)
     const { events, stop } = capture('saving:changed')
     expect(await saveDocument(vi.fn())).toBe(false)
     stop()
@@ -344,7 +346,7 @@ describe('H04 §8/§9 — dirty GUARD decision contract (Save/Discard/Cancel)', 
     newDoc() // B (2)
     getCommand('tab.activate')!.run(makeCtx(), 1) // A active, B inactive
     fake.state.docs[1].dirty = true
-    vi.mocked(platform.saveProjectAs).mockResolvedValue({ name: 'b.json', path: '/p/b.json' } as never)
+    // default mocks: pickSavePath → /p/doc.json, writeProject → true
     render(<App />)
     const { events, stop } = capture('saving:changed')
     fireEvent.click(screen.getByTestId('doc-tab-close-2')) // dirty INACTIVE B
@@ -362,7 +364,7 @@ describe('H04 §8/§9 — dirty GUARD decision contract (Save/Discard/Cancel)', 
     newDoc() // B (2)
     getCommand('tab.activate')!.run(makeCtx(), 1)
     fake.state.docs[1].dirty = true
-    vi.mocked(platform.saveProjectAs).mockResolvedValue('failed' as never)
+    vi.mocked(platform.writeProject).mockResolvedValue(false)
     render(<App />)
     const { events, stop } = capture('saving:changed')
     fireEvent.click(screen.getByTestId('doc-tab-close-2'))

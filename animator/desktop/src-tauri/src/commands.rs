@@ -52,6 +52,22 @@ fn stem(path: &Path) -> String {
         .to_string()
 }
 
+/// Pick a Save-As path WITHOUT writing (H05): the editor validates the path
+/// (e.g. against already-open documents, INV-IDENT-4) BEFORE any write.
+/// `None` = the user cancelled the dialog.
+#[tauri::command]
+pub async fn pick_save_path(window: tauri::Window, suggested_name: String) -> Option<String> {
+    let file_name = if suggested_name.ends_with(".json") {
+        suggested_name
+    } else {
+        format!("{suggested_name}.json")
+    };
+    let Some(file) = save_file(&window, &file_name).await else {
+        return None;
+    };
+    file.into_path().ok().map(|p| p.display().to_string())
+}
+
 /// Bridge the dialog plugin's callback API onto the async runtime so the
 /// command can `await` the user's choice without blocking the main thread.
 async fn pick_file(window: &tauri::Window) -> Option<FilePath> {

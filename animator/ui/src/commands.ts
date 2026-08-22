@@ -29,10 +29,11 @@ import {
   createFromTemplate,
   exportHandoff,
   importHandoff,
-  listRecent,
   openDocument,
   openExternalLibraryHandoff,
-  openRecent,
+  openFromRecent,
+  findDocByPath,
+  type RecentEntry,
   publishHandoff,
   saveDocument,
   saveTemplate,
@@ -275,21 +276,28 @@ export const commands: Command[] = [
     source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => c.confirmClose(() => openDocument(c.notify)),
-  },
-  {
-    id: 'file.openRecent',
-    label: 'Open Recent',
-    category: 'file',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 (recent list; entries reuse file.open)',
-    enabled: (c) => engineOk(c) && listRecent().length > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'no recent files' : NOT_ATTACHED),
-    // input = recent title (menu rows pass it; palette runs the most recent)
+    // H06 §8: ONE canonical commandId for Open AND Open Recent (no drift).
+    // input = a recent entry (object, from the Open Recent submenu) or none
+    // (interactive native picker).
     run: (c, input) => {
-      const title = typeof input === 'string' && input ? input : listRecent()[0]?.title
-      if (!title) return
-      c.confirmClose(() => openRecent(title, c.notify))
+      const entry = input && typeof input === 'object' ? (input as RecentEntry) : null
+      if (entry) {
+        // H06 §6 step 1 — BEFORE the guard: an already-open path activates
+        // the existing document (D-AMB-001) — NO guard, NO load, NO open-set
+        // change, `activeDoc:changed` only.
+        const existing = entry.path ? findDocByPath(entry.path) : undefined
+        if (existing !== undefined) {
+          switchActiveDocument(existing, c.notify)
+          c.notify(`already open — activated "${entry.title}"`)
+          return
+        }
+        // step 2: dirty guard on the active doc (H04), then the load.
+        c.confirmClose(() => {
+          void openFromRecent(entry, c.notify)
+        })
+        return
+      }
+      c.confirmClose(() => openDocument(c.notify))
     },
   },
   {

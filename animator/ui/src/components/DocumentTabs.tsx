@@ -91,10 +91,15 @@ export function DocumentTabs({ ctx }: Props) {
     })
     const offActive = bus.on('activeDoc:changed', () => force())
     const offDoc = bus.on('document:changed', () => force())
+    // H05 §9: on saving:changed{saved} the tab strip re-reads the saved
+    // document's title + dirty flag (the save itself emits no other event —
+    // no fake activeDoc/document:changed).
+    const offSaving = bus.on('saving:changed', () => force())
     return () => {
       offSet()
       offActive()
       offDoc()
+      offSaving()
     }
   }, [])
 

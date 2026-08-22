@@ -361,6 +361,25 @@ pub fn kineora_open_json(json: String, title: String) -> u64 {
     })
 }
 
+/// H05: stamp `meta.modifiedAt` (epoch seconds, caller-supplied — wasm has
+/// no wall clock) on the ACTIVE document. The save flow calls this
+/// IMMEDIATELY BEFORE `kineora_mark_clean` so the saved snapshot includes the
+/// stamp (H05 §7.1 binding order: write → modifiedAt → snapshot advance →
+/// CLEAN → `saving:changed{saved}`). Not a document mutation on its own —
+/// it never sets DIRTY (dirty is resolved by the save flow itself).
+#[wasm_bindgen]
+pub fn kineora_set_modified_at(epoch_secs: u64) -> bool {
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        if let Some(doc) = m.active_mut() {
+            doc.session.doc.meta.modified_at = Some(epoch_secs);
+            true
+        } else {
+            false
+        }
+    })
+}
+
 /// Mark the ACTIVE document clean (Save success → STM-DIRTY CLEAN).
 #[wasm_bindgen]
 pub fn kineora_mark_clean() -> bool {

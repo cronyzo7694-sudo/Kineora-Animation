@@ -66,6 +66,10 @@ export interface PlatformAdapter {
   /** File ▸ Save As / first save: native save dialog (desktop) or prompt+download (browser).
    *  'cancelled' = user cancelled (no change); 'failed' = write error (stay dirty). */
   saveProjectAs(suggestedName: string, content: string): Promise<SaveResult | 'cancelled' | 'failed'>
+  /** H05 — pick a Save/Save-As path WITHOUT writing (the editor validates
+   *  the path — e.g. against already-open documents — before any write).
+   *  null = cancelled or pathless (browser dev mode). */
+  pickSavePath(suggestedName: string): Promise<string | null>
   /** Overwrite an existing document (P-1, no prompt). Desktop: atomic write to
    *  the known `path`; browser: re-download (pathless write). Returns success. */
   writeProject(path: string | null, name: string, content: string): Promise<boolean>
@@ -117,6 +121,16 @@ const tauriAdapter: PlatformAdapter = {
       return res ?? 'cancelled'
     } catch {
       return 'failed' // Rust Err → write failure
+    }
+  },
+
+  async pickSavePath(suggestedName) {
+    const r = tauriInvoke<string | null>('pick_save_path', { suggestedName })
+    if (!r) return null
+    try {
+      return (await r) ?? null
+    } catch {
+      return null
     }
   },
 
@@ -191,6 +205,10 @@ function browserName(current: string): string | null {
 const browserAdapter: PlatformAdapter = {
   kind: 'browser',
   isDesktop: () => false,
+
+  /** Browser dev mode is pathless — the H05 path validation (already-open
+   *  path BLOCK) only applies natively; Save falls back to prompt+download. */
+  pickSavePath: async () => null,
 
   openProject() {
     return new Promise((resolve) => {

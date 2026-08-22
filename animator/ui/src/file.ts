@@ -23,6 +23,7 @@ import {
   projectJson,
   reorderDoc,
   setActiveDoc,
+  setDocModifiedAt,
   setDocTitle,
   statusJson,
 } from './engine/client'
@@ -159,7 +160,7 @@ export function openDocument(notify: Notify): void {
       return
     }
     setDocPath(id, opened.path)
-    addRecent(opened.name, opened.content)
+    addRecent(opened.name, opened.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
     bus.emit('openSet:changed', { change: 'added', docId: id })
     bus.emit('activeDoc:changed', { docId: id })
@@ -203,57 +204,80 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     // cancelled picker → save state returns to idle; document unchanged.
     bus.emit('saving:changed', { state: 'idle' })
   }
-  const saveError = () => {
-    // H04 T4: write failed → SAVE_ERROR. The document STAYS DIRTY (markClean
-    // is never reached) and the last-good file is intact (atomic, SYS-28).
+  const saveError = (msg?: string) => {
+    // H04 T4 / H05 §11: write failed (or a pre-write validation blocked the
+    // save) → SAVE_ERROR. The document STAYS DIRTY (markClean is never
+    // reached), the last-good file is intact (atomic, SYS-28), modifiedAt is
+    // NOT updated, the snapshot is NOT advanced. Recoverable via retry.
     bus.emit('saving:changed', { state: 'error' })
-    notify('Save error: could not write the file (document left dirty — retry)')
+    notify(msg ?? 'Save error: could not write the file (document left dirty — retry)')
   }
 
   if (opts.saveAs || !isTitled(title)) {
-    // Save As, or a first save of an untitled document → name/path prompt.
-    const res = await platform.saveProjectAs(title, json)
-    if (res === 'cancelled') {
-      saveCancelled()
-      return false // cancelled → no change
+    // New path: Save As, or a first save of an untitled document.
+    if (platform.isDesktop()) {
+      // H05: pick the path WITHOUT writing, validate it, then write.
+      const path = await platform.pickSavePath(title)
+      if (!path) {
+        saveCancelled()
+        return false // cancelled → no change
+      }
+      // H05 §6 / edge 15 (INV-IDENT-4 / D-AMB-001): a path already owned by
+      // ANOTHER open document is BLOCKED BEFORE any write — one saved path =
+      // at most one open document. The source doc stays exactly unchanged
+      // (dirty/History/session preserved); no snapshot advance, no markClean.
+      const owner = findDocByPath(path)
+      if (owner !== undefined && owner !== docId) {
+        saveError('Save blocked: that file is already open as another document — choose a different path')
+        return false
+      }
+      if (!(await platform.writeProject(path, title, json))) {
+        saveError()
+        return false
+      }
+      setDocPath(docId, path)
+      // AMB-H05-001 PROVISIONAL (= the spec's recommendation, pending a
+      // product decision): the tab title derives from the filename on first
+      // save. Identity is never the title (H00 §5).
+      title = path.split(/[\\/]/).pop()?.replace(/\.json$/i, '') || title
+    } else {
+      // Browser dev mode: prompt + pathless download (F3: native = spec,
+      // download = dev-only). The collision rule is path-based and only
+      // meaningful natively — no path here, so no check (honest gap).
+      const res = await platform.saveProjectAs(title, json)
+      if (res === 'cancelled') {
+        saveCancelled()
+        return false
+      }
+      if (res === 'failed') {
+        saveError()
+        return false
+      }
+      title = res.name
     }
-    if (res === 'failed') {
-      saveError()
-      return false
-    }
-    title = res.name
-    setDocPath(docId, res.path)
   } else if (platform.isDesktop() && knownPath) {
-    // Titled + known path → overwrite in place (P-1, no prompt).
+    // Titled + known path → overwrite in place (P-1: no prompt, no confirm).
     if (!(await platform.writeProject(knownPath, title, json))) {
       saveError()
       return false
     }
-  } else if (platform.isDesktop()) {
-    // Titled in desktop but no known path (e.g. after reload) → Save As.
-    const res = await platform.saveProjectAs(title, json)
-    if (res === 'cancelled') {
-      saveCancelled()
-      return false
-    }
-    if (res === 'failed') {
-      saveError()
-      return false
-    }
-    title = res.name
-    setDocPath(docId, res.path)
   } else {
-    // Titled in browser → P-1 overwrite (pathless re-download).
+    // Browser: P-1 overwrite (pathless re-download).
     if (!(await platform.writeProject(null, title, json))) {
       saveError()
       return false
     }
   }
 
+  // H05 §7.1 BINDING order: (3) modifiedAt ← now (H05 owns the stamp) →
+  // (4) saved snapshot advances → (5) CLEAN → (6) saving:changed{saved}.
+  // modifiedAt is stamped BEFORE markClean so the snapshot includes it
+  // (a later content-equality comparison is unaffected).
+  setDocModifiedAt(nowSec())
   setDocTitle(docId, title)
   markClean()
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-  addRecent(title, json)
+  addRecent(title, json, docPath(docId))
   notify(`saved "${title}"`)
   return true
 }
@@ -348,6 +372,9 @@ export interface RecentEntry {
   savedAt: number
   /** Last-saved snapshot (re-open actually works in the browser). */
   json?: string
+  /** Native path when known (H06: already-open check + desktop re-open).
+   *  Pathless in browser dev mode. */
+  path?: string
 }
 
 export function listRecent(): RecentEntry[] {
@@ -361,9 +388,15 @@ export function listRecent(): RecentEntry[] {
   }
 }
 
-export function addRecent(title: string, json: string): void {
+export function addRecent(title: string, json: string, path?: string): void {
   const entries = listRecent().filter((r) => r.title !== title)
-  const entry: RecentEntry = { title, name: jsonName(title), savedAt: Date.now(), json: json.length <= RECENT_MAX_BYTES ? json : undefined }
+  const entry: RecentEntry = {
+    title,
+    name: jsonName(title),
+    savedAt: Date.now(),
+    json: json.length <= RECENT_MAX_BYTES ? json : undefined,
+    path: path || undefined,
+  }
   const next = [entry, ...entries]
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(next))
@@ -377,20 +410,31 @@ export function addRecent(title: string, json: string): void {
   }
 }
 
-/** Open a recent entry (H02 §3: same canonical load path as file.open —
- *  ADDS a document to the open-set; never replaces the active one). */
-export function openRecent(title: string, notify: Notify): void {
+/** H06 §6 — Open Recent = the SAME canonical Open flow with a KNOWN entry.
+ *  Step 1 (already-open path → activate WITHOUT guard/load) is the caller's
+ *  job (the file.open command); this performs the load: stored snapshot
+ *  first, else the native path. Stale/missing → toast + skip (H06 §11). */
+export async function openFromRecent(entry: RecentEntry, notify: Notify): Promise<void> {
   if (!engineOk()) return notify('open recent: engine not attached')
-  const entry = listRecent().find((r) => r.title === title)
-  if (!entry || !entry.json) {
-    notify(`recent "${title}" is stale or unavailable — use File ▸ Open to re-select it`)
+  let content = entry.json
+  if (content === undefined && entry.path) {
+    content = await platform.readProject(entry.path) ?? undefined
+    if (content === undefined) {
+      notify(`recent "${entry.title}" is no longer available at its path — entry skipped`)
+      return
+    }
+  }
+  if (content === undefined) {
+    notify(`recent "${entry.title}" is stale or unavailable — use File ▸ Open to re-select it`)
     return
   }
-  const id = openDocJson(entry.json, entry.title)
+  const id = openDocJson(content, entry.title)
   if (id === 0) {
-    notify(`recent "${title}": invalid project data`)
+    notify(`recent "${entry.title}": invalid project data`)
     return
   }
+  if (entry.path) setDocPath(id, entry.path)
+  addRecent(entry.title, content, entry.path)
   // H02 §14: open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })

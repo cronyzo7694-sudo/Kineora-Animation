@@ -171,6 +171,9 @@ export interface KineoraWasm {
   kineora_set_doc_title?(id: bigint, title: string): boolean
   /** Open a JSON document as a NEW tab (template seeding). Returns id. */
   kineora_open_json?(json: string, title: string): bigint
+  /** H05 — stamp meta.modifiedAt on the active document (epoch seconds).
+   *  Called by the save flow immediately before kineora_mark_clean. */
+  kineora_set_modified_at?(epochSecs: number): boolean
   /** Mark the active document clean (Save success). */
   kineora_mark_clean?(): boolean
   kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): bigint

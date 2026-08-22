@@ -272,9 +272,10 @@ function WorkspaceListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandCont
   )
 }
 
-/** Dynamic File ▸ Open Recent list — each entry runs file.open (guarded). */
+/** Dynamic File ▸ Open Recent list — H06 §8: each entry runs the SAME
+ *  canonical commandId as Open (file.open) with the entry as input. */
 function RecentListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandContext }) {
-  const cmd = getCommand('file.openRecent')
+  const cmd = getCommand('file.open')
   const entries = listRecent()
   if (!cmd) return null
   if (entries.length === 0) {
@@ -289,7 +290,7 @@ function RecentListRows({ onRun, ctx }: { onRun: () => void; ctx: CommandContext
           role="menuitem"
           onClick={() => {
             onRun()
-            cmd.run(ctx, r.title)
+            cmd.run(ctx, r) // H06: the full entry — file.open handles already-open/guard/load
           }}
           onMouseEnter={(e) => {
             ;(e.currentTarget as HTMLButtonElement).style.background = hoverBg

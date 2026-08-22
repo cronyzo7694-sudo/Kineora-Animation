@@ -87,7 +87,10 @@ describe('client — undo/redo emit selection:changed (H01 §9 / INT-AIA-003)', 
     const events = spy.mock.calls.map((c) => [c[0], c[1]])
     expect(events).toEqual([
       ['document:changed', { type: 'undo', targets: [] }],
-      ['selection:changed', { prevTargets: [1], targets: [2] }],
+      [
+        'selection:changed',
+        expect.objectContaining({ prevTargets: [1], targets: [2], kind: 'objects', bounds: null }),
+      ],
     ])
   })
 
@@ -98,7 +101,10 @@ describe('client — undo/redo emit selection:changed (H01 §9 / INT-AIA-003)', 
     const events = spy.mock.calls.map((c) => [c[0], c[1]])
     expect(events).toEqual([
       ['document:changed', { type: 'redo', targets: [] }],
-      ['selection:changed', { prevTargets: [1], targets: [3] }],
+      [
+        'selection:changed',
+        expect.objectContaining({ prevTargets: [1], targets: [3], kind: 'objects', bounds: null }),
+      ],
     ])
   })
 

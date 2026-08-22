@@ -158,10 +158,74 @@ function docChanged(type: string): void {
   if (mod) bus.emit('document:changed', { type, targets: [] })
 }
 
+/** SYS-14 MOD-SELECTION — compute the full `selection:changed` payload from the
+ *  core's status snapshot. Part 03 §3.9 / SYS-01 §27.1:
+ *  `{prevTargets, targets, kind, commonType, bounds}`.
+ *
+ *  - kind: only OBJECT selection exists in the editor today; anchors/frames/
+ *    bones/warpPins/camera are future SYS and are NOT invented (FL-0001/0010).
+ *    Empty selection → 'none', otherwise → 'objects'.
+ *  - commonType: the shared `selection_details[].kind` ("rect" | "instance" | …)
+ *    when EVERY target has the same kind; omitted on a mixed selection so the
+ *    Properties panel shows only common fields (Part 03 §3.4.10).
+ *  - bounds: axis-aligned union of every per-node `selection_rects` (each is
+ *    already a scene-space AABB with rotation applied by the core — Part 03
+ *    §3.4.10/§3.8). null when the selection is empty.
+ *
+ *  Pure: callers pass prev + current; this function never reads the engine. */
+export function buildSelectionPayload(
+  prev: number[],
+  st: Pick<StatusJson, 'selection' | 'selection_details' | 'selection_rects'>,
+): {
+  prevTargets: number[]
+  targets: number[]
+  kind: 'objects' | 'none'
+  commonType?: string
+  bounds?: { x: number; y: number; w: number; h: number } | null
+} {
+  const targets = st.selection ?? []
+  if (targets.length === 0) {
+    return { prevTargets: prev, targets: [], kind: 'none', bounds: null }
+  }
+
+  // commonType — single shared detail kind, else undefined (mixed).
+  let commonType: string | undefined
+  const details = st.selection_details ?? []
+  if (details.length > 0) {
+    const first = details[0]?.kind
+    if (first && details.every((d) => d.kind === first)) commonType = first
+  }
+
+  // bounds — union AABB across every selected node's scene-space rect.
+  const rects = st.selection_rects ?? []
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  let any = false
+  for (const r of rects) {
+    any = true
+    if (r.x < minX) minX = r.x
+    if (r.y < minY) minY = r.y
+    if (r.x + r.w > maxX) maxX = r.x + r.w
+    if (r.y + r.h > maxY) maxY = r.y + r.h
+  }
+  const bounds = any ? { x: minX, y: minY, w: maxX - minX, h: maxY - minY } : null
+
+  return { prevTargets: prev, targets, kind: 'objects', commonType, bounds }
+}
+
+/** Emit `selection:changed` with the full SYS-14 payload. Reads the CURRENT
+ *  engine status, so callers MUST invoke it AFTER the core mutation that
+ *  changed the selection (prev = targets captured before the mutation). */
 function emitSelectionChanged(prev: number[]): void {
   if (!mod) return
-  const targets = statusJson()?.selection ?? []
-  bus.emit('selection:changed', { prevTargets: prev, targets })
+  const st = statusJson()
+  if (!st) {
+    bus.emit('selection:changed', { prevTargets: prev, targets: [], kind: 'none', bounds: null })
+    return
+  }
+  bus.emit('selection:changed', buildSelectionPayload(prev, st))
 }
 
 export function drawRect(x: number, y: number, w: number, h: number, fill: string): number {
@@ -183,7 +247,27 @@ export function evaluate(frame: number): RectItemJson[] {
   }
 }
 
+/** Test seam: override the wasm module + status source. Production never
+ *  calls this; it exists so producer tests can drive selection:changed
+ *  without a real WASM build. Returns a restore() that resets both. */
+export function __attachEngineForTest(
+  fakeMod: Partial<KineoraWasm> | null,
+  statusSource: (() => StatusJson | null) | null,
+): () => void {
+  const prevMod = mod
+  const prevSource = statusOverride
+  mod = (fakeMod as KineoraWasm | null) ?? null
+  statusOverride = statusSource
+  return () => {
+    mod = prevMod
+    statusOverride = prevSource
+  }
+}
+
+let statusOverride: (() => StatusJson | null) | null = null
+
 export function statusJson(): StatusJson | null {
+  if (statusOverride) return statusOverride()
   if (!mod) return null
   try {
     return JSON.parse(mod.kineora_status()) as StatusJson
@@ -407,6 +491,8 @@ export function setPlayhead(frame: number): void {
 export function selectAt(x: number, y: number): boolean {
   const prev = statusJson()?.selection ?? []
   const hit = mod?.kineora_select_at(x, y) ?? false
+  // SYS-14: a click is one selection gesture — emit ONCE after the mutation so
+  // Properties/Transform/overlay refresh (FL-0006; Part 03 §3.9 "once/gesture").
   emitSelectionChanged(prev)
   return hit
 }
@@ -435,6 +521,7 @@ export function newDefaultDocument(): boolean {
 export function selectToggleAt(x: number, y: number): boolean {
   const prev = statusJson()?.selection ?? []
   const hit = mod?.kineora_select_toggle_at(x, y) ?? false
+  // SYS-14: shift-click is one selection gesture.
   emitSelectionChanged(prev)
   return hit
 }
@@ -442,6 +529,7 @@ export function selectToggleAt(x: number, y: number): boolean {
 export function selectInRect(x0: number, y0: number, x1: number, y1: number): void {
   const prev = statusJson()?.selection ?? []
   mod?.kineora_select_in_rect(x0, y0, x1, y1)
+  // SYS-14: marquee drag commit is one selection gesture.
   emitSelectionChanged(prev)
 }
 
@@ -769,8 +857,9 @@ export function cutObjects(): boolean {
   const prev = statusJson()?.selection ?? []
   const ok = mod?.kineora_cut_objects?.() ?? false
   if (!ok) return false
-  // Locked-only cut copies but does not delete (H02). That is NOT a
-  // document mutation — do not emit document:changed (H04 / FL-0007).
+  // AI-A H04 repair (locked-only cut copies but does NOT delete): that is not
+  // a document mutation — only emit document:changed / selection:changed when
+  // the selection actually changed. Preserve SYS-14 full-payload emission.
   const after = statusJson()?.selection ?? []
   const mutated = after.length !== prev.length || after.some((id, i) => id !== prev[i])
   if (mutated) {
@@ -785,6 +874,8 @@ export function deleteSelection(): boolean {
   const ok = mod?.kineora_delete_selection?.() ?? false
   if (ok) {
     docChanged('edit')
+    // Deletion clears the selection in the core; propagate that so Properties/
+    // overlay/context-menu drop the (now-deleted) targets (SYS-14).
     emitSelectionChanged(prev)
   }
   return ok
@@ -795,6 +886,7 @@ export function pasteObjects(mode: 'inplace' | 'center'): boolean {
   const ok = mod?.kineora_paste_objects?.(mode) ?? false
   if (ok) {
     docChanged('edit')
+    // Paste selects the freshly-pasted objects (one gesture → one event).
     emitSelectionChanged(prev)
   }
   return ok
@@ -805,6 +897,7 @@ export function duplicateObjects(): boolean {
   const ok = mod?.kineora_duplicate_objects?.() ?? false
   if (ok) {
     docChanged('edit')
+    // Duplicate selects the new copies (one gesture → one event).
     emitSelectionChanged(prev)
   }
   return ok

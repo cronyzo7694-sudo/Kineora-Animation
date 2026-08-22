@@ -271,10 +271,12 @@ export default function App() {
     bus.emit('panel:changed', { id, change: 'visibility', visible: next[id] })
   }
 
-  // SYS-11 Window ▸ Hide/Show All Panels (F4). Toggling is VIEW state only
-  // (no undo, no document mutation). Preserves each panel's prior visibility
-  // so two F4 presses restore the exact layout (per-panel bus emissions keep
-  // the workspace snapshot and any panel subscribers consistent).
+  // SYS-11 Window ▸ Hide/Show All Panels (menu command; F4 is LOCKED to
+  // Properties per SYS-01 §9/C-09). Toggling is VIEW state only (no undo,
+  // no document mutation). Preserves each panel's prior visibility so a
+  // second invocation restores the exact hidden-away layout (per-panel
+  // panel:changed emissions keep the workspace snapshot and subscribers
+  // consistent).
   const hiddenAllSnapshot = useRef<Record<string, boolean> | null>(null)
   const setAllPanelsVisible = (visible: boolean) => {
     if (visible) {

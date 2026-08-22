@@ -147,3 +147,19 @@
 | Affects | SYS-03 producer, SYS-01 App consumer, SYS-19 convert command (same History) |
 | Worker | AI-A |
 | Status | LANDED — Leader verify |
+
+---
+
+## INT-B-001 — 2026-08-22 AI-B: complete SYS-14 `selection:changed` payload (kind/commonType/bounds)
+
+| Field | Value |
+|---|---|
+| Change | Producer (`engine/client.ts emitSelectionChanged`) now computes and emits the full SYS-01 §27.1 / Part 03 §3.9 payload: `{prevTargets, targets, kind, commonType, bounds}`. Previously only `prevTargets/targets` were sent (C-4 partial). NOTE: the producer *calls* for selectAt/selectToggleAt/selectInRect/draw/delete/paste/duplicate/cut were added by AI-A in `5b2f09d` (INT-AIA-004, claim #3); SYS-14's contribution is the payload COMPUTATION (kind/commonType/bounds) that those calls now carry, plus the pure `buildSelectionPayload` helper and the SYS-14 test seam. No double emission: each gesture calls emitSelectionChanged exactly once. |
+| Producer | SYS-14 (MOD-SELECTION) — `animator/ui/src/engine/client.ts` |
+| Consumers (existing, preserved) | SYS-17 Properties (re-render schema), SYS-03 Edit (cut/copy/delete enablement), SYS-22 Transform (numeric fields), Stage overlay, context-menu builder — all subscribe by event name; payload additive (new optional fields), no breaking change. |
+| Payload | `{prevTargets:number[], targets:number[], kind:'objects'|'none', commonType?:string, bounds?:{x,y,w,h}|null}` — `kind='objects'` when targets.length>0 (only object selection exists today; anchors/frames/bones/camera are future SYS and NOT invented), `'none'` when empty. `commonType` = the single shared `SelDetailJson.kind` if all match, else omitted (mixed). `bounds` = axis-aligned union of `selection_rects` (each already scene-space AABB with rotation applied by the core), `null` for empty. |
+| Source of truth | SYS-01 §27.1 table; Blueprint Part 03 §3.0 selection structure + §3.4.10/§3.4.11 + §3.9; core `selection_rects`/`selection_details` in `wasm.rs` (already provide the needed data). |
+| Ownership | No new event, no payload-schema change to bus.ts (fields already declared optional there). SYS-14 owns the producer + computation. SYS-01 owns the locked event name/schema. No other SYS files modified. |
+| Why now | INTEGRATED_AUDIT C-4 listed `selection:changed` payload partial, owner = SYS-14 (not yet built). Data already exists core-side; only the producer omitted it. Click-to-select also never fired the event — a Stage/SYS-14 defect discovered during the trace (FL-0006: missing propagation). |
+| Tests | New `sys14-selection.test.ts`: empty/single/multi-same/mixed commonType, bounds union (incl. identity + non-zero origin), deselect/reselect, selectAt/selectToggleAt/selectInRect emit exactly once, payload additivity (old consumers reading only targets still work). |
+| Status | LANDED — Leader/SYS-01 review requested (event schema itself unchanged) |

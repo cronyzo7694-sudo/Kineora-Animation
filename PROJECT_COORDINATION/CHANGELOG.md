@@ -1,5 +1,10 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-22 — AI-B: Edit ▸ Find and Replace (H03)
+
+- `edit.findReplace` DEFERRED → FUNCTIONAL. Dialog + find/replace/replace-all for Color (one undo via setNodeProps) and Symbol (swapInstance). Text/font/sound honest 0 matches. UI 767/767.
+
+
 > Records every meaningful coordination/spec/decision change. SYS-level detail lives in the SYS's own final-report; this is the project-level timeline.
 
 ---

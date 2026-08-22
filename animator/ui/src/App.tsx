@@ -67,6 +67,7 @@ import { NewDocumentDialog } from './components/NewDocumentDialog'
 import { TemplateGalleryDialog } from './components/TemplateGalleryDialog'
 import { SaveTemplateDialog } from './components/SaveTemplateDialog'
 import { CloseConfirmationDialog, type CloseConfirmationRequest } from './components/CloseConfirmationDialog'
+import { FindReplaceDialog } from './components/FindReplaceDialog'
 import type { CloseAllDecision } from './file'
 import type { ColorPreview } from './render/canvasRenderer'
 
@@ -104,6 +105,7 @@ export default function App() {
   const [help, setHelp] = useState<{ open: boolean; section: 'docs' | 'troubleshoot' }>({ open: false, section: 'docs' })
   const [docSettingsOpen, setDocSettingsOpen] = useState(false)
   const [gotoOpen, setGotoOpen] = useState(false)
+  const [findReplaceOpen, setFindReplaceOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
   const [highlightSymbol, setHighlightSymbol] = useState<number | null>(null)
   // edit depth (0 = document root). SYS-19 (symbol edit modes) will drive this;
@@ -506,6 +508,7 @@ export default function App() {
     exitEditRoot,
     openGoToFrame: () => setGotoOpen(true),
     openHelp: (section) => setHelp({ open: true, section }),
+    openFindReplace: () => setFindReplaceOpen(true),
     setAllPanelsVisible,
     confirmClose,
     confirmCloseDoc,
@@ -562,6 +565,7 @@ export default function App() {
       'edit.pasteInPlace',
       'edit.duplicate',
       'edit.delete',
+      'edit.findReplace',
       'view.rulers',
       'view.grid',
       'view.hideEdges',
@@ -755,6 +759,7 @@ export default function App() {
       )}
       {panels.timeline && <TimelineStrip status={status} notify={notify} height={layout.timelineH} />}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
+      <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
       <SymbolDialog
         open={symbolDialog.open}

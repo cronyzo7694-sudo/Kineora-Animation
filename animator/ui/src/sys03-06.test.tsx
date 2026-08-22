@@ -88,6 +88,7 @@ describe('SYS-03/04/06 command registry', () => {
       'edit.paste',
       'edit.delete',
       'edit.duplicate',
+      'edit.findReplace',
       'view.rulers',
       'view.grid',
       'view.hideEdges',
@@ -119,7 +120,6 @@ describe('SYS-03/04/06 command registry', () => {
 
   it('shape/boolean/group/find/prefs stay DEFERRED (unspecified or owned elsewhere)', () => {
     for (const id of [
-      'edit.findReplace',
       'edit.preferences',
       'view.guides',
       'view.snapping',

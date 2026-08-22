@@ -119,6 +119,8 @@ export interface CommandContext {
   openGoToFrame: () => void
   /** SYS-12: open the local Help dialog ('docs' or 'troubleshoot'). */
   openHelp: (section: 'docs' | 'troubleshoot') => void
+  /** SYS-03 H03: open Find & Replace dialog. */
+  openFindReplace: () => void
   /** SYS-11: set the visibility of ALL panels at once (F4 Hide/Show All).
    *  `false` hides every panel (chrome-only stage); `true` restores them. */
   setAllPanelsVisible: (visible: boolean) => void
@@ -700,10 +702,11 @@ export const commands: Command[] = [
     label: 'Find and Replace…',
     category: 'edit',
     shortcut: 'Ctrl+F',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2',
-    reason: 'find & replace is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[SYS-03 H03 §5.3] edit.findReplace() — 5 Blueprint targets; apply = undoable',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => c.openFindReplace(),
   },
   // Edit ▸ Timeline (frame clipboard — wired to the timeline's live selection)
   {
@@ -2096,6 +2099,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     exitEditRoot: () => {},
     openGoToFrame: () => {},
     openHelp: () => {},
+    openFindReplace: () => {},
     setAllPanelsVisible: () => {},
     confirmClose: (proceed) => proceed(),
     confirmCloseDoc: async () => 'cancel',

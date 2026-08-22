@@ -438,3 +438,15 @@ Undo/Redo (Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y), Cut/Copy (Ctrl+X/C, full object JSON 
 
 ## Cross-SYS
 No contract changed. selection:changed payload (SYS-14) is consumed correctly by Edit's cut/paste/delete. Folder guard is consistent with SYS-16 (folders) and SYS-20 (draw target).
+
+---
+
+# SESSION 6 — AI-B EDIT MENU — Find & Replace (2026-08-22)
+
+**HEAD at start:** `0101fbb`. Assignment: Edit menu deep completion (human-authorized this round).
+
+Inventory: clipboard/undo/select FUNCTIONAL. Highest incomplete: `edit.findReplace` was DEFERRED (H03 READY).
+
+Implemented H03 Find & Replace dialog: 5 Blueprint targets. Color + Symbol apply via existing `setNodeProps` / `swapInstance`. Text/font/sound = honest 0 matches (no entities). Color replace-all = one undo. Symbol replace-all = N undo steps (journal batch not in engine — recorded).
+
+UI 767/767. tsc -b PASS. Rust/WASM/native NOT TESTED this increment (no rustc in PATH this session).

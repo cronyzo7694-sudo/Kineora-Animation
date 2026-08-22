@@ -173,6 +173,43 @@ impl Node {
             _ => None,
         }
     }
+    /// Clone this node under a FRESH id — the deep-copy primitive for layer
+    /// duplication (F-20-02 "Duplicate = deep copy (frames+content)"). The
+    /// clone is bit-identical except for its id, so the copy is independent.
+    pub fn with_id(&self, id: NodeId) -> Node {
+        match self {
+            Node::Rect {
+                transform,
+                width,
+                height,
+                fill,
+                stroke,
+                stroke_width,
+                ..
+            } => Node::Rect {
+                id,
+                transform: transform.clone(),
+                width: *width,
+                height: *height,
+                fill: fill.clone(),
+                stroke: stroke.clone(),
+                stroke_width: *stroke_width,
+            },
+            Node::SymbolInstance {
+                transform,
+                symbol_id,
+                loop_mode,
+                first_frame,
+                ..
+            } => Node::SymbolInstance {
+                id,
+                transform: transform.clone(),
+                symbol_id: *symbol_id,
+                loop_mode: *loop_mode,
+                first_frame: *first_frame,
+            },
+        }
+    }
 }
 
 /// Sparse frame record (REQ-TIM-001). `transforms` = per-keyframe transform
@@ -242,6 +279,21 @@ pub struct Layer {
     pub tweens: BTreeMap<u32, ClassicTween>,
     pub visible: bool,
     pub locked: bool,
+    /// Outline mode (F-07-02 E3 / F-20-03): render this layer's content as
+    /// strokes only (authoring view aid). The content stays fully editable,
+    /// selectable, and is EXPORTED fully — outline is view-only.
+    #[serde(default)]
+    pub outline: bool,
+    /// Outline color (Part 33 `layer.outlineColor` / F-20-01 model). Used by
+    /// the Layers panel swatch + the outline-mode stroke color. Default #ff0000
+    /// per the F-20-01 reference model.
+    #[serde(default = "default_outline_color")]
+    pub outline_color: String,
+}
+
+/// F-20-01 reference layer model's default outline color.
+pub fn default_outline_color() -> String {
+    "#ff0000".into()
 }
 
 /// Classic tween span record (Part 09.5): `ease` is the −100..+100 slider
@@ -302,6 +354,8 @@ impl Document {
             tweens: BTreeMap::new(),
             visible: true,
             locked: false,
+            outline: false,
+            outline_color: default_outline_color(),
         };
         let scene = Scene {
             id: SceneId(1),

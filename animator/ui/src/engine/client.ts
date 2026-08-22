@@ -544,6 +544,50 @@ export function moveLayer(from: number, to: number): boolean {
   return ok
 }
 
+/** Outline-mode toggle (F-07-02 E3 / F-20-03) — strokes-only view aid. */
+export function setLayerOutline(index: number, outline: boolean): boolean {
+  const ok = mod?.kineora_set_layer_outline(index, outline) ?? false
+  if (ok) docChanged('layer')
+  return ok
+}
+
+/** Outline color (F-07-02 E6 / Part 33 `layer.outlineColor`). */
+export function setLayerOutlineColor(index: number, color: string): boolean {
+  const ok = mod?.kineora_set_layer_outline_color(index, color) ?? false
+  if (ok) docChanged('layer')
+  return ok
+}
+
+/** Alt+click "all others" batch toggles (F-07-02 E1/E2/E3 + M.3) — each is
+ *  ONE undo step for the whole batch. */
+export function toggleOtherLayersVisible(exclude: number): boolean {
+  const ok = mod?.kineora_toggle_other_layers_visible(exclude) ?? false
+  if (ok) docChanged('layer')
+  return ok
+}
+
+export function toggleOtherLayersLocked(exclude: number): boolean {
+  const ok = mod?.kineora_toggle_other_layers_locked(exclude) ?? false
+  if (ok) docChanged('layer')
+  return ok
+}
+
+export function toggleOtherLayersOutline(exclude: number): boolean {
+  const ok = mod?.kineora_toggle_other_layers_outline(exclude) ?? false
+  if (ok) docChanged('layer')
+  return ok
+}
+
+/** Duplicate a layer above the source — deep copy of frames + content
+ *  (Part 20.1 / F-20-02). Returns the new layer's index, or -1 if the engine
+ *  is absent / 0 if the duplicate was blocked (0 is never a valid result). */
+export function duplicateLayer(index: number): number {
+  if (!mod) return -1
+  const idx = mod.kineora_duplicate_layer(index)
+  if (idx > 0) docChanged('layer')
+  return idx
+}
+
 // ——— Object / document properties (Part 26) ———
 
 /** Edit transform fields at the current playhead (one undoable command). */

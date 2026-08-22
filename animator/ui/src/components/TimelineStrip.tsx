@@ -684,6 +684,11 @@ export function TimelineStrip({ status, notify, height }: Props) {
                   style={{ position: 'absolute', left: 4, top: 3, width: NAME_W - 8, color: l.locked ? '#777' : '#bbb', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
                 >
                   {l.locked ? '🔒 ' : ''}{l.name}
+                  {!l.visible && (
+                    <span data-testid={`timeline-layer-hidden-${engineIndex}`} title="Layer hidden (not rendered / not exported)" style={{ color: '#e66', fontSize: 10, marginLeft: 3 }}>
+                      ✕
+                    </span>
+                  )}
                 </span>
                 <div style={{ position: 'absolute', left: NAME_W, top: 0, right: 0, bottom: 0 }}>
                   {kinds.map((kind, i) => {

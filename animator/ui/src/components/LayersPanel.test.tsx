@@ -4,22 +4,48 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../engine/client', () => ({
   createLayer: vi.fn(() => 2),
   deleteLayer: vi.fn(() => true),
+  duplicateLayer: vi.fn(() => 2),
   renameLayer: vi.fn(() => true),
   setActiveLayer: vi.fn(() => true),
   setLayerVisible: vi.fn(() => true),
   setLayerLocked: vi.fn(() => true),
+  setLayerOutline: vi.fn(() => true),
+  setLayerOutlineColor: vi.fn(() => true),
+  toggleOtherLayersVisible: vi.fn(() => true),
+  toggleOtherLayersLocked: vi.fn(() => true),
+  toggleOtherLayersOutline: vi.fn(() => true),
   moveLayer: vi.fn(() => true),
 }))
 
-import { createLayer, deleteLayer, moveLayer, renameLayer, setActiveLayer, setLayerLocked, setLayerVisible } from '../engine/client'
+import {
+  createLayer,
+  deleteLayer,
+  duplicateLayer,
+  moveLayer,
+  renameLayer,
+  setActiveLayer,
+  setLayerLocked,
+  setLayerOutline,
+  setLayerOutlineColor,
+  setLayerVisible,
+  toggleOtherLayersLocked,
+  toggleOtherLayersOutline,
+  toggleOtherLayersVisible,
+} from '../engine/client'
 import { LayersPanel } from './LayersPanel'
 import type { StatusJson } from '../engine/wasmTypes'
 
 const setActiveLayerMock = vi.mocked(setActiveLayer)
 const setLayerVisibleMock = vi.mocked(setLayerVisible)
 const setLayerLockedMock = vi.mocked(setLayerLocked)
+const setLayerOutlineMock = vi.mocked(setLayerOutline)
+const setLayerOutlineColorMock = vi.mocked(setLayerOutlineColor)
+const toggleOtherVisibleMock = vi.mocked(toggleOtherLayersVisible)
+const toggleOtherLockedMock = vi.mocked(toggleOtherLayersLocked)
+const toggleOtherOutlineMock = vi.mocked(toggleOtherLayersOutline)
 const createLayerMock = vi.mocked(createLayer)
 const deleteLayerMock = vi.mocked(deleteLayer)
+const duplicateLayerMock = vi.mocked(duplicateLayer)
 const renameLayerMock = vi.mocked(renameLayer)
 const moveLayerMock = vi.mocked(moveLayer)
 
@@ -147,5 +173,98 @@ describe('LayersPanel', () => {
     expect(screen.getByTestId('layers-add')).toBeDisabled()
     fireEvent.click(screen.getByTestId('layers-add'))
     expect(createLayerMock).not.toHaveBeenCalled()
+  })
+
+  // ——— Outline mode (F-07-02 E3, F-20-03) ———
+
+  it('outline swatch toggles outline mode on the engine', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layer-outline-0'))
+    expect(setLayerOutlineMock).toHaveBeenCalledWith(0, true)
+  })
+
+  it('outline swatch reflects the engine outline state and color', () => {
+    const st = makeStatus({
+      layers: [
+        { id: 1, name: 'Layer 1', visible: true, locked: false, outline: true, outline_color: '#00aa55', active: true, selected_objects: 0, keyframes: [], tweens: [] },
+        { id: 2, name: 'Layer 2', visible: true, locked: false, active: false, selected_objects: 0, keyframes: [], tweens: [] },
+      ],
+    })
+    render(<LayersPanel status={st} notify={notify} />)
+    // Layer 1 (engine index 0) carries the outline flag/color
+    expect(screen.getByTestId('layer-outline-0')).toHaveAttribute('data-outline', 'true')
+    expect(screen.getByTestId('layer-outline-0')).toHaveAttribute('data-color', '#00aa55')
+    expect(screen.getByTestId('layer-outline-1')).toHaveAttribute('data-outline', 'false')
+  })
+
+  it('double-clicking the outline swatch edits the outline color', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.doubleClick(screen.getByTestId('layer-outline-1'))
+    const picker = screen.getByTestId('layer-outline-color-1')
+    fireEvent.change(picker, { target: { value: '#123456' } })
+    fireEvent.blur(picker)
+    expect(setLayerOutlineColorMock).toHaveBeenCalledWith(1, '#123456')
+  })
+
+  it('Esc cancels the outline color edit without an engine call', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.doubleClick(screen.getByTestId('layer-outline-0'))
+    const picker = screen.getByTestId('layer-outline-color-0')
+    fireEvent.change(picker, { target: { value: '#fedcba' } })
+    fireEvent.keyDown(picker, { key: 'Escape' })
+    expect(setLayerOutlineColorMock).not.toHaveBeenCalled()
+  })
+
+  // ——— Alt+click "all others" batches (F-07-02 E1/E2/E3) ———
+
+  it('Alt+click on the eye toggles every OTHER layer', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layer-eye-1'), { altKey: true })
+    expect(setLayerVisibleMock).not.toHaveBeenCalled()
+    expect(toggleOtherVisibleMock).toHaveBeenCalledWith(1)
+  })
+
+  it('Alt+click on the lock toggles every OTHER layer', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layer-lock-0'), { altKey: true })
+    expect(setLayerLockedMock).not.toHaveBeenCalled()
+    expect(toggleOtherLockedMock).toHaveBeenCalledWith(0)
+  })
+
+  it('Alt+click on the outline swatch toggles every OTHER layer', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layer-outline-0'), { altKey: true })
+    expect(setLayerOutlineMock).not.toHaveBeenCalled()
+    expect(toggleOtherOutlineMock).toHaveBeenCalledWith(0)
+  })
+
+  // ——— State indicators (F-07-02 E4/E7) ———
+
+  it('shows a red X on hidden layers and an editable-state marker on the active row', () => {
+    const st = makeStatus({
+      layers: [
+        { id: 1, name: 'Layer 1', visible: false, locked: false, active: true, selected_objects: 0, keyframes: [], tweens: [] },
+        { id: 2, name: 'Layer 2', visible: true, locked: true, active: false, selected_objects: 0, keyframes: [], tweens: [] },
+      ],
+    })
+    render(<LayersPanel status={st} notify={notify} />)
+    // Layer 1 (hidden, active) has engine index 0 → its marker renders there
+    expect(screen.getByTestId('layer-hidden-0')).toHaveTextContent('✕')
+    // active + hidden → pencil-with-slash (blocked) state
+    expect(screen.getByTestId('layer-edit-state-0')).toHaveTextContent('⊘')
+  })
+
+  it('shows the pencil marker on an active editable layer and nothing on inactive rows', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('layer-edit-state-0')).toHaveTextContent('✎')
+    expect(screen.getByTestId('layer-edit-state-1')).toHaveTextContent('')
+  })
+
+  // ——— Duplicate layer (F-20-02) ———
+
+  it('duplicate button deep-copies the ACTIVE layer on the engine', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('layers-dup'))
+    expect(duplicateLayerMock).toHaveBeenCalledWith(0) // active layer is engine index 0
   })
 })

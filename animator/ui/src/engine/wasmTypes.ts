@@ -12,6 +12,10 @@ export interface RectItemJson {
   fill: string
   stroke: string | null
   stroke_width: number
+  /** Layer outline color when the item's scene layer is in outline mode
+   *  (F-20-03) — the editor draws stroke-only; export ignores it. Optional for
+   *  legacy test fixtures. */
+  outline_color?: string | null
 }
 
 export interface SelRectJson {
@@ -76,6 +80,11 @@ export interface LayerJson {
   name: string
   visible: boolean
   locked: boolean
+  /** Outline-mode view aid (F-07-02 E3 / F-20-03) — strokes-only rendering.
+   *  Optional for legacy test fixtures. */
+  outline?: boolean
+  /** Layer outline color (Part 33 `layer.outlineColor`, F-20-01). */
+  outline_color?: string
   active: boolean
   selected_objects: number
   keyframes: FrameMarkerJson[]
@@ -229,6 +238,12 @@ export interface KineoraWasm {
   kineora_rename_layer(index: number, name: string): boolean
   kineora_set_layer_visible(index: number, visible: boolean): boolean
   kineora_set_layer_locked(index: number, locked: boolean): boolean
+  kineora_set_layer_outline(index: number, outline: boolean): boolean
+  kineora_set_layer_outline_color(index: number, color: string): boolean
+  kineora_toggle_other_layers_visible(exclude: number): boolean
+  kineora_toggle_other_layers_locked(exclude: number): boolean
+  kineora_toggle_other_layers_outline(exclude: number): boolean
+  kineora_duplicate_layer(index: number): number
   kineora_move_layer(from: number, to: number): boolean
   kineora_patch_transforms(json: string): void
   kineora_set_node_props(json: string): void

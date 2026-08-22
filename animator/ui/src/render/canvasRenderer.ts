@@ -98,13 +98,21 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
 
   for (const it of s.items) {
     const off = preview && selected.has(it.id) ? preview : { x: 0, y: 0 }
+    // Outline mode (F-20-03): items whose scene layer is outlined render as
+    // strokes in the layer's outline color — a VIEW aid; `renderContent` (the
+    // export rasterizer) builds its own styles and ignores this entirely, and
+    // the Rust `exportSvg` never sees it either.
+    const outline = it.outline_color ?? null
+    const base: ItemStyle = outline
+      ? { fill: 'rgba(0,0,0,0)', stroke: outline, strokeWidth: 1 }
+      : { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width }
     const style: ItemStyle = pv && pv.id === it.id
       ? {
-          fill: pv.fill ?? it.fill,
-          stroke: pv.stroke !== undefined ? pv.stroke : it.stroke,
-          strokeWidth: pv.strokeWidth ?? it.stroke_width,
+          fill: pv.fill ?? base.fill,
+          stroke: pv.stroke !== undefined ? pv.stroke : base.stroke,
+          strokeWidth: pv.strokeWidth ?? base.strokeWidth,
         }
-      : { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width }
+      : base
     drawRectItem(ctx, vp, it, off, style)
   }
 

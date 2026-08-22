@@ -3,11 +3,12 @@ use std::path::Path;
 use crate::command::{
     ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
     CreateSymbol, DeleteFrames, DeleteLayer, DeleteSymbol, DrawRect, DuplicateFrames,
-    DuplicateKeyframe, History, InsertBlankKeyframe, InsertFrames, InsertKeyframe, MoveKeyframe,
-    MoveKeyframeSequence, MoveSelection, PasteFrames, PlaceSymbol, RemoveClassicTween,
-    RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer, ResizeSpan, ReverseFrames,
-    SetClassicTween, SetDocumentSettings, SetFrameLabel, SetInstanceLoop, SetLayerLocked,
-    SetLayerVisible, SetNodeProps, SwapInstance, TransformSelection,
+    DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames, InsertKeyframe,
+    LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames, PlaceSymbol,
+    RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer, ResizeSpan,
+    ReverseFrames, SetClassicTween, SetDocumentSettings, SetFrameLabel, SetInstanceLoop,
+    SetLayerFlags, SetLayerLocked, SetLayerOutline, SetLayerOutlineColor, SetLayerVisible,
+    SetNodeProps, SwapInstance, TransformSelection,
 };
 use crate::eval::{
     evaluate, hit_test, hits_in_rect, node_bounds, node_layer_index, node_transform_in_scene,
@@ -872,6 +873,8 @@ impl Session {
             tweens: std::collections::BTreeMap::new(),
             visible: true,
             locked: false,
+            outline: false,
+            outline_color: crate::model::default_outline_color(),
         };
         let symbol = Symbol {
             id: symbol_id,
@@ -924,6 +927,8 @@ impl Session {
             tweens: std::collections::BTreeMap::new(),
             visible: true,
             locked: false,
+            outline: false,
+            outline_color: crate::model::default_outline_color(),
         };
         let symbol = Symbol {
             id,
@@ -1121,6 +1126,8 @@ impl Session {
             tweens: std::collections::BTreeMap::new(),
             visible: true,
             locked: false,
+            outline: false,
+            outline_color: crate::model::default_outline_color(),
         };
         let cmd = CreateLayer {
             scene,
@@ -1253,6 +1260,241 @@ impl Session {
         }
         self.log(&format!("layer:locked@{index}={locked}"));
         true
+    }
+
+    /// Outline-mode toggle (undoable; F-07-02 E3 / F-20-03). Outline is a view
+    /// aid — no selection impact.
+    pub fn set_layer_outline(&mut self, index: usize, outline: bool) -> bool {
+        let Some(l) = self
+            .doc
+            .scene(self.active_scene)
+            .and_then(|sc| sc.layers.get(index))
+            .cloned()
+        else {
+            return false;
+        };
+        if l.outline == outline {
+            return false;
+        }
+        let cmd = SetLayerOutline {
+            scene: self.active_scene,
+            layer_id: l.id,
+            before: l.outline,
+            after: outline,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("layer:outline@{index}={outline}"));
+        true
+    }
+
+    /// Outline color (undoable; F-07-02 E6 "Layer Properties → outline color" /
+    /// Part 33 `layer.outlineColor`). Empty string = no-op.
+    pub fn set_layer_outline_color(&mut self, index: usize, color: &str) -> bool {
+        let color = color.trim();
+        if color.is_empty() {
+            return false;
+        }
+        let Some(l) = self
+            .doc
+            .scene(self.active_scene)
+            .and_then(|sc| sc.layers.get(index))
+            .cloned()
+        else {
+            return false;
+        };
+        if l.outline_color == color {
+            return false;
+        }
+        let cmd = SetLayerOutlineColor {
+            scene: self.active_scene,
+            layer_id: l.id,
+            before: l.outline_color,
+            after: color.to_string(),
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("layer:outline-color@{index}={color}"));
+        true
+    }
+
+    /// Alt+click "all others" batch toggle (F-07-02 E1/E2/E3 + M.3): flips the
+    /// given flag on EVERY layer except `exclude`, as ONE undo step. Returns
+    /// false when there are no other layers (nothing to toggle).
+    ///
+    /// M.3 edge case (eye): when EVERY layer is hidden, the Alt+click shows
+    /// ALL layers — so the clicked layer joins the batch in that case too.
+    /// [OUR DESIGN DECISION — registered: the evidence table says "toggle all
+    /// OTHERS" while M.3 says "all hidden → shows all"; the M.3 rescue only
+    /// fires when literally every layer is hidden.]
+    fn batch_flag_toggle(&mut self, exclude: usize, kind: LayerFlagKind) -> bool {
+        let Some(sc) = self.doc.scene(self.active_scene) else {
+            return false;
+        };
+        let count = sc.layers.len();
+        if count <= 1 {
+            return false;
+        }
+        let all_hidden = kind == LayerFlagKind::Visible && sc.layers.iter().all(|l| !l.visible);
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for (i, l) in sc.layers.iter().enumerate() {
+            // Lock/outline batches never touch the clicked layer; the eye batch
+            // touches it ONLY in the M.3 all-hidden rescue.
+            if i == exclude && !(kind == LayerFlagKind::Visible && all_hidden) {
+                continue;
+            }
+            let cur = match kind {
+                LayerFlagKind::Visible => l.visible,
+                LayerFlagKind::Locked => l.locked,
+                LayerFlagKind::Outline => l.outline,
+            };
+            before.push((l.id, cur));
+            after.push((l.id, !cur));
+        }
+        if before.is_empty() {
+            return false;
+        }
+        let cmd = SetLayerFlags {
+            scene: self.active_scene,
+            kind,
+            before,
+            after,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        if kind == LayerFlagKind::Visible {
+            self.prune_selection_by_layer_state();
+        }
+        self.log(&format!("layer:batch-{kind:?}:exclude={exclude}"));
+        true
+    }
+
+    pub fn toggle_other_layers_visible(&mut self, exclude: usize) -> bool {
+        self.batch_flag_toggle(exclude, LayerFlagKind::Visible)
+    }
+
+    pub fn toggle_other_layers_locked(&mut self, exclude: usize) -> bool {
+        self.batch_flag_toggle(exclude, LayerFlagKind::Locked)
+    }
+
+    pub fn toggle_other_layers_outline(&mut self, exclude: usize) -> bool {
+        self.batch_flag_toggle(exclude, LayerFlagKind::Outline)
+    }
+
+    /// Duplicate a layer ABOVE the source: deep copy of frames AND content
+    /// (Part 20.1 / F-20-02). The copy becomes active. Returns its index.
+    pub fn duplicate_layer(&mut self, index: usize) -> Option<usize> {
+        let scene = self.active_scene;
+        let count = self.doc.scene(scene)?.layers.len();
+        if index >= count {
+            return None;
+        }
+        let src = self.doc.scene(scene)?.layers[index].clone();
+        let name = self.next_copy_name(&src.name);
+
+        // Deep-copy content: every node referenced by the source layer gets a
+        // fresh NodeId; the clone is bit-identical except for its id, so the
+        // duplicate layer is fully independent of the source (F-20-02).
+        // (Clone the nodes out first so the immutable read and the mutable
+        // id-allocation phases never overlap.)
+        let mut remap: std::collections::BTreeMap<NodeId, NodeId> =
+            std::collections::BTreeMap::new();
+        let mut pending: Vec<(NodeId, Node)> = Vec::new();
+        for fr in src.keyframes.values() {
+            if let Frame::Keyframe { content, .. } = fr {
+                for id in content {
+                    if remap.contains_key(id) {
+                        continue;
+                    }
+                    if let Some(node) = self.doc.nodes.get(id) {
+                        pending.push((*id, node.clone()));
+                    }
+                }
+            }
+        }
+        let mut copied_nodes: std::collections::BTreeMap<NodeId, Node> =
+            std::collections::BTreeMap::new();
+        for (id, node) in pending {
+            let new_id = self.doc.alloc_node_id();
+            remap.insert(id, new_id);
+            copied_nodes.insert(new_id, node.with_id(new_id));
+        }
+        let mut keyframes: std::collections::BTreeMap<u32, Frame> =
+            std::collections::BTreeMap::new();
+        for (f, fr) in &src.keyframes {
+            match fr {
+                Frame::Blank => {
+                    keyframes.insert(*f, Frame::Blank);
+                }
+                Frame::Keyframe {
+                    content,
+                    transforms,
+                    label,
+                } => {
+                    let content2: Vec<NodeId> = content
+                        .iter()
+                        .filter_map(|id| remap.get(id).copied())
+                        .collect();
+                    let transforms2: std::collections::BTreeMap<NodeId, Transform> = transforms
+                        .iter()
+                        .filter_map(|(id, t)| remap.get(id).map(|nid| (*nid, t.clone())))
+                        .collect();
+                    keyframes.insert(
+                        *f,
+                        Frame::Keyframe {
+                            content: content2,
+                            transforms: transforms2,
+                            label: label.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
+        let layer = Layer {
+            id: self.doc.alloc_layer_id(),
+            name,
+            keyframes,
+            tweens: src.tweens.clone(),
+            visible: src.visible,
+            locked: src.locked,
+            outline: src.outline,
+            outline_color: src.outline_color.clone(),
+        };
+        let cmd = DuplicateLayer {
+            scene,
+            source_index: index,
+            layer,
+            copied_nodes,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.active_layer = index + 1;
+        self.log(&format!("layer:duplicate@{index}"));
+        Some(index + 1)
+    }
+
+    /// Unique name for a duplicated layer, Animate-style: "arm", "arm copy",
+    /// "arm copy 2", "arm copy 3", … — duplicates of a copy keep counting from
+    /// the original stem instead of stacking "copy copy".
+    fn next_copy_name(&self, base: &str) -> String {
+        let taken = |n: &str| {
+            self.doc
+                .scenes
+                .iter()
+                .flat_map(|sc| sc.layers.iter())
+                .any(|l| l.name == n)
+        };
+        let stem = strip_copy_suffix(base);
+        let first = format!("{stem} copy");
+        if !taken(&first) {
+            return first;
+        }
+        let mut i = 2;
+        loop {
+            let c = format!("{stem} copy {i}");
+            if !taken(&c) {
+                return c;
+            }
+            i += 1;
+        }
     }
 
     /// Reorder a layer (undoable). The active layer follows its id.
@@ -1580,4 +1822,20 @@ fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
         // instances have no base rect props — patch is a no-op for them
         other => other.clone(),
     }
+}
+
+/// Strip an Animate-style copy suffix ("arm copy", "arm copy 2") back to the
+/// original stem, so duplicating a copy keeps counting ("arm copy 2", …)
+/// instead of stacking "copy copy".
+fn strip_copy_suffix(name: &str) -> &str {
+    if let Some(rest) = name.strip_suffix(" copy") {
+        return rest;
+    }
+    if let Some(idx) = name.rfind(" copy ") {
+        let suffix = &name[idx + " copy ".len()..];
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return &name[..idx];
+        }
+    }
+    name
 }

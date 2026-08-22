@@ -512,3 +512,87 @@ describe('export rasterizer (Part 28.1 — content-only, viewport-independent)',
     }
   })
 })
+
+describe('canvas renderer — outline mode (F-20-03)', () => {
+  /** Minimal ctx that records fill/stroke styles + rect calls in order. */
+  function recordingCtx() {
+    const fillStyles: string[] = []
+    const strokeStyles: string[] = []
+    let currentFill = ''
+    let currentStroke = ''
+    const ctx = {
+      clearRect: () => {},
+      fillRect: (..._a: number[]) => fillStyles.push(currentFill),
+      strokeRect: (..._a: number[]) => strokeStyles.push(currentStroke),
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) {
+        currentFill = v
+      },
+      set strokeStyle(v: string) {
+        currentStroke = v
+      },
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return currentFill
+      },
+      get strokeStyle() {
+        return currentStroke
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+    return { ctx, fillStyles, strokeStyles }
+  }
+
+  it('draws outline-mode items stroke-only in the layer outline color (editor view)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, fillStyles, strokeStyles } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 100,
+        stageH: 100,
+        items: [
+          { id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 },
+          { id: 2, x: 20, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0, outline_color: '#123456' },
+        ],
+      },
+      100,
+      100,
+    )
+    // fills: pasteboard, stage, item1 (normal fill), item2 (transparent)
+    expect(fillStyles[2]).toBe('#ff0000')
+    expect(fillStyles[3]).toBe('rgba(0,0,0,0)')
+    // strokes: stage border, item2 outline (in the LAYER outline color)
+    expect(strokeStyles[strokeStyles.length - 1]).toBe('#123456')
+  })
+
+  it('export rasterizer ignores outline mode and draws the full content (F-20-03 "exports fully")', async () => {
+    const { renderContent } = await import('./canvasRenderer')
+    const { ctx, fillStyles } = recordingCtx()
+    renderContent(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 100,
+        stageH: 100,
+        items: [{ id: 2, x: 20, y: 0, w: 10, h: 10, rotation: 0, fill: '#abcdef', stroke: null, stroke_width: 0, outline_color: '#123456' }],
+      },
+    )
+    expect(fillStyles[fillStyles.length - 1]).toBe('#abcdef')
+  })
+})

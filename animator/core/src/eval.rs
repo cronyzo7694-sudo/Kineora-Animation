@@ -23,6 +23,13 @@ pub struct RectItem {
     pub fill: String,
     pub stroke: Option<String>,
     pub stroke_width: f64,
+    /// Set when the item's SCENE layer is in outline mode (F-07-02 E3 /
+    /// F-20-03): the layer's outline color. Propagates through symbol nesting,
+    /// so everything placed on an outline layer renders as strokes. This is a
+    /// VIEW aid only — SVG export and the export rasterizer ignore it and
+    /// always draw the full content (F-20-03 "outline exports fully").
+    #[serde(default)]
+    pub outline_color: Option<String>,
 }
 
 fn base_transform(doc: &Document, id: NodeId) -> Transform {
@@ -220,6 +227,7 @@ fn compose_rect_item(it: &RectItem, ctx: &Transform) -> RectItem {
         fill: it.fill.clone(),
         stroke: it.stroke.clone(),
         stroke_width: it.stroke_width * ((ctx.scale_x.abs() + ctx.scale_y.abs()) / 2.0),
+        outline_color: it.outline_color.clone(),
     }
 }
 
@@ -250,6 +258,12 @@ pub(crate) fn instance_child_frame(
 /// Recursively flatten a layer stack at `frame` into render items, applying the
 /// accumulated instance context `ctx` (None = identity). `skip_locked` gates
 /// locked layers (used by hit-testing/marquee; rendering keeps locked layers).
+/// `outline` = the outline color inherited from the originating SCENE layer
+/// (None = normal rendering); a layer in outline mode overrides it with its own
+/// color (F-20-03 view aid, propagated through symbol nesting).
+// The 8 parameters are the natural recursion payload; grouping them into a
+// struct would obscure the hot path for no caller benefit.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_items(
     doc: &Document,
     layers: &[Layer],
@@ -257,12 +271,18 @@ pub(crate) fn collect_items(
     depth: u32,
     ctx: Option<&Transform>,
     skip_locked: bool,
+    outline: Option<&str>,
     out: &mut Vec<RectItem>,
 ) {
     for layer in layers {
         if !layer.visible || (skip_locked && layer.locked) {
             continue;
         }
+        let layer_outline = if layer.outline {
+            Some(layer.outline_color.as_str())
+        } else {
+            outline
+        };
         let states = node_states_at(doc, layer, frame);
         for id in layer.content_at(frame) {
             let Some(t) = states.get(&id).cloned() else {
@@ -288,6 +308,7 @@ pub(crate) fn collect_items(
                         fill: fill.clone(),
                         stroke: stroke.clone(),
                         stroke_width: *stroke_width,
+                        outline_color: layer_outline.map(str::to_string),
                     };
                     out.push(match ctx {
                         Some(c) => compose_rect_item(&it, c),
@@ -318,6 +339,7 @@ pub(crate) fn collect_items(
                         depth + 1,
                         Some(&composed),
                         skip_locked,
+                        layer_outline,
                         out,
                     );
                 }
@@ -334,7 +356,7 @@ pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
     let Some(scene_) = doc.scene(scene) else {
         return out;
     };
-    collect_items(doc, &scene_.layers, frame, 0, None, false, &mut out);
+    collect_items(doc, &scene_.layers, frame, 0, None, false, None, &mut out);
     out
 }
 
@@ -410,6 +432,7 @@ pub fn hits_in_rect(
                         fill: String::new(),
                         stroke: None,
                         stroke_width: 0.0,
+                        outline_color: None,
                     };
                     if aabb_overlaps(&it, left, right, top, bottom) {
                         out.push(id);
@@ -478,6 +501,7 @@ fn hit_layers(
                         fill: fill.clone(),
                         stroke: stroke.clone(),
                         stroke_width: *stroke_width,
+                        outline_color: None,
                     };
                     if rect_contains(&it, x, y) {
                         return Some(id);
@@ -579,7 +603,16 @@ fn instance_content_bounds(
 ) -> Option<(f64, f64, f64, f64)> {
     let child = instance_child_frame(sym, loop_mode, first_frame, frame);
     let mut items = Vec::new();
-    collect_items(doc, &sym.timeline, child, 1, Some(t), true, &mut items);
+    collect_items(
+        doc,
+        &sym.timeline,
+        child,
+        1,
+        Some(t),
+        true,
+        None,
+        &mut items,
+    );
     let mut minx = f64::INFINITY;
     let mut miny = f64::INFINITY;
     let mut maxx = f64::NEG_INFINITY;

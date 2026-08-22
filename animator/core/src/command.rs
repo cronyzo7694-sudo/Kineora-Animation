@@ -1848,7 +1848,16 @@ impl Command for DeleteSymbol {
                 };
                 let child = instance_child_frame(&sym, lm, ff, 1);
                 let mut items = Vec::new();
-                collect_items(doc, &sym.timeline, child, 0, Some(&t), false, &mut items);
+                collect_items(
+                    doc,
+                    &sym.timeline,
+                    child,
+                    0,
+                    Some(&t),
+                    false,
+                    None,
+                    &mut items,
+                );
                 let clones: Vec<NodeId> = items
                     .into_iter()
                     .map(|it| {
@@ -2090,6 +2099,167 @@ impl Command for SetLayerLocked {
         {
             l.locked = self.before;
         }
+    }
+}
+
+/// CMD-LAYER-OUTLINE — outline-mode toggle (F-07-02 E3 / F-20-03). Outline is
+/// an authoring VIEW aid (strokes only): content stays editable, selectable,
+/// and exported fully — so this command never touches selection or evaluate.
+pub struct SetLayerOutline {
+    pub scene: usize,
+    pub layer_id: LayerId,
+    pub before: bool,
+    pub after: bool,
+}
+
+impl Command for SetLayerOutline {
+    fn label(&self) -> String {
+        "Toggle layer outline".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.outline = self.after;
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.outline = self.before;
+        }
+    }
+}
+
+/// CMD-LAYER-OUTLINE-COLOR — outline color (F-07-02 E6 "Layer Properties →
+/// outline color" / Part 33 `layer.outlineColor`). Display metadata only.
+pub struct SetLayerOutlineColor {
+    pub scene: usize,
+    pub layer_id: LayerId,
+    pub before: String,
+    pub after: String,
+}
+
+impl Command for SetLayerOutlineColor {
+    fn label(&self) -> String {
+        "Set layer outline color".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.outline_color = self.after.clone();
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        if let Some(l) = doc
+            .scenes
+            .get_mut(self.scene)
+            .and_then(|sc| sc.layers.iter_mut().find(|l| l.id == self.layer_id))
+        {
+            l.outline_color = self.before.clone();
+        }
+    }
+}
+
+/// Which per-layer flag a batch toggle (Alt+click "all others") addresses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LayerFlagKind {
+    Visible,
+    Locked,
+    Outline,
+}
+
+/// CMD-LAYER-FLAGS — Alt+click "all others" batch toggle (F-07-02 E1/E2/E3,
+/// M.3 "Alt+click eye with all hidden → shows all" proves toggle semantics).
+/// ONE undo step for the whole batch; before/after are explicit so undo/redo
+/// are exact regardless of layer count or later reordering.
+pub struct SetLayerFlags {
+    pub scene: usize,
+    pub kind: LayerFlagKind,
+    pub before: Vec<(LayerId, bool)>,
+    pub after: Vec<(LayerId, bool)>,
+}
+
+fn apply_layer_flags(
+    doc: &mut Document,
+    scene: usize,
+    kind: LayerFlagKind,
+    pairs: &[(LayerId, bool)],
+) {
+    let Some(sc) = doc.scenes.get_mut(scene) else {
+        return;
+    };
+    for (id, val) in pairs {
+        if let Some(l) = sc.layers.iter_mut().find(|l| l.id == *id) {
+            match kind {
+                LayerFlagKind::Visible => l.visible = *val,
+                LayerFlagKind::Locked => l.locked = *val,
+                LayerFlagKind::Outline => l.outline = *val,
+            }
+        }
+    }
+}
+
+impl Command for SetLayerFlags {
+    fn label(&self) -> String {
+        match self.kind {
+            LayerFlagKind::Visible => "Show/hide other layers".into(),
+            LayerFlagKind::Locked => "Lock/unlock other layers".into(),
+            LayerFlagKind::Outline => "Toggle outline on other layers".into(),
+        }
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        apply_layer_flags(doc, self.scene, self.kind, &self.after);
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        apply_layer_flags(doc, self.scene, self.kind, &self.before);
+    }
+}
+
+/// CMD-LAYER-DUP — duplicate a layer ABOVE the source (Part 20.1 / F-20-02
+/// "Duplicate = deep copy (frames+content)"). The copy carries a fresh LayerId
+/// and every content node is cloned under a NEW NodeId (`Node::with_id`), so
+/// the two layers are fully independent — editing the copy never touches the
+/// source. Symbol instances reference the shared Library (correct: instances
+/// of the same symbols, like Animate). Undo removes the copy + its nodes
+/// exactly.
+pub struct DuplicateLayer {
+    pub scene: usize,
+    pub source_index: usize,
+    pub layer: Layer,
+    pub copied_nodes: BTreeMap<NodeId, Node>,
+}
+
+impl Command for DuplicateLayer {
+    fn label(&self) -> String {
+        "Duplicate layer".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        for (id, n) in &self.copied_nodes {
+            doc.nodes.insert(*id, n.clone());
+        }
+        let Some(sc) = doc.scenes.get_mut(self.scene) else {
+            return;
+        };
+        let idx = (self.source_index + 1).min(sc.layers.len());
+        sc.layers.insert(idx, self.layer.clone());
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        for id in self.copied_nodes.keys() {
+            doc.nodes.remove(id);
+        }
+        let Some(sc) = doc.scenes.get_mut(self.scene) else {
+            return;
+        };
+        sc.layers.retain(|l| l.id != self.layer.id);
     }
 }
 

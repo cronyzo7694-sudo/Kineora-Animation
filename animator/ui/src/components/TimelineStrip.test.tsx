@@ -342,6 +342,20 @@ describe('TimelineStrip — locked-layer edit-state honesty', () => {
   })
 })
 
+describe('TimelineStrip — hidden-layer indicator (F-07-02 E4)', () => {
+  it('shows a red X marker next to a hidden layer name and none on visible layers', () => {
+    const st = makeStatus({
+      layers: [
+        { id: 1, name: 'Layer 1', visible: true, locked: false, active: true, selected_objects: 0, keyframes: [{ frame: 1, blank: false }], tweens: [] },
+        { id: 2, name: 'Layer 2', visible: false, locked: false, active: false, selected_objects: 0, keyframes: [], tweens: [] },
+      ],
+    })
+    render(<TimelineStrip status={st} notify={notify} />)
+    expect(screen.getByTestId('timeline-layer-hidden-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-layer-hidden-0')).not.toBeInTheDocument()
+  })
+})
+
 describe('TimelineStrip — keyframe drag (move + Alt-duplicate)', () => {
   it('dragging a keyframe dot commits ONE moveKeyframeSequence(layer, from, to, overwrite)', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)

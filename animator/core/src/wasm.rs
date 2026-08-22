@@ -110,6 +110,10 @@ struct LayerOut {
     name: String,
     visible: bool,
     locked: bool,
+    /// Outline-mode view aid (F-07-02 E3 / F-20-03) — strokes-only rendering.
+    outline: bool,
+    /// Layer outline color (Part 33 `layer.outlineColor`, F-20-01).
+    outline_color: String,
     active: bool,
     /// number of selected objects that live on this layer at the playhead
     selected_objects: u32,
@@ -814,6 +818,41 @@ pub fn kineora_move_layer(from: u32, to: u32) -> bool {
     with_session(|s| s.move_layer(from as usize, to as usize)).unwrap_or(false)
 }
 
+#[wasm_bindgen]
+pub fn kineora_set_layer_outline(index: u32, outline: bool) -> bool {
+    with_session(|s| s.set_layer_outline(index as usize, outline)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_layer_outline_color(index: u32, color: String) -> bool {
+    with_session(|s| s.set_layer_outline_color(index as usize, &color)).unwrap_or(false)
+}
+
+/// Alt+click "all others" batch toggles (F-07-02 E1/E2/E3 + M.3) — one undo
+/// step for the whole batch.
+#[wasm_bindgen]
+pub fn kineora_toggle_other_layers_visible(exclude: u32) -> bool {
+    with_session(|s| s.toggle_other_layers_visible(exclude as usize)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_toggle_other_layers_locked(exclude: u32) -> bool {
+    with_session(|s| s.toggle_other_layers_locked(exclude as usize)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_toggle_other_layers_outline(exclude: u32) -> bool {
+    with_session(|s| s.toggle_other_layers_outline(exclude as usize)).unwrap_or(false)
+}
+
+/// Duplicate a layer above the source (deep copy of frames + content).
+/// Returns the new layer's index (0 on failure — a real layer never has idx 0
+/// after a successful duplicate because the copy sits above the source).
+#[wasm_bindgen]
+pub fn kineora_duplicate_layer(index: u32) -> u32 {
+    with_session(|s| s.duplicate_layer(index as usize).unwrap_or(0) as u32).unwrap_or(0)
+}
+
 // ——— Object / document properties (Part 26) ———
 
 /// Edit transform fields at the current playhead (one undoable command).
@@ -1092,6 +1131,8 @@ pub fn kineora_status() -> String {
                             name: l.name.clone(),
                             visible: l.visible,
                             locked: l.locked,
+                            outline: l.outline,
+                            outline_color: l.outline_color.clone(),
                             active: i == s.active_layer,
                             selected_objects,
                             keyframes,

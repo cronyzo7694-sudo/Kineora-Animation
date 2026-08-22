@@ -132,7 +132,7 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
 - Next assignments issued: AI-A SYS-05, AI-B SYS-10/11, AI-C SYS-15, AI-D SYS-27 (TS only).
   Sequencing rec: resolve 6 blockers + land C-1/C-2 foundation parity before next full round.
 
-## 2026-08-22 — AI-D · SYS-28 C-1 Rust parity (`4a7152d`) + SYS-27 slice 1 (`7e734b8`)
+## 2026-08-22 — AI-D · SYS-28 C-1 Rust parity (`a9324ea`) + SYS-27 slice 1 (`689febe`)
 - C-1 CLOSED at code level: `formatVersion` now in MOD-DOC (serde default 0; writer = SYS-28 on
   write) + Rust MOD-PERSIST fsync/checksum-sidecar/pure-migrate/refusals. cargo 306/306 (native),
   wasm32 check clean — first Rust toolchain run of the project (BLK-D-005 actionable half resolved).

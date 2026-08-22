@@ -138,12 +138,12 @@ C-1 sequencing recommendation).
 | SYS-28 Persistence | sessions 3+4: TS boundary + Rust core parity (C-1) — formatVersion/migrate/checksum/fsync/autosave/recovery | eng 13 · H10 · Part 33/36 | **IMPLEMENTED + AUTOMATED TESTED** (TS 36 + Rust 9 tests); manual desktop QA + real-crash REQ-PERSIST-A verification PENDING; AMB-002/003, AMB-D-001 open |
 
 ### 1. Changes made (this session)
-- **`4a7152d` feat(sys28)** — C-1: `Document.format_version` (MOD-DOC, serde default) + Rust
+- **`a9324ea` feat(sys28)** — C-1: `Document.format_version` (MOD-DOC, serde default) + Rust
   MOD-PERSIST full parity (fsync in atomic write · FNV-1a checksum sidecar with PS-D2 ordering
   that eliminates stale-sidecar false refusals · pure migrate · newer/corrupt refusals) + 9 tests
   + slice.rs round-trip updated to stamped-on-write spec. **cargo test 306/306 · cargo check
   wasm32 clean** (first Rust run of the project — toolchain installed in-session).
-- **`7e734b8` feat(sys27)** — slice 1: `export27.ts` (sequence builder + HTML5 publish builder +
+- **`689febe` feat(sys27)** — slice 1: `export27.ts` (sequence builder + HTML5 publish builder +
   delivery), ExportDialog sequence mode (range UI, refuse-keeps-open), `file.publish` → real
   engine, `export:done` emitted (first producer). +24 tests. **UI 711/711 · tsc clean.**
 
@@ -172,3 +172,9 @@ SYS-22 PARTIAL · SYS-23 PARTIAL · SYS-24 PARTIAL(FBF)/MISSING(onion) · SYS-25
 SYS-26 MISSING (blocked) · SYS-27 PARTIAL+ (image/sequence/publish = AUTOMATED TESTED; video/gif/
 movie/import = honest gaps) · SYS-28 IMPLEMENTED + AUTOMATED TESTED (manual QA pending).
 **No SYS claimed COMPLETE** — manual native QA is pending everywhere (FL-0019).
+
+### 6. Final commit hashes (post-rebase, session 4)
+`a9324ea` sys28 C-1 Rust parity · `689febe` sys27 slice 1 · `0f08eba` docs/audit ·
+`a9c9f13` build restoration + SYS-16 escalation (INT-AID-004/BLK-D-007).
+Post-rebase verification each time: UI 730/730 (54 files, incl. AI-B/AI-C new tests) · tsc clean ·
+Rust 279 green (layers.rs + wasm32 target red = AI-C's missing SYS-16 methods, escalated).

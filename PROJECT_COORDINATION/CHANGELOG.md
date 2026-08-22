@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-08-22 — AI-B: forensic repair round 2 — complete SYS-14 selection:changed payload (`eac6e7b`)
+
+- Second independent reviewer. Verified all 10 AI-A repair claims against corpus/code (F8 auto-key, selection consumers, locked-cut, F4=Properties, st.snap, command IDs) — all confirmed; updated `client.undoSelection.test.ts` to expect the now-full payload.
+- **SYS-14 (C-4 closed at TS boundary):** `buildSelectionPayload()` computes `{prevTargets,targets,kind:'objects'|'none',commonType?,bounds?}` from core `selection`/`selection_details`/`selection_rects`; `emitSelectionChanged` emits the full payload (was prevTargets/targets only). `kind/commonType/bounds` fields already declared optional in the locked SYS-01 §27.1 schema — no event/payload contract change. Producer calls were added by AI-A (`5b2f09d`); SYS-14 supplies the payload they carry. No double emission (one emit/gesture); undo/redo/draw/cut/delete/paste/duplicate all emit once.
+- Test seam `__attachEngineForTest` for producer tests; 14 new tests (pure payload + producers). Full UI **756/756**; tsc + vite build green. Rebased onto AI-A `5b2f09d` (no force, no dropped commits; both INT-AIA-004 and INT-B-001 preserved).
+- Rust/WASM/native NOT TESTED — toolchain unavailable; no Rust touched.
+
 ## 2026-08-22 — AI-A: forensic repair — INV-EDIT-1 F8 auto-key + selection:changed consumers
 
 - No new features. Audit of SYS-01..07 against locked contracts.

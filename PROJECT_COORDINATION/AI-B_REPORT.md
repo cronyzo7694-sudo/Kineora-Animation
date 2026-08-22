@@ -305,3 +305,87 @@ None new. `window.workspacePresets` stays DEFERRED (Blueprint silent on preset c
 ## Status update
 - SYS-10 Debug: **PARTIAL** — Dev panel + Output console are FUNCTIONAL and tested; the P2 "inspector/debugger for the scripting layer" remains correctly UNAVAILABLE (no scripting layer exists yet).
 - SYS-11 Window: **PARTIAL** — every Blueprint-required panel toggle + workspace + Hide/Show All (F4) FUNCTIONAL; panel dock/float/presets deferred per SYS-01.
+
+---
+
+# SESSION 4 — 2026-08-22 (FORENSIC REPAIR ROUND 2 — independent reviewer)
+
+Base: `fe7566f` (AI-A C-2 prevSelection). During work AI-A pushed `5b2f09d` (F8 + selection consumers); rebased onto it with no force-push. Final: `eac6e7b`.
+
+## 1. Repository state
+- local clean; origin/main integrated: AI-A `5b2f09d` (F8 auto-key, selection:changed consumers), AI-D SYS-27/23, AI-C SYS-16 folders.
+- Rust/cargo toolchain ABSENT in sandbox → Rust/WASM/native **NOT TESTED** (honest). I touched no Rust code this session.
+
+## 2. Primary SYS-08→14 audit table
+| SYS | Verdict | Evidence |
+|---|---|---|
+| 08 Commands | PARTIAL (correctly deferred) | 5 macro/scripting commands DEFERRED with reasons; palette Ctrl+K FUNCTIONAL. No macro model exists → no safe implementation. |
+| 09 Control/Playback | PASS (automated) | STM IDLE/PLAYING/PAUSED; startTick idempotent (no stacked intervals); stop idempotent; Enter toggles; loop wrap/stop; seekPlayhead emits playhead:moved for user seeks, ticks use raw setter (no flood); mute→SYS-26, test→SYS-27 handoffs; Ctrl+Enter D-6. Verified timer lifecycle in actions.ts. |
+| 10 Debug | PASS (automated) | Output console ring 500, levels, clear resets id, subscriber fault isolation, session-only (no persistence), copy clipboard + execCommand fallback, debug.as3 UNAVAILABLE, bus errors + notify routed. No logging loop (DebugPanel subscribes outputLog, never calls notify/append). |
+| 11 Window | PASS (automated) | panel.show(id)/panel.hide(id) LOCKED (SYS-01 §15); F4=Properties verified against SYS-01 §9/§15/C-09; hideAll menu-only (no invented shortcut); restore snapshot; per-panel panel:changed; input suppression. |
+| 12 Help | PASS (automated) | Offline HelpDialog docs/troubleshoot; Esc/outside-click/Close; no external links; deferred items honest. |
+| 13 Tools | PARTIAL (3 tools, by design) | select(V)/rect(R)/transform(Q) wired to engine + undo; subselection/hand/zoom/pen/etc. MISSING (correctly not invented — large cross-SYS surface). |
+| 14 Stage/Selection | **repaired → PARTIAL/automated** | Full selection:changed payload now emitted (kind/commonType/bounds); see §5. |
+
+## 3. AI-A claims independently verified
+1. ConvertToSymbol `created_keyframe` undo repair — VERIFIED (command.rs: apply auto-keys, revert removes keyframe; symbols.rs test exists).
+2. F8 auto-key inside apply — VERIFIED (Session no longer ensure_keyframe before execute).
+3. selection:changed producer/consumer — VERIFIED; AI-A added the producer calls; I COMPLETED the payload (C-4). App ticks on the event.
+4. locked-only cut no fake document:changed — VERIFIED (client.ts cutObjects emits only when selection mutated; core logs cut:copied-locked-only).
+5. C-2 prevSelection/history bound 100 — present in fe7566f; TS-level (Rust Command trait still lacks prevSelection — foundation gap C-2, owned by SYS-03; not in my range).
+6. SYS-16 folder lock cascade — only read; code present, not absorbed.
+7. stale WASM — not verifiable without toolchain; recorded.
+8. command IDs — panel.show/hide LOCKED correct.
+9. F4 binding — VERIFIED = Properties (SYS-01 §9 table row 198 + §234).
+10. st.snap — VERIFIED honest projection of snap:changed; no fake static.
+
+## 4. New bugs discovered
+- (None new beyond C-4.) During rebase, AI-A's `client.undoSelection.test.ts` asserted the OLD minimal payload; updated it to expect the full object (kind/commonType/bounds) — belongs with SYS-14 change.
+
+## 5. Repairs made (SYS-14, HIGH PRIORITY)
+- `engine/client.ts`:
+  - `buildSelectionPayload(prev,st)` pure helper computes `{prevTargets,targets,kind:'objects'|'none',commonType?,bounds?}` from core `selection`/`selection_details`/`selection_rects`.
+  - `emitSelectionChanged` emits full payload (was prevTargets/targets only → C-4).
+  - bounds = AABB union of scene-space selection_rects; null when empty.
+  - commonType = shared detail kind, else omitted (mixed → Properties shows common fields).
+  - Test seam `__attachEngineForTest` (production never calls).
+- Producer calls already added by AI-A flow through the full emitter; no duplicate logic.
+- INTEGRATION_LOG INT-B-001 (payload) reconciled with INT-AIA-003/004 — both kept.
+- Stale comment in App.tsx (said "F4" for Hide All) corrected (F4 is Properties).
+
+NO new event, NO bus.ts schema change (fields already declared optional). NO other SYS's files modified except the AI-A-authored undo test expectation.
+
+## 6. Cross-SYS
+- producer SYS-14; event name/schema owned by SYS-01 (unchanged); consumers SYS-03/17/22 + Stage overlay preserved (additive payload).
+- No event flooding: selection:changed only on gesture completion; undo/redo once each.
+
+## 7. Tests (exact)
+- Focused SYS-14: `engine/client.selection.test.ts` 14/14; `engine/client.undoSelection.test.ts` 4/4.
+- Full UI: **756/756 passed** (56 files) after rebase onto 5b2f09d.
+- tsc -b: PASS; vite build: PASS (371.40 kB).
+- Rust/cargo/clippy/fmt/WASM/native: **NOT TESTED — toolchain unavailable**. No Rust touched.
+
+## 8. Remaining defects / blockers
+- C-2 Rust Command trait prevSelection/coalesce/bound — SYS-03/foundation (not mine).
+- C-1 formatVersion Rust parity — SYS-28 (AI-D).
+- SYS-13 missing tools (subselection/hand/zoom/pen/shape/text/bone/camera/zoom) — future, correctly deferred.
+- Native desktop + manual QA PENDING for ALL (FL-0019).
+- BLK-B-005 PAT rotate still OPEN (human action).
+
+## 9. Files changed
+- animator/ui/src/engine/client.ts (payload + seam)
+- animator/ui/src/engine/client.selection.test.ts (NEW, 14 tests)
+- animator/ui/src/engine/client.undoSelection.test.ts (expectation update)
+- animator/ui/src/App.tsx (stale comment)
+- PROJECT_COORDINATION/INTEGRATION_LOG.md (INT-B-001 reconciled)
+
+## 10. Commit
+`eac6e7b feat(sys14): complete selection:changed payload (kind/commonType/bounds) + emit once per gesture` — pushed; rebased on 5b2f09d, NO force-push, no worker commit dropped.
+
+## 11. SYS status
+- 09/10/11/12: AUTOMATED TESTED + BUILD VERIFIED (manual PENDING).
+- 14: IMPLEMENTED + AUTOMATED TESTED + BUILD VERIFIED (manual PENDING; full anchors/frames/bones selection kinds future).
+- 08/13: PARTIAL (deferred by design).
+
+## 12. Handoff for AI-C
+- selection:changed now ALWAYS carries `kind:'objects'|'none'`, and `bounds` (AABB union) + `commonType` when uniform. Timeline/layer-row consumers may rely on `.targets` unchanged. If AI-C adds frame-selection (Part 03 kind:'frames'), the payload's `kind` union must expand in SYS-01 bus schema AND here — do not silently emit a new kind string without an INT.

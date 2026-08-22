@@ -436,6 +436,12 @@ pub struct Document {
     /// Part 33 §33.1 metadata block (default = legacy files without one).
     #[serde(default)]
     pub meta: Meta,
+    /// On-disk format version (Part 33 §33.1 top-level field). WRITER = SYS-28
+    /// (`persist::save` stamps CURRENT on write — H10 §6; C-1 foundation
+    /// parity via INT-AID-002). 0 = in-memory/legacy pre-SYS-28 (serde
+    /// default), monotonic thereafter (eng 13).
+    #[serde(default, rename = "formatVersion")]
+    pub format_version: u32,
     pub next_id: u64,
 }
 
@@ -462,6 +468,10 @@ impl Document {
             nodes: BTreeMap::new(),
             library: Vec::new(),
             meta: Meta::default(),
+            // 0 in memory — SYS-28 (persist::save) is the ONLY writer of the
+            // on-disk stamp (H10 §6). A loaded document carries the loader's
+            // migrated version.
+            format_version: 0,
             next_id: 1,
         }
     }

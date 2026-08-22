@@ -96,7 +96,13 @@ fn save_load_round_trip() {
     s.save(&path).unwrap();
 
     let loaded = Session::load(&path).unwrap();
-    assert_eq!(loaded.doc, s.doc);
+    // SYS-28 (INT-AID-002): persist::save STAMPS formatVersion=CURRENT on
+    // write (H10 §6 writer = SYS-28), so the loaded document carries the
+    // stamp while the in-memory original stays 0. Content is otherwise
+    // identical (REQ-PERSIST-B).
+    let mut expected = s.doc.clone();
+    expected.format_version = animator_core::persist::FORMAT_VERSION;
+    assert_eq!(loaded.doc, expected);
     assert_eq!(loaded.evaluate(1), s.evaluate(1));
     assert_eq!(loaded.evaluate(3), s.evaluate(3));
     let _ = std::fs::remove_file(&path);

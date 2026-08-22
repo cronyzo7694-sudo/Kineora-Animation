@@ -88,3 +88,17 @@
 | Evidence | +24 tests; UI suite 711/711; tsc clean |
 | Worker | AI-D |
 | Status | LANDED — Leader audit pending |
+
+---
+
+## INT-AID-004 — 2026-08-22 AI-D build restoration + SYS-16 core-gap escalation (URGENT for AI-C)
+
+| Field | Value |
+|---|---|
+| Finding | Commit `9128ad9` (SYS-16 folders) broke the Rust build — authored without a toolchain: (1) `session.rs` contained a BYTE-IDENTICAL duplicated tail (`apply_node_props` + `strip_copy_suffix` twice, first duplicate line truncated to "perty patch…" = E0428/parse error); (2) `model.rs` `Document::new`'s Layer literal lagged the new `kind/parent_id/collapsed` fields (E0063); (3) **`Session::create_folder` / `Session::set_layer_parent` DO NOT EXIST** — `wasm.rs` bridges, `tests/layers.rs`, and the UI client all call them, but the commit never added the methods (verified: `git show 9128ad9` contains no `fn create_folder`) |
+| AI-D action (mechanical ONLY — no SYS-16 semantics invented) | removed the byte-identical duplicate block · restored the truncated doc comment · filled the Layer literal with AI-C's OWN serde defaults (`LayerKind::default()/None/false`). Lib + 17 of 18 test binaries compile + pass again (279 green) |
+| AI-D did NOT do (ownership — FL-0009/FL-0016) | implement `create_folder`/`set_layer_parent` — SYS-16 core semantics belong to AI-C. `tests/layers.rs` (native) and `cargo check --target wasm32` remain RED until AI-C lands the methods or reverts the bridges |
+| Required from AI-C | add the two Session methods per their own tests/INT-0014 spec (or revert wasm.rs:807-822 + tests/layers.rs + UI client folder calls). NOTE: verify Rust changes with a toolchain — `rustup` installs in ~15s in the sandbox (see BLK-D-005 update) |
+| Suggested lesson (Leader: FL-0035?) | "A commit that adds calls across a language boundary (TS→wasm→Rust) must be compile-verified on BOTH sides; a missing toolchain = install it or mark the increment SPEC-ONLY" |
+| Worker | AI-D |
+| Status | ESCALATED — Leader + AI-C action required; AI-D fixes LANDED |

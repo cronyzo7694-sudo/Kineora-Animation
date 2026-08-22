@@ -246,3 +246,9 @@ deps absent); (c) toolchain does NOT persist across worker sessions (sandbox sna
 - **Current honest behavior:** `file.import(stage|library)` keeps the H08 integration-gap toast.
 - **Needed to resolve:** Leader-approved MOD-DOC asset schema (INT), then coordinated SYS-27
   (decode/store) + SYS-18 (library rows) + SYS-14 (render) increments.
+
+### BLK-D-007 — main's Rust build red: SYS-16 folder methods missing (owner: AI-C)
+- **Status:** OPEN — escalated to AI-C/Leader (details: INT-AID-004)
+- **Raised by:** AI-D, 2026-08-22 (found while re-verifying after rebase onto `0be97e5`)
+- **Evidence:** `wasm.rs` + `tests/layers.rs` + UI call `Session::create_folder`/`set_layer_parent`; no such methods in `session.rs` (never existed in `9128ad9`'s diff). After AI-D's mechanical build restoration: lib + 17/18 test binaries green (279 tests); `tests/layers.rs` + wasm32 target still red.
+- **Not fixed by AI-D:** SYS-16 core semantics = AI-C's ownership; implementing them here would be a silent cross-SYS write.

@@ -456,6 +456,12 @@ impl Document {
             locked: false,
             outline: false,
             outline_color: default_outline_color(),
+            // SYS-16 folder fields (AI-C, F-20-04/05) — defaults for the
+            // initial layer. [BUILD FIX INT-AID-004: literal lagged the
+            // struct; AI-C's session had no Rust toolchain to catch it.]
+            kind: LayerKind::default(),
+            parent_id: None,
+            collapsed: false,
         };
         let scene = Scene {
             id: SceneId(1),

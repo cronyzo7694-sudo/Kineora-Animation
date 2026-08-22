@@ -104,3 +104,16 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
 - SYS-02 wiring only at pre-marked H10 §5.1/§5.2 seams (INT-AID-001). AMB-002/003 untouched.
 - NEW registers: AMB-D-001 (pathless desktop autosave), BLK-D-005 (Rust toolchain absent —
   core parity queued). Tests +36; suite 677/677; tsc clean. Manual desktop QA pending.
+
+## 2026-08-22 — Integrated forensic audit round 1 (AI-01 Leader)
+
+- Audited `c648fbf..b4dc9b7` (8 worker commits). Read all 4 worker reports + spot-checked
+  edit_ops.rs / persist.ts / autosave.ts against claims.
+- Verdicts: SYS-09/12/16 = PASS (automated); SYS-01/02/03/28 = PARTIAL; SYS-04 = SPEC-ONLY.
+  No SYS COMPLETE. Native runtime PENDING for all.
+- INTEGRATED FOUNDATION GATE = PARTIAL (2 foundation gaps: MOD-DOC formatVersion at TS-only,
+  MOD-COMMAND prevSelection absent; 2 command drifts in SYS-01; ~16 open product decisions;
+  native unverified).
+- Created INTEGRATED_AUDIT.md (per-SYS + cross-SYS + defects + missing tests + decisions + next assignments).
+- Next assignments issued: AI-A SYS-05, AI-B SYS-10/11, AI-C SYS-15, AI-D SYS-27 (TS only).
+  Sequencing rec: resolve 6 blockers + land C-1/C-2 foundation parity before next full round.

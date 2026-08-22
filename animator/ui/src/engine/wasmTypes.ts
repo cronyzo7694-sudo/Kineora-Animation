@@ -242,6 +242,8 @@ export interface KineoraWasm {
   kineora_set_active_layer(index: number): boolean
   kineora_create_layer(): number
   kineora_create_folder?(): number
+  /** Insert ▸ Scene (Part 25.1): returns the new 1-based scene number; 0 = failure. */
+  kineora_create_scene?(): number
   kineora_set_layer_parent?(child: number, parent: number): boolean
   kineora_set_folder_collapsed?(index: number, collapsed: boolean): boolean
   kineora_delete_layer(index: number): boolean

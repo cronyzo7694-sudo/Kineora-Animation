@@ -827,6 +827,14 @@ pub fn kineora_set_folder_collapsed(index: u32, collapsed: bool) -> bool {
     with_session(|s| s.set_folder_collapsed(index as usize, collapsed)).unwrap_or(false)
 }
 
+/// Insert ▸ Scene (Part 01 §1.2.4 + Part 25.1): append "Scene N" + activate.
+/// Returns the new 1-BASED scene number (index+1); 0 = failure (no session).
+/// (1-based so 0 is an unambiguous failure sentinel — scene index 0 exists.)
+#[wasm_bindgen]
+pub fn kineora_create_scene() -> u32 {
+    with_session(|s| s.create_scene().map(|i| i as u32 + 1).unwrap_or(0)).unwrap_or(0)
+}
+
 #[wasm_bindgen]
 pub fn kineora_delete_layer(index: u32) -> bool {
     with_session(|s| s.delete_layer(index as usize)).unwrap_or(false)

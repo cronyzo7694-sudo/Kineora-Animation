@@ -125,7 +125,8 @@ describe('SYS-03/04/06 command registry', () => {
       'view.snapping',
       'insert.motionTween',
       'insert.shapeTween',
-      'insert.scene',
+      // insert.scene → FUNCTIONAL since the SYS-05 Insert▸Scene increment
+      // (AI-D, INT-AID-006) — removed from the deferred inventory.
       'modify.group',
       'modify.ungroup',
       'modify.combineUnion',

@@ -31,6 +31,7 @@ import {
   alignSelection,
   arrangeSelection,
   copyObjects,
+  createScene,
   cutObjects,
   deleteSelection,
   duplicateObjects,
@@ -1076,12 +1077,20 @@ export const commands: Command[] = [
   },
   {
     id: 'insert.scene',
-    label: 'Scene…',
+    // Part 01 §1.2.4: no ellipsis — creation is immediate (auto-named
+    // "Scene N", no dialog — Part 25.1), no shortcut ("—" in the Blueprint).
+    label: 'Scene',
     category: 'insert',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 25',
-    reason: 'multi-scene is a future unit',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.4 + Part 25.1 — append "Scene N" with a default timeline; becomes active',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
+    run: (c) => {
+      const idx = createScene()
+      if (idx < 0) return c.notify('insert scene: engine not attached')
+      const name = c.getStatus()?.scene ?? `Scene ${idx + 1}`
+      c.notify(`scene "${name}" created — now active`)
+    },
   },
 
   // ——— Modify (Part 01 §1.2.5) ———

@@ -207,3 +207,9 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
 - **Bug (data loss):** `paste_objects`/`duplicate_objects` blocked hidden/locked active layers but NOT folders. `draw_rect` already refused folders; a paste onto a folder inserted nodes into the node table while `ensure_keyframe` on a folder left them unreachable by the renderer (orphans) and still pushed an undo entry. Fixed: folder active layer now returns false pre-mutation (`paste:blocked(active layer is a folder)`), no command, no selection change; duplicate inherits. Added Rust regression test.
 - Paste Special remains intentionally deferred (AMB-S03-003); Find & Replace deferred (no text model). No feature creep.
 - UI 756/756 green; tsc + vite build green. Rust/cargo NOT RUN — toolchain unavailable (honest; flagged for CI).
+## 2026-08-22 — AI-D · Insert ▸ Scene (Insert-menu round, INT-AID-006)
+- Blueprint §1.2.4 + Part 25.1 exactly: append "Scene N" with a default timeline, becomes active
+  (re-bind: selection cleared, playhead 1). One undo step, stable SceneId identity, dirty via
+  snapshot, `document:changed{type:'scene'}`. Insert-menu inventory audited: New Symbol/F5/F6/F7/
+  Classic Tween FUNCTIONAL (verified), Motion/Shape Tween honestly DEFERRED (model units missing),
+  Scene now FUNCTIONAL. Rust 338/338 · UI 764/764 · tsc/build clean · wasm32 clean.

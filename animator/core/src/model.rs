@@ -488,6 +488,13 @@ impl Document {
         id
     }
 
+    /// Next unique SceneId (1 + max existing). Scene ids are stable — scenes
+    /// are referenced by ID (Part 25.1 "Rename … referenced by ID").
+    pub fn alloc_scene_id(&self) -> SceneId {
+        let max = self.scenes.iter().map(|sc| sc.id.0).max().unwrap_or(0);
+        SceneId(max + 1)
+    }
+
     /// Next unique LayerId (1 + max existing). Layer ids are stable (REQ-SYS-004).
     pub fn alloc_layer_id(&self) -> LayerId {
         let mut max = 0u64;
@@ -590,11 +597,19 @@ impl Document {
             return 0;
         };
         let mut depth = 0;
-        let mut cur = sc.layers.iter().find(|l| l.id == layer_id).and_then(|l| l.parent_id);
+        let mut cur = sc
+            .layers
+            .iter()
+            .find(|l| l.id == layer_id)
+            .and_then(|l| l.parent_id);
         let mut guard = 0;
         while let Some(pid) = cur {
             depth += 1;
-            cur = sc.layers.iter().find(|l| l.id == pid).and_then(|l| l.parent_id);
+            cur = sc
+                .layers
+                .iter()
+                .find(|l| l.id == pid)
+                .and_then(|l| l.parent_id);
             guard += 1;
             if guard > sc.layers.len() {
                 break; // cycle guard
@@ -623,7 +638,9 @@ impl Document {
 
     /// True if `maybe_ancestor` is an ancestor of `child` (cycle check).
     pub fn layer_is_ancestor(&self, scene: usize, maybe_ancestor: LayerId, child: LayerId) -> bool {
-        self.layer_descendants(scene, maybe_ancestor).contains(&child) || maybe_ancestor == child
+        self.layer_descendants(scene, maybe_ancestor)
+            .contains(&child)
+            || maybe_ancestor == child
     }
 
     /// Hold rule: nearest keyframe (or blank) at or before `frame`.

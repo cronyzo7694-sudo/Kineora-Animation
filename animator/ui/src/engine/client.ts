@@ -681,6 +681,19 @@ export function createFolder(): number {
   return idx
 }
 
+/** SYS-05 Insert ▸ Scene (Part 01 §1.2.4 + Part 25.1): append "Scene N" with
+ *  a default timeline and ACTIVATE it. Returns the new 0-based scene index,
+ *  -1 on failure. Emits `document:changed{type:'scene'}` (DOCUMENT MUTATION —
+ *  scene list changed); activation itself is session/view state carried by
+ *  the same status re-read (Edit bar + timeline re-bind, Part 25.4). */
+export function createScene(): number {
+  if (!mod?.kineora_create_scene) return -1
+  const n = mod.kineora_create_scene()
+  if (n === 0) return -1
+  docChanged('scene')
+  return n - 1
+}
+
 /** Nest `child` under folder `parent`. Pass parent = null to un-nest. */
 export function setLayerParent(child: number, parent: number | null): boolean {
   if (!mod?.kineora_set_layer_parent) return false

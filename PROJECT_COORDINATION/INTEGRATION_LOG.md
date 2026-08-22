@@ -163,3 +163,19 @@
 | Why now | INTEGRATED_AUDIT C-4 listed `selection:changed` payload partial, owner = SYS-14 (not yet built). Data already exists core-side; only the producer omitted it. Click-to-select also never fired the event — a Stage/SYS-14 defect discovered during the trace (FL-0006: missing propagation). |
 | Tests | New `sys14-selection.test.ts`: empty/single/multi-same/mixed commonType, bounds union (incl. identity + non-zero origin), deselect/reselect, selectAt/selectToggleAt/selectInRect emit exactly once, payload additivity (old consumers reading only targets still work). |
 | Status | LANDED — Leader/SYS-01 review requested (event schema itself unchanged) |
+
+---
+
+## INT-AID-006 — 2026-08-22 AI-D: Insert ▸ Scene implemented (SYS-05 Insert-menu round, human-assigned)
+
+| Field | Value |
+|---|---|
+| Assignment basis | Human coordinator's Insert-menu order (this round) — AI-D primary ownership of the INSERT MENU surface. SYS-05 spec territory remains AI-A's; this entry records the implementation + evidence for AI-A/Leader review |
+| Change | Insert ▸ Scene: `CreateScene` command (append; undo removes by SceneId) · `Session::create_scene` (name "Scene N" first-unused, default timeline = `Layer::new_normal` "Layer 1" kf@1 — the same seed `Document::new` uses, activation re-bind: active_layer 0/playhead 1/selection cleared per Part 25.4) · `Document::alloc_scene_id` (max+1, stable IDs) · wasm `kineora_create_scene` (1-based, 0=fail sentinel) · client `createScene()` → emits canonical `document:changed{type:'scene'}` · `insert.scene` DEFERRED → FUNCTIONAL (label "Scene" — no ellipsis: no dialog per Part 25.1; no shortcut per §1.2.4 "—") |
+| Spec basis | Blueprint §1.2.4 ("Scene — Append a new scene — Scene list — no shortcut") + Part 25.1 ("append … named 'Scene N'; becomes active") + Part 25.4 (re-bind). Adobe = consistent reference; Blueprint governed everything — zero product decisions invented |
+| Events | ONLY canonical `document:changed{type:'scene'}` at the client seam (mutation). No new events/payloads. Activation carried by the same status re-read (Edit bar scene name + timeline re-bind) |
+| Undo contract | one undo step; revert removes by stable SceneId; `sanitize_indices` re-clamps active pointer; prev-selection restore via C-2 History contract — all asserted in tests |
+| Cross-SYS test touches (recorded) | `sys03-06.test.tsx` (AI-A): removed `insert.scene` from the DEFERRED inventory list (one line — the inventory changed because the feature landed) |
+| Evidence | Rust +6 (`tests/scenes.rs`) = 338/338 · wasm32 check clean · UI +8 (`sys05-insert.test.ts`) = 764/764 · tsc clean · vite build PASS · cargo fmt clean (my files) · clippy: pre-existing style warnings only (untouched, not mine) |
+| Worker | AI-D |
+| Status | LANDED — AUTOMATED TESTED; native runtime NOT TESTED (environment) |

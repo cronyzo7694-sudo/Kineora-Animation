@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::command::{
     ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
-    CreateSymbol, DeleteFrames, DeleteLayer, DeleteLayerGroup, DeleteSymbol, DrawRect,
+    CreateScene, CreateSymbol, DeleteFrames, DeleteLayer, DeleteLayerGroup, DeleteSymbol, DrawRect,
     DuplicateFrames, DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames,
     InsertKeyframe, LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
     PlaceSymbol, RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer,
@@ -22,7 +22,7 @@ use crate::eval::{
 use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
-    Document, Frame, Layer, LoopMode, Node, Settings, Symbol, SymbolType, Transform,
+    Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, SymbolType, Transform,
 };
 use crate::persist;
 
@@ -107,17 +107,13 @@ impl Session {
         self.exec_then(cmd, |_| {});
     }
 
-    fn exec_then(
-        &mut self,
-        cmd: Box<dyn crate::command::Command>,
-        after: impl FnOnce(&mut Self),
-    ) {
+    fn exec_then(&mut self, cmd: Box<dyn crate::command::Command>, after: impl FnOnce(&mut Self)) {
         let prev = self.selection.clone();
         self.history.execute(&mut self.doc, cmd, prev);
         after(self);
-        self.history.seal_last_post_selection(self.selection.clone());
+        self.history
+            .seal_last_post_selection(self.selection.clone());
     }
-
 
     pub fn set_playhead(&mut self, frame: u32) {
         self.playhead = frame.max(1);
@@ -880,7 +876,11 @@ impl Session {
 
         // INV-EDIT-1: do NOT mutate the document here. ConvertToSymbol.apply
         // auto-keys the playhead if needed and reverts that keyframe on undo.
-        if self.doc.layer(self.active_scene, self.active_layer).is_none() {
+        if self
+            .doc
+            .layer(self.active_scene, self.active_layer)
+            .is_none()
+        {
             return NodeId(0);
         }
 
@@ -889,10 +889,8 @@ impl Session {
         let node_ids = self.selection.clone();
 
         let mut inner_layer = Layer::new_normal(LayerId(1), "Layer 1");
-        inner_layer.keyframes = std::collections::BTreeMap::from([(
-            1u32,
-            Frame::keyframe(node_ids.clone()),
-        )]);
+        inner_layer.keyframes =
+            std::collections::BTreeMap::from([(1u32, Frame::keyframe(node_ids.clone()))]);
         let symbol = Symbol {
             id: symbol_id,
             name: name.trim().to_string(),
@@ -1651,6 +1649,44 @@ impl Session {
         }
     }
 
+    // ————— SYS-05 Insert ▸ Scene (Part 01 §1.2.4 + Part 25.1) —————
+
+    /// Insert ▸ Scene: APPEND a scene with a default timeline ("Layer 1"
+    /// with its blank keyframe @1 — the same default `Document::new` seeds)
+    /// named "Scene N" (first unused N, mirroring layer naming), and make it
+    /// ACTIVE (Part 25.1 "becomes active"). Activation re-binds the editing
+    /// context (Part 25.4): selection cleared, active layer 0, playhead 1.
+    /// ONE undo step; undo removes the scene and `sanitize_indices()`
+    /// re-clamps the active pointer (selection restore = History contract).
+    pub fn create_scene(&mut self) -> Option<usize> {
+        let name = self.next_scene_name();
+        let layer = Layer::new_normal(self.doc.alloc_layer_id(), "Layer 1");
+        let scene = Scene {
+            id: self.doc.alloc_scene_id(),
+            name,
+            layers: vec![layer],
+        };
+        let index = self.doc.scenes.len();
+        self.exec(Box::new(CreateScene { scene }));
+        self.active_scene = index;
+        self.active_layer = 0;
+        self.playhead = 1;
+        self.selection.clear();
+        self.log(&format!("scene:create@{index}"));
+        Some(index)
+    }
+
+    /// First unused "Scene N" (display name only — identity is SceneId).
+    fn next_scene_name(&self) -> String {
+        let mut n = 1;
+        loop {
+            let candidate = format!("Scene {n}");
+            if !self.doc.scenes.iter().any(|sc| sc.name == candidate) {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
 
     /// Delete a layer. The LAST remaining layer cannot be deleted
     /// ([OUR DESIGN DECISION] — an editor always keeps ≥1 draw target).
@@ -1689,7 +1725,8 @@ impl Session {
         }
         self.sanitize_indices();
         self.prune_selection_existence();
-        self.history.seal_last_post_selection(self.selection.clone());
+        self.history
+            .seal_last_post_selection(self.selection.clone());
         self.log(&format!("layer:delete@{index}"));
         true
     }
@@ -1748,7 +1785,8 @@ impl Session {
         }
         if !visible {
             self.prune_selection_by_layer_state();
-            self.history.seal_last_post_selection(self.selection.clone());
+            self.history
+                .seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:visible@{index}={visible}"));
         true
@@ -1777,7 +1815,8 @@ impl Session {
         self.exec(Box::new(cmd));
         if locked {
             self.prune_selection_by_layer_state();
-            self.history.seal_last_post_selection(self.selection.clone());
+            self.history
+                .seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:locked@{index}={locked}"));
         true
@@ -1920,7 +1959,8 @@ impl Session {
         self.exec(Box::new(cmd));
         if kind == LayerFlagKind::Visible {
             self.prune_selection_by_layer_state();
-            self.history.seal_last_post_selection(self.selection.clone());
+            self.history
+                .seal_last_post_selection(self.selection.clone());
         }
         self.log(&format!("layer:batch-{kind:?}:exclude={exclude}"));
         true
@@ -2404,4 +2444,3 @@ fn strip_copy_suffix(name: &str) -> &str {
     }
     name
 }
-

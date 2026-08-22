@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::eval::{collect_items, instance_child_frame, node_layer_index, node_transform_at};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
-    ClassicTween, Document, Frame, Layer, LoopMode, Node, Settings, Symbol, Transform,
+    ClassicTween, Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, Transform,
 };
 
 /// Remove tweens whose start OR end keyframe is the removed frame `frame`.
@@ -1999,6 +1999,25 @@ impl Command for CreateLayer {
             return;
         };
         sc.layers.retain(|l| l.id != self.layer.id);
+    }
+}
+
+/// CMD-SCENE-CREATE — Insert ▸ Scene (Part 01 §1.2.4 + Part 25.1): APPEND a
+/// scene with a default timeline to the END of the scene list. Undo removes
+/// exactly that scene (by stable SceneId); other scenes untouched.
+pub struct CreateScene {
+    pub scene: Scene,
+}
+
+impl Command for CreateScene {
+    fn label(&self) -> String {
+        "Add scene".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        doc.scenes.push(self.scene.clone());
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        doc.scenes.retain(|sc| sc.id != self.scene.id);
     }
 }
 

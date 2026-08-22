@@ -11,6 +11,14 @@
 - **Quality gates:** Rust 20 suites (layers.rs 12→27), clippy 0, fmt clean, wasm-pack build ✓, UI 606 tests (+13), `npm run build` ✓, `verify-wasm-path.sh` ✓. Manual acceptance still PENDING (user-side native desktop).
 - **Coordination:** rebased onto `ca79555` (no conflicts, no force-push); INT-0009 filed (timeline marker projection, pending Leader); BLOCKERS AI-C section added; ATTENDANCE + PROJECT_BOARD updated. Full forensic report: `PROJECT_COORDINATION/AI-C_REPORT.md`.
 
+## 2026-08-22 — Leader orders issued + AI-C integration verified (AI-01)
+
+- Fetched remote `dd2f37d` (AI-C SYS-16 Layers increment + post-corpus reconciliation; 606 UI tests green, cargo 20 suites, wasm-pack ok).
+- Verified INT-0009 (timeline ✕ = view projection, FL-0009 compliant); added INT-0010 (authorize `layer:changed{layerId,op}` — already canonical SYS-01 §27.1, resolves BLK-AIC-003).
+- Forensic note: AI-C cited "F-20-02/03" (nonexistent) — real evidence = F-20-01 + F-20-04 (FL-0026 citation drift; non-blocking).
+- Created `LEADER_ORDERS.md` with explicit per-worker orders (AI-A audit-first, AI-B SYS-09/12, AI-C SYS-16-remainder/SYS-15, AI-D SYS-28).
+- Overriding unlock: Blueprint+Phase-2/2.5/3+engineering authority outranks the QUEUED specs → workers authorized to implement on that authority (with STOP+register for ambiguities).
+
 ## 2026-08-22 — MASTER BASELINE RECONCILIATION (AI-01 Leader)
 
 - **Fast-forwarded local `f59f1a5` → remote `b4c4ae2`** (22 worker commits preserved: SYS-01/SYS-02 implementation + tests, AI-D + AI-B reports, ATTENDANCE, worker BLOCKERS).

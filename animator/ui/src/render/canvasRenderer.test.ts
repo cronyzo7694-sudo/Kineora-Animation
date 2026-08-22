@@ -617,7 +617,7 @@ describe('export rasterizer (Part 28.1 — content-only, viewport-independent)',
   })
 })
 
-describe('canvas renderer — outline mode (F-20-03)', () => {
+describe('canvas renderer — outline mode (F-20-01)', () => {
   /** Minimal ctx that records fill/stroke styles + rect calls in order. */
   function recordingCtx() {
     const fillStyles: string[] = []
@@ -684,7 +684,7 @@ describe('canvas renderer — outline mode (F-20-03)', () => {
     expect(strokeStyles[strokeStyles.length - 1]).toBe('#123456')
   })
 
-  it('export rasterizer ignores outline mode and draws the full content (F-20-03 "exports fully")', async () => {
+  it('export rasterizer ignores outline mode and draws the full content (F-20-01 "exports fully")', async () => {
     const { renderContent } = await import('./canvasRenderer')
     const { ctx, fillStyles } = recordingCtx()
     renderContent(

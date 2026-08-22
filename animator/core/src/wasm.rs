@@ -111,7 +111,7 @@ struct LayerOut {
     name: String,
     visible: bool,
     locked: bool,
-    /// Outline-mode view aid (F-07-02 E3 / F-20-03) — strokes-only rendering.
+    /// Outline-mode view aid (F-07-02 E3 / F-20-01) — strokes-only rendering.
     outline: bool,
     /// Layer outline color (Part 33 `layer.outlineColor`, F-20-01).
     outline_color: String,

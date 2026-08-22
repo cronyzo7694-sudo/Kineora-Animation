@@ -174,7 +174,7 @@ impl Node {
         }
     }
     /// Clone this node under a FRESH id — SYS-03 paste/duplicate AND SYS-16
-    /// layer duplication (F-20-02 "Duplicate = deep copy (frames+content)").
+    /// layer duplication (F-20-01 "Duplicate = deep copy (frames+content)").
     pub fn with_id(&self, id: NodeId) -> Node {
         match self {
             Node::Rect {
@@ -313,7 +313,7 @@ pub struct Layer {
     pub tweens: BTreeMap<u32, ClassicTween>,
     pub visible: bool,
     pub locked: bool,
-    /// Outline mode (F-07-02 E3 / F-20-03): render this layer's content as
+    /// Outline mode (F-07-02 E3 / F-20-01): render this layer's content as
     /// strokes only (authoring view aid). The content stays fully editable,
     /// selectable, and is EXPORTED fully — outline is view-only.
     #[serde(default)]

@@ -184,6 +184,13 @@ export default function App() {
     return bus.on('document:changed', () => setTick((t) => t + 1))
   }, [])
 
+  // SYS-01 §27.1 / INT-0010: layer mutations ALSO emit the canonical
+  // layer:changed — the shell re-reads immediately (same refresh semantics
+  // as document:changed; panels follow the status poll either way).
+  useEffect(() => {
+    return bus.on('layer:changed', () => setTick((t) => t + 1))
+  }, [])
+
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])

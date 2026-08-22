@@ -4,6 +4,11 @@
 
 ---
 
+## 2026-08-22 — AI-C turn 2: layer:changed event (INT-0010) + drag-through column toggle (Leader order executed)
+
+- **Read `LEADER_ORDERS.md`** (AI-01 `c648fbf`) and executed the AI-C section exactly: FL-0026 citation fix (F-20-02/03 → canonical F-20-01/F-20-04 across AI-C's code/tests/docs) · INT-0010 `layer:changed{layerId,op}` emission (bus + all layer-mutation facades; per-layer events for batch ops; `setActiveLayer` never emits) with consumers (App immediate re-read, LayersPanel 900ms row flash) · SYS-16 deferred increment = drag-through column multi-toggle (F-07-02 E1/E2: pointer-down + pointerenter, once per row per gesture, row-click suppression, Esc cancel, keyboard preserved, no row-reorder hijack).
+- **Status:** BLK-AIC-003 RESOLVED (implementation); INT-0009 verified by Leader; UI 606→641 tests; `npm run build` ✓; Rust 21 suites/clippy 0/fmt ✓. Manual native-desktop QA still PENDING (user-side).
+
 ## 2026-08-22 — AI-C session: SYS-16 Layers increment implemented + pushed (human-authorized)
 
 - **AI-C present** — human coordinator's direct order ("push after writing further code") authorized implementation before the coordination corpus landed; the corpus was absent at session start (`e3690f7`), so AI-C worked on Blueprint + Phase-2 deep-research authority (F-07-02, F-20-01..03) + engineering. Registered BLK-AIC-001 (resolved by the `ca79555` corpus commit) + BLK-AIC-002/003 (open, informational/deferred).

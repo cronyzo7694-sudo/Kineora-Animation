@@ -31,6 +31,15 @@ export interface BusEvents {
    *  (consumers re-read the engine); `targets` = affected node ids when
    *  known, else []. Never emitted for view/session/workspace/pref changes. */
   'document:changed': { type: string; targets: number[] }
+  /** SYS-01 §27.1 (canonical, INT-0010 approved): a LAYER mutation happened.
+   *  Producer: MOD-LAYER (the engine client), post-mutation, in ADDITION to
+   *  `document:changed{type:'layer'}`. Payload `{layerId, op}` is advisory —
+   *  consumers re-read the engine (§27.0 stale rule). `layerId` = the layer's
+   *  STABLE id (never an index — indices shift on reorder/delete).
+   *  Batch ops ("all others") emit ONE event per affected layer.
+   *  View-state changes (active-layer switch) NEVER emit this (no document
+   *  mutation; the panels follow the status poll). */
+  'layer:changed': { layerId: number; op: LayerOp }
   'export:done': { format: string; path?: string }
   'mode:changed': { modeId: string; active: boolean }
   'snap:changed': { mode: string }
@@ -54,6 +63,20 @@ export interface BusEvents {
     bounds?: { x: number; y: number; w: number; h: number } | null
   }
 }
+
+/** Layer-mutation op taxonomy for `layer:changed` (SYS-01 §27.1 "layer op" —
+ *  the op VALUES are [INFERENCE] from the layer command set; the event name +
+ *  payload shape are locked). Each maps to an undoable MOD-LAYER command. */
+export type LayerOp =
+  | 'added'
+  | 'removed'
+  | 'renamed'
+  | 'visible'
+  | 'locked'
+  | 'outline'
+  | 'outlineColor'
+  | 'reordered'
+  | 'duplicated'
 
 export type BusEventName = keyof BusEvents
 export type BusHandler<K extends BusEventName> = (payload: BusEvents[K]) => void

@@ -22,7 +22,7 @@
 | 13 | Tools | AI-B | QUEUED | 5 tools | — | — | SYS-14, 03 | 2026-08-22 | await naming |
 | 14 | Stage | AI-B | QUEUED | partial | — | — | SYS-01, MOD-VECTOR | 2026-08-22 | await naming |
 | 15 | Timeline | AI-C | QUEUED | partial (AI-C: hidden-layer ✕ marker added `a562052`) | — | **RSK-001 (high)** | SYS-14, 16 | 2026-08-22 | await naming |
-| 16 | Layers | AI-C | QUEUED | **extended (AI-C `a562052`): outline mode + duplicate + Alt+click batches + indicators** | — | BLK-AIC-002/003 (see BLOCKERS) | SYS-15 | 2026-08-22 | await naming → formal spec + handoff; manual QA on native desktop |
+| 16 | Layers | AI-C | QUEUED | **extended (AI-C): outline+duplicate+batch+indicators (`a562052`) · layer:changed event INT-0010 + drag-through toggle (turn 2)** | — | BLK-AIC-002 (see BLOCKERS); AIC-003 RESOLVED | SYS-15 | 2026-08-22 | await naming → formal spec + handoff; manual QA on native desktop (PENDING) |
 | 17 | Properties | AI-C | QUEUED | partial | — | — | SYS-14, 03 | 2026-08-22 | await naming |
 | 18 | Library | AI-C | QUEUED | partial | — | — | SYS-19, 27 | 2026-08-22 | await naming |
 | 19 | Symbols/Instances | AI-C | QUEUED | partial | — | **RSK-002 (high)** | SYS-15, 18 | 2026-08-22 | await naming |

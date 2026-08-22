@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { bus } from '../bus'
 
 vi.mock('../engine/client', () => ({
   createLayer: vi.fn(() => 2),
@@ -175,7 +176,7 @@ describe('LayersPanel', () => {
     expect(createLayerMock).not.toHaveBeenCalled()
   })
 
-  // ——— Outline mode (F-07-02 E3, F-20-03) ———
+  // ——— Outline mode (F-07-02 E3, F-20-01) ———
 
   it('outline swatch toggles outline mode on the engine', () => {
     render(<LayersPanel status={makeStatus()} notify={notify} />)
@@ -260,11 +261,97 @@ describe('LayersPanel', () => {
     expect(screen.getByTestId('layer-edit-state-1')).toHaveTextContent('')
   })
 
-  // ——— Duplicate layer (F-20-02) ———
+  // ——— Duplicate layer (F-20-01) ———
 
   it('duplicate button deep-copies the ACTIVE layer on the engine', () => {
     render(<LayersPanel status={makeStatus()} notify={notify} />)
     fireEvent.click(screen.getByTestId('layers-dup'))
     expect(duplicateLayerMock).toHaveBeenCalledWith(0) // active layer is engine index 0
+  })
+})
+
+// ——— Drag-through multi-toggle (F-07-02 E1/E2 "drag through the column") ———
+
+describe('LayersPanel — drag-through column toggle', () => {
+  it('pointer-down toggles the initial row; pointer-enter toggles rows dragged over', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.pointerDown(screen.getByTestId('layer-eye-1')) // Layer 2 (visible → hidden)
+    fireEvent.pointerEnter(screen.getByTestId('layer-eye-0')) // Layer 1 (visible → hidden)
+    fireEvent.pointerUp(window)
+    expect(setLayerVisibleMock).toHaveBeenCalledWith(1, false)
+    expect(setLayerVisibleMock).toHaveBeenCalledWith(0, false)
+  })
+
+  it('a row is toggled at most ONCE per gesture (repeat pointer-enter is ignored)', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.pointerDown(screen.getByTestId('layer-lock-1'))
+    fireEvent.pointerEnter(screen.getByTestId('layer-lock-0'))
+    fireEvent.pointerEnter(screen.getByTestId('layer-lock-0'))
+    fireEvent.pointerEnter(screen.getByTestId('layer-lock-1')) // already toggled
+    fireEvent.pointerUp(window)
+    expect(setLayerLockedMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('the row-click that follows a column drag never activates the layer', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.pointerDown(screen.getByTestId('layer-eye-1'))
+    fireEvent.pointerEnter(screen.getByTestId('layer-eye-0'))
+    fireEvent.pointerUp(window)
+    fireEvent.click(screen.getByTestId('layer-eye-0'), { detail: 1 })
+    expect(setActiveLayerMock).not.toHaveBeenCalled()
+    // a subsequent plain row click activates normally again
+    fireEvent.click(screen.getByTestId('layer-row-0'))
+    expect(setActiveLayerMock).toHaveBeenCalledWith(0)
+  })
+
+  it('Escape cancels an active drag (no further toggles)', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.pointerDown(screen.getByTestId('layer-outline-1'))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.pointerEnter(screen.getByTestId('layer-outline-0'))
+    fireEvent.pointerUp(window)
+    expect(setLayerOutlineMock).toHaveBeenCalledTimes(1) // only the initial row
+  })
+
+  it('Alt+pointer-down performs the batch "all others" (not a drag)', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    // fireEvent.pointerDown does not forward modifiers in jsdom — dispatch a
+    // native pointerdown (jsdom lacks PointerEvent, so a MouseEvent-typed
+    // pointerdown; React reads altKey off the native event — real browsers
+    // carry altKey on PointerEvent).
+    screen.getByTestId('layer-eye-1').dispatchEvent(
+      new MouseEvent('pointerdown', { altKey: true, bubbles: true }),
+    )
+    fireEvent.pointerEnter(screen.getByTestId('layer-eye-0'))
+    fireEvent.pointerUp(window)
+    expect(toggleOtherVisibleMock).toHaveBeenCalledWith(1)
+    expect(setLayerVisibleMock).not.toHaveBeenCalled()
+  })
+
+  it('a column drag never starts an HTML5 row-reorder', () => {
+    render(<LayersPanel status={makeStatus()} notify={notify} />)
+    fireEvent.dragStart(screen.getByTestId('layer-eye-1'))
+    fireEvent.dragOver(screen.getByTestId('layer-row-0'))
+    fireEvent.drop(screen.getByTestId('layer-row-0'))
+    fireEvent.dragEnd(window)
+    expect(moveLayerMock).not.toHaveBeenCalled()
+  })
+})
+
+// ——— layer:changed row flash (SYS-01 §27.1 / INT-0010) ———
+
+describe('LayersPanel — layer:changed flash', () => {
+  it('flashes the affected row and clears it after the flash window', () => {
+    vi.useFakeTimers()
+    try {
+      render(<LayersPanel status={makeStatus()} notify={notify} />)
+      act(() => bus.emit('layer:changed', { layerId: 2, op: 'visible' }))
+      expect(screen.getByTestId('layer-row-1')).toHaveAttribute('data-changed', 'true')
+      expect(screen.getByTestId('layer-row-0')).toHaveAttribute('data-changed', 'false')
+      act(() => vi.advanceTimersByTime(1000))
+      expect(screen.getByTestId('layer-row-1')).toHaveAttribute('data-changed', 'false')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

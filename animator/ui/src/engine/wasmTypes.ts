@@ -13,7 +13,7 @@ export interface RectItemJson {
   stroke: string | null
   stroke_width: number
   /** Layer outline color when the item's scene layer is in outline mode
-   *  (F-20-03) — the editor draws stroke-only; export ignores it. Optional for
+   *  (F-20-01) — the editor draws stroke-only; export ignores it. Optional for
    *  legacy test fixtures. */
   outline_color?: string | null
 }
@@ -80,7 +80,7 @@ export interface LayerJson {
   name: string
   visible: boolean
   locked: boolean
-  /** Outline-mode view aid (F-07-02 E3 / F-20-03) — strokes-only rendering.
+  /** Outline-mode view aid (F-07-02 E3 / F-20-01) — strokes-only rendering.
    *  Optional for legacy test fixtures. */
   outline?: boolean
   /** Layer outline color (Part 33 `layer.outlineColor`, F-20-01). */

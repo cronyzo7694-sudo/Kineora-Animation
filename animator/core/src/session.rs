@@ -1650,7 +1650,7 @@ impl Session {
         true
     }
 
-    /// Outline-mode toggle (undoable; F-07-02 E3 / F-20-03). Outline is a view
+    /// Outline-mode toggle (undoable; F-07-02 E3 / F-20-01). Outline is a view
     /// aid — no selection impact.
     pub fn set_layer_outline(&mut self, index: usize, outline: bool) -> bool {
         let Some(l) = self
@@ -1768,7 +1768,7 @@ impl Session {
     }
 
     /// Duplicate a layer ABOVE the source: deep copy of frames AND content
-    /// (Part 20.1 / F-20-02). The copy becomes active. Returns its index.
+    /// (Part 20.1 / F-20-01). The copy becomes active. Returns its index.
     pub fn duplicate_layer(&mut self, index: usize) -> Option<usize> {
         let scene = self.active_scene;
         let count = self.doc.scene(scene)?.layers.len();
@@ -1780,7 +1780,7 @@ impl Session {
 
         // Deep-copy content: every node referenced by the source layer gets a
         // fresh NodeId; the clone is bit-identical except for its id, so the
-        // duplicate layer is fully independent of the source (F-20-02).
+        // duplicate layer is fully independent of the source (F-20-01).
         // (Clone the nodes out first so the immutable read and the mutable
         // id-allocation phases never overlap.)
         let mut remap: std::collections::BTreeMap<NodeId, NodeId> =

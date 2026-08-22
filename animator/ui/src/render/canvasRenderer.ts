@@ -118,7 +118,7 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
 
   for (const it of s.items) {
     const off = preview && selected.has(it.id) ? preview : { x: 0, y: 0 }
-    // Outline mode (F-20-03): items whose scene layer is outlined render as
+    // Outline mode (F-20-01): items whose scene layer is outlined render as
     // strokes in the layer's outline color — a VIEW aid; `renderContent` (the
     // export rasterizer) builds its own styles and ignores this entirely, and
     // the Rust `exportSvg` never sees it either.

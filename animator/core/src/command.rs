@@ -2102,7 +2102,7 @@ impl Command for SetLayerLocked {
     }
 }
 
-/// CMD-LAYER-OUTLINE — outline-mode toggle (F-07-02 E3 / F-20-03). Outline is
+/// CMD-LAYER-OUTLINE — outline-mode toggle (F-07-02 E3 / F-20-01). Outline is
 /// an authoring VIEW aid (strokes only): content stays editable, selectable,
 /// and exported fully — so this command never touches selection or evaluate.
 pub struct SetLayerOutline {
@@ -2224,7 +2224,7 @@ impl Command for SetLayerFlags {
     }
 }
 
-/// CMD-LAYER-DUP — duplicate a layer ABOVE the source (Part 20.1 / F-20-02
+/// CMD-LAYER-DUP — duplicate a layer ABOVE the source (Part 20.1 / F-20-01
 /// "Duplicate = deep copy (frames+content)"). The copy carries a fresh LayerId
 /// and every content node is cloned under a NEW NodeId (`Node::with_id`), so
 /// the two layers are fully independent — editing the copy never touches the

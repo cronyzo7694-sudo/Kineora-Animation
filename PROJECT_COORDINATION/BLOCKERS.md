@@ -141,3 +141,7 @@ Implementation landed for SYS-03 H02 object clipboard + SYS-04 view overlays + S
 | `selection:changed` payload | **OPEN / partial** — bus event added if missing; full `{prevTargets,targets,kind,commonType,bounds}` may be incomplete until SYS-14 |
 | SYS-07 Text | still BLOCKED (no Node::Text) |
 | SYS-04 guides/snap | still BLOCKED (lesson #8) |
+
+### BLK-AIC-003 — `layer:changed` event (MASTER_EXECUTION_PLAN §C SYS-16) not implemented in the UI bus
+- **Status:** **RESOLVED (2026-08-22, AI-C)** — implemented per Leader INT-0010 (VERIFIED): `layer:changed{layerId, op}` added to `bus.ts`, emitted by every layer-mutation facade in `engine/client.ts` (added/removed/renamed/visible/locked/outline/outlineColor/reordered/duplicated) alongside `document:changed{type:'layer'}`; batch ops emit one event per affected layer; `setActiveLayer` (view state) never emits. Consumers: App immediate re-read + LayersPanel row flash. Tests: `client.layerEvents.test.ts` (+7), `bus.test.ts` (+2), LayersPanel flash (+1). See AI-C_REPORT turn 2.
+- **Raised by:** AI-C, 2026-08-22

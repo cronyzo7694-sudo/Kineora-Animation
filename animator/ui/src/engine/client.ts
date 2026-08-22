@@ -21,6 +21,7 @@
 
 import type { EngineStatus } from '../commands'
 import { bus } from '../bus'
+import type { LayerOp } from '../bus'
 import type {
   KineoraWasm,
   LibraryItemJson,
@@ -511,6 +512,40 @@ export function hasDocManager(): boolean {
 }
 
 // ——— Layers (MOD-LAYER) ———
+//
+// Every layer MUTATION below emits BOTH `document:changed{type:'layer'}` (the
+// dirty/refresh signal, H04 §10) AND the canonical `layer:changed{layerId,op}`
+// (SYS-01 §27.1, INT-0010 approved; producer MOD-LAYER, payload advisory).
+// `layerId` is the layer's STABLE id resolved from the live status AFTER the
+// mutation — never the index (indices shift on reorder/delete). Batch
+// "all others" ops emit ONE event per affected layer. `setActiveLayer` is
+// VIEW state (no command/undo) → it emits neither event.
+
+function layerIdAt(index: number): number {
+  return statusJson()?.layers?.[index]?.id ?? 0
+}
+
+function emitLayerChanged(layerId: number, op: LayerOp): void {
+  if (mod && layerId > 0) bus.emit('layer:changed', { layerId, op })
+}
+
+/** Layers before a batch toggle: id → flag value (for per-layer events). */
+function layerFlagsSnapshot(kind: 'visible' | 'locked' | 'outline'): Map<number, boolean> {
+  const m = new Map<number, boolean>()
+  for (const l of statusJson()?.layers ?? []) {
+    const v = kind === 'visible' ? l.visible : kind === 'locked' ? l.locked : (l.outline ?? false)
+    m.set(l.id, v)
+  }
+  return m
+}
+
+/** Emit one `layer:changed` per layer whose flag actually flipped. */
+function emitLayerFlagFlips(before: Map<number, boolean>, kind: 'visible' | 'locked' | 'outline'): void {
+  for (const l of statusJson()?.layers ?? []) {
+    const after = kind === 'visible' ? l.visible : kind === 'locked' ? l.locked : (l.outline ?? false)
+    if (before.get(l.id) !== after) emitLayerChanged(l.id, kind)
+  }
+}
 
 export function setActiveLayer(index: number): boolean {
   return mod?.kineora_set_active_layer(index) ?? false
@@ -520,81 +555,129 @@ export function setActiveLayer(index: number): boolean {
 export function createLayer(): number {
   if (!mod) return -1
   const idx = mod.kineora_create_layer()
-  docChanged('layer')
+  if (idx >= 0) {
+    docChanged('layer')
+    emitLayerChanged(layerIdAt(idx), 'added')
+  }
   return idx
 }
 
 export function deleteLayer(index: number): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_delete_layer(index) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'removed')
+  }
   return ok
 }
 
 export function renameLayer(index: number, name: string): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_rename_layer(index, name) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'renamed')
+  }
   return ok
 }
 
 export function setLayerVisible(index: number, visible: boolean): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_set_layer_visible(index, visible) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'visible')
+  }
   return ok
 }
 
 export function setLayerLocked(index: number, locked: boolean): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_set_layer_locked(index, locked) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'locked')
+  }
   return ok
 }
 
 export function moveLayer(from: number, to: number): boolean {
+  const id = layerIdAt(from)
   const ok = mod?.kineora_move_layer(from, to) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'reordered')
+  }
   return ok
 }
 
-/** Outline-mode toggle (F-07-02 E3 / F-20-03) — strokes-only view aid. */
+/** Outline-mode toggle (F-07-02 E3 / F-20-01 state matrix) — strokes-only
+ *  view aid. */
 export function setLayerOutline(index: number, outline: boolean): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_set_layer_outline(index, outline) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'outline')
+  }
   return ok
 }
 
 /** Outline color (F-07-02 E6 / Part 33 `layer.outlineColor`). */
 export function setLayerOutlineColor(index: number, color: string): boolean {
+  const id = layerIdAt(index)
   const ok = mod?.kineora_set_layer_outline_color(index, color) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerChanged(id, 'outlineColor')
+  }
   return ok
 }
 
 /** Alt+click "all others" batch toggles (F-07-02 E1/E2/E3 + M.3) — each is
- *  ONE undo step for the whole batch. */
+ *  ONE undo step for the whole batch; `layer:changed` fires once per layer
+ *  whose flag actually flipped. */
 export function toggleOtherLayersVisible(exclude: number): boolean {
+  const before = layerFlagsSnapshot('visible')
   const ok = mod?.kineora_toggle_other_layers_visible(exclude) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'visible')
+  }
   return ok
 }
 
 export function toggleOtherLayersLocked(exclude: number): boolean {
+  const before = layerFlagsSnapshot('locked')
   const ok = mod?.kineora_toggle_other_layers_locked(exclude) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'locked')
+  }
   return ok
 }
 
 export function toggleOtherLayersOutline(exclude: number): boolean {
+  const before = layerFlagsSnapshot('outline')
   const ok = mod?.kineora_toggle_other_layers_outline(exclude) ?? false
-  if (ok) docChanged('layer')
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'outline')
+  }
   return ok
 }
 
 /** Duplicate a layer above the source — deep copy of frames + content
- *  (Part 20.1 / F-20-02). Returns the new layer's index, or -1 if the engine
+ *  (Part 20.1 / F-20-01). Returns the new layer's index, or -1 if the engine
  *  is absent / 0 if the duplicate was blocked (0 is never a valid result). */
 export function duplicateLayer(index: number): number {
   if (!mod) return -1
   const idx = mod.kineora_duplicate_layer(index)
-  if (idx > 0) docChanged('layer')
+  if (idx > 0) {
+    docChanged('layer')
+    emitLayerChanged(layerIdAt(idx), 'duplicated')
+  }
   return idx
 }
 

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { bus } from '../bus'
 import {
   createLayer,
   deleteLayer,
@@ -31,28 +32,70 @@ interface Props {
 /** F-20-01 reference layer model's default outline color. */
 const DEFAULT_OUTLINE_COLOR = '#ff0000'
 
+/** The three per-row flag columns (F-07-02 layer row controls). */
+type FlagKind = 'visible' | 'locked' | 'outline'
+
+function flagOf(l: LayerJson, kind: FlagKind): boolean {
+  return kind === 'visible' ? l.visible : kind === 'locked' ? l.locked : (l.outline ?? false)
+}
+
+/** How long a changed row keeps its highlight after `layer:changed`. */
+const FLASH_MS = 900
+
 /**
  * Layers panel (Part 20 / C-22) — a projection of the engine's real layer list.
  * Rows show eye/lock/outline/name + state indicators; clicking a row activates
  * the layer (view state, no undo); eye/lock/outline/reorder/rename/create/
  * duplicate/delete are undoable engine commands.
  *
- * F-07-02 "all others" batch semantics: Alt+click on eye/lock/outline toggles
- * that flag on every OTHER layer as ONE undo step (M.3 rescue: when every
- * layer is hidden, Alt+click the eye shows ALL). Double-clicking the outline
- * swatch edits the layer's outline color (E6 "Layer Properties").
+ * F-07-02 interactions implemented here:
+ *  - Alt+click on eye/lock/outline toggles that flag on every OTHER layer as
+ *    ONE undo step (M.3 rescue: when every layer is hidden, Alt+click the eye
+ *    shows ALL).
+ *  - DRAG-THROUGH (E1/E2 "drag through the column = multiple"): pointer-down
+ *    on a flag button then dragging vertically flips the same flag on every
+ *    row the pointer enters (once per row per gesture; the row click that
+ *    follows a drag is suppressed so the active layer never changes mid-drag).
+ *  - Double-clicking the outline swatch edits the layer's outline color
+ *    (E6 "Layer Properties"). Rows flash briefly when `layer:changed` fires
+ *    (SYS-01 §27.1 / INT-0010 — the canonical layer-mutation event).
+ *
+ * Keyboard/accessibility: flag buttons toggle on Enter/Space (click with
+ * `detail === 0` — the keyboard-activation path); pointer users toggle on
+ * pointer-down for drag responsiveness.
  */
 export function LayersPanel({ status, notify, width, collapsed = false, onToggleCollapse, onClose }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState<number | null>(null)
   const [colorEdit, setColorEdit] = useState<{ index: number; draft: string } | null>(null)
+  // rows that recently changed (layer:changed) — brief highlight
+  const [flash, setFlash] = useState<Set<number>>(new Set())
+  const flashTimer = useRef<number | undefined>(undefined)
+  // active drag-through session (column kind + per-layer gesture-start values)
+  const dragRef = useRef<{ kind: FlagKind; initial: Map<number, boolean>; toggled: Set<number> } | null>(null)
+  // suppress the row-click that follows a pointer-down on a flag button
+  const ignoreRowClickRef = useRef(false)
 
   const layers: LayerJson[] = status?.layers ?? []
   const attached = status !== null
   // display frontmost (top of the document, highest engine index) at the top
   // of the list; engineIndex keeps the real document order for engine calls.
   const rows = layers.map((l, i) => ({ ...l, engineIndex: i })).reverse()
+
+  // SYS-01 §27.1 / INT-0010: a layer mutation happened → flash the affected
+  // row(s) so the user sees exactly which layer changed (batch ops flash all).
+  useEffect(() => {
+    const off = bus.on('layer:changed', ({ layerId }) => {
+      setFlash((prev) => new Set(prev).add(layerId))
+      window.clearTimeout(flashTimer.current)
+      flashTimer.current = window.setTimeout(() => setFlash(new Set()), FLASH_MS)
+    })
+    return () => {
+      off()
+      window.clearTimeout(flashTimer.current)
+    }
+  }, [])
 
   const guard = (action: string): boolean => {
     if (!attached) {
@@ -108,38 +151,80 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
     setDragging(null)
   }
 
-  const toggleEye = (e: React.MouseEvent, engineIndex: number) => {
-    e.stopPropagation()
-    if (!guard('toggle visibility')) return
-    if (e.altKey) {
-      // Alt+click = toggle every OTHER layer's visibility (one undo step)
-      notify(toggleOtherLayersVisible(engineIndex) ? 'visibility toggled for other layers' : 'visibility toggle: no other layers')
-      return
-    }
-    const l = layers[engineIndex]
-    setLayerVisible(engineIndex, !l.visible)
+  /** Apply one flag flip on the engine (single-layer command). */
+  const applyFlag = (kind: FlagKind, engineIndex: number, next: boolean): void => {
+    if (kind === 'visible') setLayerVisible(engineIndex, next)
+    else if (kind === 'locked') setLayerLocked(engineIndex, next)
+    else setLayerOutline(engineIndex, next)
   }
 
-  const toggleLock = (e: React.MouseEvent, engineIndex: number) => {
-    e.stopPropagation()
-    if (!guard('toggle lock')) return
-    if (e.altKey) {
-      notify(toggleOtherLayersLocked(engineIndex) ? 'lock toggled for other layers' : 'lock toggle: no other layers')
-      return
-    }
-    const l = layers[engineIndex]
-    setLayerLocked(engineIndex, !l.locked)
+  /** Alt+click "all others" batch (ONE undo step). */
+  const batchFlag = (kind: FlagKind, engineIndex: number): void => {
+    if (kind === 'visible') notify(toggleOtherLayersVisible(engineIndex) ? 'visibility toggled for other layers' : 'visibility toggle: no other layers')
+    else if (kind === 'locked') notify(toggleOtherLayersLocked(engineIndex) ? 'lock toggled for other layers' : 'lock toggle: no other layers')
+    else notify(toggleOtherLayersOutline(engineIndex) ? 'outline toggled for other layers' : 'outline toggle: no other layers')
   }
 
-  const toggleOutline = (e: React.MouseEvent, engineIndex: number) => {
+  const endDrag = () => {
+    dragRef.current = null
+    window.removeEventListener('pointerup', endDrag)
+    window.removeEventListener('pointercancel', endDrag)
+    window.removeEventListener('keydown', onDragKey)
+  }
+
+  const onDragKey = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') {
+      ignoreRowClickRef.current = false
+      endDrag()
+    }
+  }
+
+  /** pointer-down on a flag button: Alt → batch; otherwise start a drag
+   *  session and toggle THIS row immediately (responsive drag-through). */
+  const onFlagPointerDown = (e: React.PointerEvent, kind: FlagKind, engineIndex: number) => {
+    if (!attached) return
     e.stopPropagation()
-    if (!guard('toggle outline')) return
     if (e.altKey) {
-      notify(toggleOtherLayersOutline(engineIndex) ? 'outline toggled for other layers' : 'outline toggle: no other layers')
+      batchFlag(kind, engineIndex)
       return
     }
-    const l = layers[engineIndex]
-    setLayerOutline(engineIndex, !l.outline)
+    const initial = new Map<number, boolean>()
+    for (const l of layers) initial.set(l.id, flagOf(l, kind))
+    dragRef.current = { kind, initial, toggled: new Set() }
+    ignoreRowClickRef.current = true
+    const id = layers[engineIndex]?.id
+    if (id !== undefined) {
+      dragRef.current.toggled.add(id)
+      applyFlag(kind, engineIndex, !(initial.get(id) ?? flagOf(layers[engineIndex], kind)))
+    }
+    window.addEventListener('pointerup', endDrag)
+    window.addEventListener('pointercancel', endDrag)
+    window.addEventListener('keydown', onDragKey)
+  }
+
+  /** pointer-enter during an active drag of the SAME column → flip that row
+   *  (once per gesture; value flips from its gesture-start state). */
+  const onFlagPointerEnter = (kind: FlagKind, engineIndex: number) => {
+    const s = dragRef.current
+    if (!s || s.kind !== kind) return
+    const id = layers[engineIndex]?.id
+    if (id === undefined || s.toggled.has(id)) return
+    s.toggled.add(id)
+    applyFlag(kind, engineIndex, !(s.initial.get(id) ?? flagOf(layers[engineIndex], kind)))
+  }
+
+  /** click on a flag button: consume the click that follows a pointer-down
+   *  drag; keyboard activation (detail === 0) toggles the flag. */
+  const onFlagClick = (e: React.MouseEvent, kind: FlagKind, engineIndex: number) => {
+    e.stopPropagation()
+    if (ignoreRowClickRef.current) {
+      ignoreRowClickRef.current = false
+      return
+    }
+    if (e.detail === 0) {
+      if (e.altKey) batchFlag(kind, engineIndex)
+      else applyFlag(kind, engineIndex, !flagOf(layers[engineIndex], kind))
+    }
   }
 
   // double-click the outline swatch = edit the layer's outline color
@@ -190,6 +275,7 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
           const active = l.active
           const blockedActive = active && (l.locked || !l.visible)
           const outlineColor = l.outline_color || DEFAULT_OUTLINE_COLOR
+          const flashed = flash.has(l.id)
           const rowStyle: React.CSSProperties = {
             display: 'flex',
             alignItems: 'center',
@@ -199,6 +285,7 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
             cursor: 'pointer',
             background: active ? '#2f4a6b' : dragging === l.engineIndex ? '#3a3a3a' : 'transparent',
             border: active ? '1px solid #0a7cff' : '1px solid transparent',
+            boxShadow: flashed ? 'inset 0 0 0 1px #0a7cff' : 'none',
             color: active ? '#fff' : '#ccc',
             fontSize: 12,
             userSelect: 'none',
@@ -208,13 +295,22 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
               key={l.id}
               data-testid={`layer-row-${l.engineIndex}`}
               data-active={active ? 'true' : 'false'}
+              data-changed={flashed ? 'true' : 'false'}
               draggable
-              onDragStart={() => setDragging(l.engineIndex)}
+              onDragStart={(e) => {
+                // column-drag-through gestures must never become row reorders
+                if ((e.target as HTMLElement).closest('[data-layer-col]')) return
+                setDragging(l.engineIndex)
+              }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => dropOn(l.engineIndex)}
               onDragEnd={() => setDragging(null)}
               style={rowStyle}
               onClick={() => {
+                if (ignoreRowClickRef.current) {
+                  ignoreRowClickRef.current = false
+                  return
+                }
                 if (!guard('select layer')) return
                 setActiveLayer(l.engineIndex)
               }}
@@ -226,18 +322,24 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
             >
               <button
                 data-testid={`layer-eye-${l.engineIndex}`}
+                data-layer-col
                 aria-label={l.visible ? `Hide ${l.name}` : `Show ${l.name}`}
-                title={l.visible ? 'Hide layer (Alt: toggle all others)' : 'Show layer (Alt: toggle all others)'}
-                onClick={(e) => toggleEye(e, l.engineIndex)}
+                title={l.visible ? 'Hide layer (Alt: toggle all others; drag through column)' : 'Show layer (Alt: toggle all others; drag through column)'}
+                onPointerDown={(e) => onFlagPointerDown(e, 'visible', l.engineIndex)}
+                onPointerEnter={() => onFlagPointerEnter('visible', l.engineIndex)}
+                onClick={(e) => onFlagClick(e, 'visible', l.engineIndex)}
                 style={{ ...iconBtn, opacity: l.visible ? 1 : 0.35 }}
               >
                 {l.visible ? '👁' : '○'}
               </button>
               <button
                 data-testid={`layer-lock-${l.engineIndex}`}
+                data-layer-col
                 aria-label={l.locked ? `Unlock ${l.name}` : `Lock ${l.name}`}
-                title={l.locked ? 'Unlock layer (Alt: toggle all others)' : 'Lock layer (Alt: toggle all others)'}
-                onClick={(e) => toggleLock(e, l.engineIndex)}
+                title={l.locked ? 'Unlock layer (Alt: toggle all others; drag through column)' : 'Lock layer (Alt: toggle all others; drag through column)'}
+                onPointerDown={(e) => onFlagPointerDown(e, 'locked', l.engineIndex)}
+                onPointerEnter={() => onFlagPointerEnter('locked', l.engineIndex)}
+                onClick={(e) => onFlagClick(e, 'locked', l.engineIndex)}
                 style={{ ...iconBtn, opacity: l.locked ? 1 : 0.4 }}
               >
                 {l.locked ? '🔒' : '🔓'}
@@ -262,11 +364,14 @@ export function LayersPanel({ status, notify, width, collapsed = false, onToggle
               ) : (
                 <button
                   data-testid={`layer-outline-${l.engineIndex}`}
+                  data-layer-col
                   data-outline={l.outline ? 'true' : 'false'}
                   data-color={outlineColor}
                   aria-label={l.outline ? `Turn off outline mode for ${l.name}` : `Turn on outline mode for ${l.name}`}
-                  title={`Outline mode (${outlineColor}) — double-click to change color; Alt: toggle all others`}
-                  onClick={(e) => toggleOutline(e, l.engineIndex)}
+                  title={`Outline mode (${outlineColor}) — double-click to change color; Alt: toggle all others; drag through column`}
+                  onPointerDown={(e) => onFlagPointerDown(e, 'outline', l.engineIndex)}
+                  onPointerEnter={() => onFlagPointerEnter('outline', l.engineIndex)}
+                  onClick={(e) => onFlagClick(e, 'outline', l.engineIndex)}
                   onDoubleClick={(e) => startColorEdit(e, l.engineIndex)}
                   style={{
                     width: 14,

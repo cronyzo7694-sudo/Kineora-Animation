@@ -24,10 +24,10 @@ pub struct RectItem {
     pub stroke: Option<String>,
     pub stroke_width: f64,
     /// Set when the item's SCENE layer is in outline mode (F-07-02 E3 /
-    /// F-20-03): the layer's outline color. Propagates through symbol nesting,
+    /// F-20-01): the layer's outline color. Propagates through symbol nesting,
     /// so everything placed on an outline layer renders as strokes. This is a
     /// VIEW aid only — SVG export and the export rasterizer ignore it and
-    /// always draw the full content (F-20-03 "outline exports fully").
+    /// always draw the full content (F-20-01 "outline exports fully").
     #[serde(default)]
     pub outline_color: Option<String>,
 }
@@ -260,7 +260,7 @@ pub(crate) fn instance_child_frame(
 /// locked layers (used by hit-testing/marquee; rendering keeps locked layers).
 /// `outline` = the outline color inherited from the originating SCENE layer
 /// (None = normal rendering); a layer in outline mode overrides it with its own
-/// color (F-20-03 view aid, propagated through symbol nesting).
+/// color (F-20-01 view aid, propagated through symbol nesting).
 // The 8 parameters are the natural recursion payload; grouping them into a
 // struct would obscure the hot path for no caller benefit.
 #[allow(clippy::too_many_arguments)]

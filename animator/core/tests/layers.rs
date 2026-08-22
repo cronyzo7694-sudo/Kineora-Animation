@@ -217,7 +217,7 @@ fn select_all_spans_layers_skipping_hidden_and_locked() {
     assert_eq!(s.selection.len(), 1, "locked layer skipped by Select All");
 }
 
-// ——— SYS-16 Layers: outline mode + color (F-07-02 E3/E6, F-20-03) ———
+// ——— SYS-16 Layers: outline mode + color (F-07-02 E3/E6, F-20-01) ———
 
 #[test]
 fn outline_toggle_is_undoable_and_view_only() {
@@ -358,7 +358,7 @@ fn batch_toggle_needs_other_layers() {
     assert_eq!(s.history.undo_len(), n, "no command for empty batch");
 }
 
-// ——— SYS-16 Layers: duplicate layer (F-20-02 "deep copy frames+content") ———
+// ——— SYS-16 Layers: duplicate layer (F-20-01 "deep copy frames+content") ———
 
 #[test]
 fn duplicate_layer_deep_copies_content_and_is_independent() {
@@ -482,7 +482,7 @@ fn duplicate_layer_duplicates_visible_locked_outline_flags() {
     assert_eq!(copy.outline_color, "#123456", "outline color copied");
 }
 
-// ——— SYS-16 Layers: outline-mode rendering (F-07-02 E3 / F-20-03) ———
+// ——— SYS-16 Layers: outline-mode rendering (F-07-02 E3 / F-20-01) ———
 
 #[test]
 fn outline_layer_items_carry_outline_color_view_only() {
@@ -503,7 +503,7 @@ fn outline_layer_items_carry_outline_color_view_only() {
     );
 
     // VIEW-ONLY: export renders the full content — the outline color never
-    // leaks (F-20-03 "outline exports fully").
+    // leaks (F-20-01 "outline exports fully").
     let svg = s.export_svg(1);
     assert!(svg.contains("#111111"), "export keeps the fill");
     assert!(!svg.contains("#00ff00"), "outline color never exported");

@@ -43,6 +43,7 @@ import {
   saveWorkspaceSnapshot,
 } from './workspace'
 import { Toolbar } from './components/Toolbar'
+import { ToolColors } from './components/ToolColors'
 import { MenuBar } from './components/MenuBar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -534,6 +535,9 @@ export default function App() {
       'tool.transform',
       'tool.hand',
       'tool.zoom',
+      'tool.paintBucket',
+      'tool.inkBottle',
+      'tool.eyedropper',
       'edit.undo',
       'edit.redo',
       'file.new',
@@ -672,7 +676,12 @@ export default function App() {
       {/* Edit bar (breadcrumb) — above the stage */}
       <EditBar ctx={ctx} scene={status?.scene ?? 'Scene 1'} />
       {/* Tools toolbar (Window ▸ Tools) */}
-      {panels.tools && <Toolbar controls={controls} ctx={ctx} />}
+      {panels.tools && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Toolbar controls={controls} ctx={ctx} />
+          <ToolColors />
+        </div>
+      )}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {panels.layers && (
           <LayersPanel
@@ -693,7 +702,7 @@ export default function App() {
             onCancel={() => setLayout((p) => ({ ...p, layersW: originRef.current.layersW }))}
           />
         )}
-        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} />
+        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} onToolChange={setTool} />
         {rightVisible.length > 0 && (
           <ResizeHandle
             testId="resize-props"

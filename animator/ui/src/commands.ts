@@ -312,6 +312,44 @@ export const commands: Command[] = [
     toolbar: true,
   },
   {
+    // Adobe (helpx — Strokes, fills and gradients): "The Paint Bucket tool
+    // fills enclosed areas with color… change the color of already painted
+    // areas." Uses the Tools-panel Fill Color.
+    id: 'tool.paintBucket',
+    label: 'Paint Bucket Tool',
+    category: 'tools',
+    shortcut: 'K',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('bucket'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "To change the stroke color, width, and style of one or more lines
+    // or shape outlines, use the Ink Bottle tool."
+    id: 'tool.inkBottle',
+    label: 'Ink Bottle Tool',
+    category: 'tools',
+    shortcut: 'S',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('ink'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "Use the Eyedropper tool to copy fill and stroke attributes from
+    // one object and immediately apply them to another object… When you click a
+    // filled area, the tool automatically changes to the Paint Bucket tool."
+    id: 'tool.eyedropper',
+    label: 'Eyedropper Tool',
+    category: 'tools',
+    shortcut: 'I',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('eyedropper'),
+    toolbar: true,
+  },
+  {
     // Adobe: "select the Zoom tool and click the element… Alt-click to zoom
     // out… To zoom in so that a specific area fills the window, drag a
     // rectangular selection on the Stage with the Zoom tool."

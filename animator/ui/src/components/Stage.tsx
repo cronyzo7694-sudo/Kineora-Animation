@@ -5,6 +5,7 @@ import type { EngineStatus } from '../controlRegistry'
 import {
   drawRect,
   evaluate,
+  setNodeProps,
   moveSelection,
   placeSymbol,
   selectAt,
@@ -16,6 +17,7 @@ import {
 } from '../engine/client'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
+import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, zoomToRect, type Viewport } from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
@@ -42,6 +44,11 @@ interface Props {
   notify?: (msg: string) => void
   /** Live color/stroke preview while a Properties field is being edited. */
   colorPreview?: ColorPreview | null
+  /**
+   * Tool self-switch channel — Adobe's Eyedropper "automatically changes to the
+   * Paint Bucket tool" after picking up a fill.
+   */
+  onToolChange?: (tool: string) => void
 }
 
 /**
@@ -58,6 +65,10 @@ export function stageCursor(tool: string): string {
       return 'crosshair'
     case 'transform':
       return 'move'
+    case 'bucket':
+    case 'ink':
+    case 'eyedropper':
+      return 'crosshair'
     default:
       return 'default'
   }
@@ -85,7 +96,7 @@ interface TransformGesture {
   details: SelDetail[]
 }
 
-export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Props) {
+export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onToolChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
@@ -158,6 +169,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
   }, [])
 
   useEffect(() => subscribeViewPrefs(() => scheduleRedraw()), [])
+  useEffect(() => subscribeToolColors(() => scheduleRedraw()), [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -368,7 +380,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
           fromCenter: e.altKey,
         })
         if (isValidRect(rp)) {
-          const id = drawRect(rp.x, rp.y, rp.w, rp.h, '#3f9bf5')
+          // BUG-TOOL-007: the Rectangle tool used a hard-coded #3f9bf5. Adobe:
+          // "The Tools panel Stroke Color and Fill Color controls set the
+          // painting attributes of new objects you create with the drawing and
+          // painting tools."
+          const id = drawRect(rp.x, rp.y, rp.w, rp.h, loadToolColors().fill ?? '#ffffff')
           if (id === 0 && engine.kind === 'ok' && notify) {
             notify('draw blocked: active layer is locked, hidden, or a folder')
           }
@@ -562,6 +578,55 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
     if (e.button === 0 && activeTool() === 'hand') {
       e.preventDefault()
       panDragRef.current = { x: e.clientX, y: e.clientY }
+      return
+    }
+
+    // ——— Paint tools: Paint Bucket (K) / Ink Bottle (S) / Eyedropper (I) ———
+    // Adobe: the Paint Bucket "fills enclosed areas with color" using the Fill
+    // Color; the Ink Bottle changes "stroke color, width, and style"; the
+    // Eyedropper copies a clicked object's attributes and then "automatically
+    // changes to the Paint Bucket tool" (fill) / "Ink Bottle tool" (stroke).
+    if (e.button === 0 && (activeTool() === 'bucket' || activeTool() === 'ink' || activeTool() === 'eyedropper')) {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      const hit = selectAt(doc.x, doc.y)
+      const target = statusJson()?.selection ?? []
+      if (!hit || target.length === 0) {
+        notify?.(`${activeTool()}: nothing under the pointer`)
+        scheduleRedraw()
+        return
+      }
+      const colors = loadToolColors()
+      const id = target[0]
+      if (activeTool() === 'bucket') {
+        if (colors.fill === null) {
+          notify?.('paint bucket: fill color is None')
+        } else {
+          setNodeProps([{ id, fill: colors.fill }])
+          notify?.(`filled with ${colors.fill}`)
+        }
+      } else if (activeTool() === 'ink') {
+        if (colors.stroke === null) {
+          setNodeProps([{ id, stroke_enabled: false }])
+          notify?.('stroke removed')
+        } else {
+          setNodeProps([{ id, stroke_enabled: true, stroke: colors.stroke, stroke_width: colors.strokeWidth }])
+          notify?.(`stroke ${colors.stroke} · ${colors.strokeWidth}px`)
+        }
+      } else {
+        // Eyedropper: copy the clicked object's paint attributes…
+        const d = statusJson()?.selection_details?.find((x) => x.id === id)
+        if (d) {
+          setToolColors({
+            fill: d.fill && d.fill.length > 0 ? d.fill : null,
+            stroke: d.stroke ?? null,
+            strokeWidth: d.stroke_width > 0 ? d.stroke_width : loadToolColors().strokeWidth,
+          })
+          // …then switch tools exactly like Animate does.
+          onToolChange?.('bucket')
+          notify?.(`picked up ${d.fill || 'no fill'} → Paint Bucket`)
+        }
+      }
+      scheduleRedraw()
       return
     }
 

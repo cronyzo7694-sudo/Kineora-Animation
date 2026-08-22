@@ -564,7 +564,11 @@ fn convert_on_a_hold_frame_auto_keys_inside_the_command_and_undo_removes_it() {
         ),
         "convert auto-keys the playhead"
     );
-    assert_eq!(s.history.undo_len(), n + 1, "one command (not a leaked pre-key)");
+    assert_eq!(
+        s.history.undo_len(),
+        n + 1,
+        "one command (not a leaked pre-key)"
+    );
     assert!(s.undo());
     assert!(
         s.doc.layer(0, 0).unwrap().keyframes.get(&5).is_none(),

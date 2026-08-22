@@ -113,8 +113,16 @@ fn history_bound_drops_oldest() {
         undos += 1;
     }
     assert_eq!(undos, HISTORY_BOUND);
-    assert_eq!(s.current_frame().len(), 5, "first 5 draws survive; 6th+ undone");
-    assert_eq!(s.selection, vec![ids[4]], "oldest remaining cmd restores its prev");
+    assert_eq!(
+        s.current_frame().len(),
+        5,
+        "first 5 draws survive; 6th+ undone"
+    );
+    assert_eq!(
+        s.selection,
+        vec![ids[4]],
+        "oldest remaining cmd restores its prev"
+    );
     assert!(!s.undo(), "cannot walk past the dropped entries");
 }
 

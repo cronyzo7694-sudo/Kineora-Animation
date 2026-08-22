@@ -138,8 +138,7 @@ pub fn load(path: &Path) -> Result<Document, String> {
         }
     }
 
-    let value: Value =
-        serde_json::from_slice(&bytes).map_err(|e| format!("deserialize: {e}"))?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|e| format!("deserialize: {e}"))?;
     if !value.is_object() {
         return Err("deserialize: not a JSON project object".into());
     }
@@ -191,13 +190,23 @@ mod tests {
     fn save_stamps_format_version_and_load_round_trips() {
         let p = tmp("stamp.json");
         let d = doc();
-        assert_eq!(d.format_version, 0, "in-memory doc is unstamped (writer = SYS-28 only)");
+        assert_eq!(
+            d.format_version, 0,
+            "in-memory doc is unstamped (writer = SYS-28 only)"
+        );
         save(&d, &p).unwrap();
         let raw = fs::read_to_string(&p).unwrap();
         let v: Value = serde_json::from_str(&raw).unwrap();
-        assert_eq!(v["formatVersion"], Value::from(FORMAT_VERSION), "stamped on write (H10 §6)");
+        assert_eq!(
+            v["formatVersion"],
+            Value::from(FORMAT_VERSION),
+            "stamped on write (H10 §6)"
+        );
         let loaded = load(&p).unwrap();
-        assert_eq!(loaded.format_version, FORMAT_VERSION, "loader carries the migrated version");
+        assert_eq!(
+            loaded.format_version, FORMAT_VERSION,
+            "loader carries the migrated version"
+        );
         assert_eq!(loaded.settings.width, d.settings.width);
         cleanup(&p);
     }
@@ -211,7 +220,10 @@ mod tests {
         v.as_object_mut().unwrap().remove("formatVersion");
         fs::write(&p, serde_json::to_string(&v).unwrap()).unwrap();
         let loaded = load(&p).unwrap();
-        assert_eq!(loaded.format_version, FORMAT_VERSION, "v0 → CURRENT migrated");
+        assert_eq!(
+            loaded.format_version, FORMAT_VERSION,
+            "v0 → CURRENT migrated"
+        );
         cleanup(&p);
     }
 
@@ -229,7 +241,12 @@ mod tests {
 
     #[test]
     fn migrate_is_pure_and_never_downward() {
-        assert!(migrate(FORMAT_VERSION + 1, FORMAT_VERSION, Value::Object(Default::default())).is_none());
+        assert!(migrate(
+            FORMAT_VERSION + 1,
+            FORMAT_VERSION,
+            Value::Object(Default::default())
+        )
+        .is_none());
         let out = migrate(0, FORMAT_VERSION, serde_json::json!({"settings": {}})).unwrap();
         assert_eq!(out["formatVersion"], Value::from(FORMAT_VERSION));
     }
@@ -254,7 +271,10 @@ mod tests {
         let p = tmp("noside.json");
         save(&doc(), &p).unwrap();
         fs::remove_file(checksum_path(&p)).unwrap();
-        assert!(load(&p).is_ok(), "legacy/copied files without a sidecar load");
+        assert!(
+            load(&p).is_ok(),
+            "legacy/copied files without a sidecar load"
+        );
         cleanup(&p);
     }
 

@@ -181,7 +181,10 @@ mod tests {
                 assert!((a - b).abs() < 1e-12, "{f:?} reflection at {t}");
             }
             let mid = ease_penner(f, EaseMode::InOut, 0.5);
-            assert!((mid - 0.5).abs() < 1e-12, "{f:?} InOut(0.5) = 0.5, got {mid}");
+            assert!(
+                (mid - 0.5).abs() < 1e-12,
+                "{f:?} InOut(0.5) = 0.5, got {mid}"
+            );
         }
     }
 

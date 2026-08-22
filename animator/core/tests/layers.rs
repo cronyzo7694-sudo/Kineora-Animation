@@ -556,7 +556,10 @@ fn nest_un_nest_and_cycle_blocked() {
         s.doc.scene(0).unwrap().layers[li].parent_id,
         Some(s.doc.scene(0).unwrap().layers[fi].id)
     );
-    assert_eq!(s.doc.layer_depth(0, s.doc.scene(0).unwrap().layers[li].id), 1);
+    assert_eq!(
+        s.doc.layer_depth(0, s.doc.scene(0).unwrap().layers[li].id),
+        1
+    );
     // nest folder under its own child → cycle
     assert!(!s.set_layer_parent(fi, Some(li)));
     assert!(s.set_layer_parent(li, None));
@@ -592,10 +595,27 @@ fn delete_folder_removes_descendants_and_undoes() {
     assert!(s.delete_layer(fi));
     assert!(
         s.doc.scene(0).unwrap().layers.len() < before - 1
-            || s.doc.scene(0).unwrap().layers.iter().all(|l| !l.is_folder()),
+            || s.doc
+                .scene(0)
+                .unwrap()
+                .layers
+                .iter()
+                .all(|l| !l.is_folder()),
         "folder gone"
     );
-    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.parent_id.is_none() || s.doc.scene(0).unwrap().layers.iter().any(|p| Some(p.id) == l.parent_id)));
+    assert!(s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .all(|l| l.parent_id.is_none()
+            || s.doc
+                .scene(0)
+                .unwrap()
+                .layers
+                .iter()
+                .any(|p| Some(p.id) == l.parent_id)));
     s.undo();
     assert!(s.doc.scene(0).unwrap().layers.iter().any(|l| l.is_folder()));
 }

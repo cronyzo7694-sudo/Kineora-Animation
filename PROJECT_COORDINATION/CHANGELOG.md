@@ -85,3 +85,15 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
 - Created worker report scaffolds `AI-A/B/C/D_REPORT.md` (all = NOT STARTED, gate BLOCKED).
 - Confirmed coordination layer complete: 11 shared files + 4 report channels + HANDOFFS/.
 - Leadership posture: supervision STANDBY — 4-AI SPLIT remains BLOCKED (5 blockers: native runtime PENDING, SYS-03 not implemented, 5 product decisions, corpus unversioned, 8 failures untested). No worker is active in this environment; when workers DO run, their first read = lessons + MASTER_EXECUTION_PLAN + CROSS_SYSTEM_CONTRACT + FOUNDATION_CONTRACT.
+
+## 2026-08-22 — AI-D · SYS-28 Persistence increment 1 (`8656ac1`)
+- MOD-PERSIST TS boundary: formatVersion=1 stamped on write (P-9 closed at boundary), pure
+  `migrate(from,to)` (v0→v1), newer-version REFUSED, corrupt REFUSED, FNV-1a checksum.
+- MOD-AUTOSAVE: 2s-debounce/30s-cap → `.autosave` slot (native = `<path>.autosave` via the shell
+  atomic seam; browser = dev harness); INV-AS-1 manual-save-supersedes; never emits
+  `saving:changed`, never touches DIRTY.
+- Launch recovery prompt (H00 T12–T14): Accept → CLEAN + `openSet:changed` then
+  `activeDoc:changed`; Discard → slot cleared, no events; corrupt slot → skip + toast.
+- SYS-02 wiring only at pre-marked H10 §5.1/§5.2 seams (INT-AID-001). AMB-002/003 untouched.
+- NEW registers: AMB-D-001 (pathless desktop autosave), BLK-D-005 (Rust toolchain absent —
+  core parity queued). Tests +36; suite 677/677; tsc clean. Manual desktop QA pending.

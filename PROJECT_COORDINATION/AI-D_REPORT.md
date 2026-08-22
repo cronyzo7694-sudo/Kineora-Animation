@@ -97,8 +97,10 @@ boundary), H00 T12–T14 (recovery now wired) · AMB-002/003 remain with H10/Lea
 
 ### 10. Commit hashes
 - Session 1: `c4fdee4` (blockers) · Session 2: `f4feb42` (attendance)
-- **Session 3: recorded in CHANGELOG/git after push (single atomic commit: implementation + tests
-  + coordination updates INT-AID-001, BLOCKERS PART 5, ATTENDANCE row, this report).**
+- **Session 3: `8656ac1`** — single atomic commit (implementation + tests + coordination:
+  INT-AID-001, BLOCKERS PART 5, ATTENDANCE row, this report), rebased cleanly onto AI-C's
+  `46d3b9e` (BLOCKERS.md conflict resolved preserving BOTH workers' sections; full suite re-run
+  post-rebase: 677/677 green including AI-C's new tests; tsc clean). No force-push.
 
 ### 11. Remaining risks
 - formatVersion currently survives via SYS-28 re-stamp (engine drops unknown fields on

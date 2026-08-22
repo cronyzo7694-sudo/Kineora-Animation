@@ -989,7 +989,19 @@ pub fn kineora_duplicate_objects() -> bool {
     with_session(|s| s.duplicate_objects()).unwrap_or(false)
 }
 
-#[wasm_bindngeOp::Backward,
+/// `op` = front|forward|backward|back (Blueprint 1.2.5 Arrange).
+/// [REPAIR — INT-AID-005]: this bridge's opening was mangled in the landed
+/// commit ("#[wasm_bindngeOp::Backward," — a splice of `#[wasm_bindgen]`
+/// and the match arm). Reconstructed against `ArrangeOp` (edit_ops.rs:63)
+/// + the UI caller signature (client.ts arrangeSelection). Ownership stays
+/// SYS-03/06 (AI-A); wasm-only code, so native cargo test could not catch it.
+#[wasm_bindgen]
+pub fn kineora_arrange_selection(op: String) -> bool {
+    let a = match op.as_str() {
+        "front" => ArrangeOp::Front,
+        "forward" => ArrangeOp::Forward,
+        "backward" => ArrangeOp::Backward,
+        "back" => ArrangeOp::Back,
         _ => return false,
     };
     with_session(|s| s.arrange_selection(a)).unwrap_or(false)
@@ -1267,15 +1279,6 @@ pub fn kineora_status() -> String {
             doc_id,
             doc_title,
             dirty: s.is_dirty(),
-            doc_count,
-            docs,
-            units: s.doc.settings.units.clone(),
-            platform: s.doc.settings.platform.clone(),
-        };
-        serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())
-    })
-}
-           dirty: s.is_dirty(),
             doc_count,
             docs,
             units: s.doc.settings.units.clone(),

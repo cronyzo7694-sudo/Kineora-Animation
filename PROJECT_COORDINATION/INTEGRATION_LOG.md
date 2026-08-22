@@ -113,3 +113,15 @@
 | Affects | SYS-01 (shortcut owner), SYS-11 (command owner, shortcut only) |
 | Worker | AI-A (during C-3 rebase onto `7ebc3cc`) |
 | Status | LANDED in this C-3 rebase — Leader verify |
+
+---
+
+## INT-AID-005 — 2026-08-22 AI-D: Rust/WASM build fully restored (3 more mangled hunks repaired; BLK-D-007 CLOSED)
+
+| Field | Value |
+|---|---|
+| Finding | Beyond INT-AID-004, THREE more artifacts of toolchain-less commits: (1) SYS-16 Session facades `create_folder`/`set_layer_parent`/`set_folder_collapsed` entirely absent (commands/model helpers/wasm bridges/tests/UI all landed, facades lost in the mangled session.rs hunk); (2) `kineora_arrange_selection` bridge opening spliced into garbage (`#[wasm_bindngeOp::Backward,` — wasm-only, invisible to native cargo); (3) duplicated stray fragment at wasm.rs EOF; plus AI-C's `folder_round_trip_serde_defaults` test built INVALID legacy JSON (naive string-replace → dangling comma) |
+| Repair (Rule 17 — necessary for AI-D's own wasm-side SYS-22..28 work) | 3 facades reconstructed VERBATIM against AI-C's OWN artifacts (their tests define semantics: placement mirrors create_layer, one-undo CMD-LAYER-PARENT/CMD-FOLDER-COLLAPSED, folder-only parenting, cycle refusal via layer_is_ancestor, "Folder n" naming per their UI fixtures) · arrange bridge reconstructed against ArrangeOp enum + UI caller signature · EOF fragment deleted · legacy-JSON test rebuilt structurally (same intent) |
+| NOT invented | zero new semantics — every reconstructed line is pinned to an artifact the owner committed (tests/bridges/commands/fixtures). Ownership stays SYS-16 (AI-C) / SYS-03-06 (AI-A); both flagged for review |
+| Evidence | cargo test **313/313** (incl. tests/layers.rs 34/34) · cargo check wasm32 **CLEAN — first time since 9128ad9** · UI **736/736** · tsc clean |
+| Status | LANDED — BLK-D-007 CLOSED · Leader + AI-C/AI-A review requested · FL-0035 lesson proposal stands (cross-language commits need both-side compile verification) |

@@ -252,3 +252,16 @@ deps absent); (c) toolchain does NOT persist across worker sessions (sandbox sna
 - **Raised by:** AI-D, 2026-08-22 (found while re-verifying after rebase onto `0be97e5`)
 - **Evidence:** `wasm.rs` + `tests/layers.rs` + UI call `Session::create_folder`/`set_layer_parent`; no such methods in `session.rs` (never existed in `9128ad9`'s diff). After AI-D's mechanical build restoration: lib + 17/18 test binaries green (279 tests); `tests/layers.rs` + wasm32 target still red.
 - **Not fixed by AI-D:** SYS-16 core semantics = AI-C's ownership; implementing them here would be a silent cross-SYS write.
+
+### BUG-D-001 — pre-existing failing Rust test on main (owner: AI-B/AI-A — sys03-edit)
+- **BUG:** `edit_ops.rs::paste_and_duplicate_blocked_when_active_layer_is_a_folder` FAILS on
+  origin/main (`094f08f`): "blocked paste must not change selection" (tests/edit_ops.rs:288).
+- **EVIDENCE:** reproduced on a clean worktree at `094f08f` (pre-AI-D-rebase) — failure is
+  pre-existing from commit `40999d7` (fix + test landed together; test asserts the blocked paste
+  leaves selection untouched, implementation apparently still mutates it).
+- **OWNER:** SYS-03 Edit (40999d7's author). **IMPACT:** cargo test red on main (97→ suite halts at
+  edit_ops; downstream binaries unreported). **NOT fixed by AI-D:** whether a blocked paste may
+  touch selection = the owner's contract decision, not mechanical.
+- **RECOMMENDED HANDOFF:** owner re-runs `cargo test --test edit_ops` (toolchain: rustup ~15s),
+  fixes impl or assertion. (Repeat of the FL-0035-candidate pattern: cross-boundary commits
+  authored without running the Rust side.)

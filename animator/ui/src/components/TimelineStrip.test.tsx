@@ -18,6 +18,21 @@ vi.mock('../engine/client', () => ({
   convertToKeyframes: vi.fn(() => true),
   convertToBlankKeyframes: vi.fn(() => true),
   setFrameLabel: vi.fn(() => true),
+  createLayer: vi.fn(() => 1),
+  createFolder: vi.fn(() => 1),
+  deleteLayer: vi.fn(() => true),
+  duplicateLayer: vi.fn(() => 1),
+  setLayerVisible: vi.fn(() => true),
+  setLayerLocked: vi.fn(() => true),
+  setLayerOutline: vi.fn(() => true),
+  setLayerOutlineColor: vi.fn(() => true),
+  setLayerParent: vi.fn(() => true),
+  setFolderCollapsed: vi.fn(() => true),
+  toggleOtherLayersVisible: vi.fn(() => true),
+  toggleOtherLayersLocked: vi.fn(() => true),
+  toggleOtherLayersOutline: vi.fn(() => true),
+  moveLayer: vi.fn(() => true),
+  renameLayer: vi.fn(() => true),
 }))
 
 vi.mock('../engine/actions', () => ({

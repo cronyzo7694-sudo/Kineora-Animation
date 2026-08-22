@@ -22,7 +22,8 @@ use crate::eval::{
 use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
-    Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, SymbolType, Transform,
+    layer_and_ancestors_unlocked, layer_and_ancestors_visible, Document, Frame, Layer, LoopMode,
+    Node, Scene, Settings, Symbol, SymbolType, Transform,
 };
 use crate::persist;
 
@@ -120,18 +121,73 @@ impl Session {
         self.log(&format!("playhead:{frame}"));
     }
 
+
+    /// B-5: active layer is a drawable/paste target only when it exists, is
+    /// Normal (not a folder), visible, and unlocked — including ancestor
+    /// folders (B-1 / B-3).
+    fn editable_target_layer(&self) -> Option<usize> {
+        let idx = self.active_layer;
+        let sc = self.doc.scene(self.active_scene)?;
+        let l = sc.layers.get(idx)?;
+        if l.is_folder() {
+            return None;
+        }
+        if !layer_and_ancestors_visible(&sc.layers, l) {
+            return None;
+        }
+        if !layer_and_ancestors_unlocked(&sc.layers, l) {
+            return None;
+        }
+        Some(idx)
+    }
+
+    /// Frame-op target: Normal + unlocked (self + ancestors). Hidden layers
+    /// still allow frame editing (existing Part 20.2 contract).
+    fn frame_target_ok(&self, layer: usize) -> Result<(), &'static str> {
+        let Some(sc) = self.doc.scene(self.active_scene) else {
+            return Err("missing");
+        };
+        let Some(l) = sc.layers.get(layer) else {
+            return Err("missing");
+        };
+        if l.is_folder() {
+            return Err("folder");
+        }
+        if !layer_and_ancestors_unlocked(&sc.layers, l) {
+            return Err("locked");
+        }
+        Ok(())
+    }
+
+    /// Log + true when a mutating frame op must abort (B-2 / B-3).
+    fn reject_frame_target(&mut self, layer: usize, op: &str) -> bool {
+        match self.frame_target_ok(layer) {
+            Ok(()) => false,
+            Err("folder") => {
+                self.log(&format!("{op}:blocked(folder)"));
+                true
+            }
+            Err("locked") => {
+                self.log(&format!("{op}:blocked(locked)"));
+                true
+            }
+            Err(_) => true,
+        }
+    }
+
     pub fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str) -> NodeId {
-        // Draw-target contract (REQ-DRW-003): a hidden or locked layer is not a
-        // valid draw target. Blocked → no command, no node (returns NodeId(0)).
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.is_folder() {
-                self.log("draw:blocked(folder)");
-                return NodeId(0);
+        // Draw-target contract (REQ-DRW-003 / B-5): a hidden, locked, or
+        // folder layer is not a valid draw target. Blocked → no command,
+        // no node (returns NodeId(0)).
+        if self.editable_target_layer().is_none() {
+            if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+                if l.is_folder() {
+                    self.log("draw:blocked(folder)");
+                    return NodeId(0);
+                }
             }
-            if !l.visible || l.locked {
-                self.log("draw:blocked(layer hidden/locked)");
-                return NodeId(0);
-            }
+            self.log("draw:blocked(layer hidden/locked)");
+            return NodeId(0);
         }
         let id = self.doc.alloc_node_id();
         let node = Node::Rect {
@@ -176,7 +232,9 @@ impl Session {
         let mut all = Vec::new();
         if let Some(sc) = self.doc.scene(self.active_scene) {
             for (i, layer) in sc.layers.iter().enumerate() {
-                if !layer.visible || layer.locked {
+                if !layer_and_ancestors_visible(&sc.layers, layer)
+                    || !layer_and_ancestors_unlocked(&sc.layers, layer)
+                {
                     continue;
                 }
                 all.extend(self.doc.content_at(self.active_scene, i, self.playhead));
@@ -264,11 +322,10 @@ impl Session {
     /// no-op"). F6 on a BLANK keyframe converts it to a content keyframe
     /// copying the pre-blank content (F-07-08 M.2).
     pub fn insert_keyframe(&mut self, frame: u32) -> bool {
+        if self.reject_frame_target(self.active_layer, "keyframe") {
+            return false;
+        }
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("keyframe:blocked(locked)");
-                return false;
-            }
             if matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. })) {
                 self.log(&format!("keyframe:already@{frame}"));
                 return false;
@@ -286,11 +343,8 @@ impl Session {
     /// a locked layer are disabled, matching Part 20.2 "protect finished art";
     /// hidden layers still allow frame editing). Undoable.
     pub fn insert_blank_keyframe(&mut self, frame: u32) -> bool {
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("blank-keyframe:blocked(locked)");
-                return false;
-            }
+        if self.reject_frame_target(self.active_layer, "blank-keyframe") {
+            return false;
         }
         let cmd = InsertBlankKeyframe::new(self.active_scene, self.active_layer, frame);
         self.exec(Box::new(cmd));
@@ -302,11 +356,10 @@ impl Session {
     /// No-op (no command) when there is no keyframe there or the layer is
     /// locked. Undoable.
     pub fn clear_keyframe(&mut self, frame: u32) -> bool {
+        if self.reject_frame_target(self.active_layer, "clear-keyframe") {
+            return false;
+        }
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("clear-keyframe:blocked(locked)");
-                return false;
-            }
             if !l.keyframes.contains_key(&frame) {
                 self.log("clear-keyframe:(none)");
                 return false;
@@ -329,13 +382,12 @@ impl Session {
     pub fn insert_frame(&mut self, frame: u32) -> bool {
         let scene = self.active_scene;
         let layer = self.active_layer;
+        if self.reject_frame_target(layer, "insert-frame") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("insert-frame:blocked(locked)");
-            return false;
-        }
         let any_later = l.keyframes.keys().any(|k| *k > frame);
         if !any_later {
             self.log("insert-frame:(nothing to shift)");
@@ -354,13 +406,12 @@ impl Session {
     pub fn delete_frame(&mut self, frame: u32) -> bool {
         let scene = self.active_scene;
         let layer = self.active_layer;
+        if self.reject_frame_target(layer, "delete-frame") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("delete-frame:blocked(locked)");
-            return false;
-        }
         let has_at = l.keyframes.contains_key(&frame);
         let has_later = l.keyframes.keys().any(|k| *k > frame);
         if !has_at && !has_later {
@@ -382,13 +433,12 @@ impl Session {
         if from == to || to < 1 {
             return false;
         }
+        if self.reject_frame_target(layer, "move-keyframe") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("move-keyframe:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("move-keyframe:(no source)");
             return false;
@@ -411,13 +461,12 @@ impl Session {
         if to < 1 {
             return false;
         }
+        if self.reject_frame_target(layer, "duplicate-keyframe") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("duplicate-keyframe:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("duplicate-keyframe:(no source)");
             return false;
@@ -441,6 +490,10 @@ impl Session {
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
+        if l.is_folder() {
+            self.log("copy-frames:blocked(folder)");
+            return false;
+        }
         let mut recs: Vec<(u32, Frame)> = l
             .keyframes
             .iter()
@@ -474,11 +527,10 @@ impl Session {
     /// preserving relative offsets; collisions OVERWRITE. One undoable command.
     /// Locked layer blocked; empty clipboard = no-op.
     pub fn paste_frames(&mut self, layer: usize, at: u32) -> bool {
-        let Some(l) = self.doc.layer(self.active_scene, layer) else {
+        if self.reject_frame_target(layer, "paste-frames") {
             return false;
-        };
-        if l.locked {
-            self.log("paste-frames:blocked(locked)");
+        }
+        if self.doc.layer(self.active_scene, layer).is_none() {
             return false;
         }
         if self.frame_clipboard.is_empty() {
@@ -494,13 +546,12 @@ impl Session {
     /// REMOVE FRAMES: delete the keyframes within [start,end] leaving a GAP
     /// (later keyframes stay put). One undoable command. Locked layer blocked.
     pub fn remove_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        if self.reject_frame_target(layer, "remove-frames") {
+            return false;
+        }
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("remove-frames:blocked(locked)");
-            return false;
-        }
         let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
         if !any {
             self.log("remove-frames:(none)");
@@ -516,13 +567,12 @@ impl Session {
     /// (content plays backwards). One undoable command. Locked layer blocked;
     /// <2 keyframes = no-op (F-07-13 M.1).
     pub fn reverse_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
+        if self.reject_frame_target(layer, "reverse-frames") {
+            return false;
+        }
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("reverse-frames:blocked(locked)");
-            return false;
-        }
         let count = l
             .keyframes
             .keys()
@@ -549,13 +599,12 @@ impl Session {
         if start >= end {
             return false;
         }
+        if self.reject_frame_target(layer, "tween") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("tween:blocked(locked)");
-            return false;
-        }
         let content_of = |frame: u32| -> Option<Vec<NodeId>> {
             match l.keyframes.get(&frame) {
                 Some(Frame::Keyframe { content, .. }) => Some(content.clone()),
@@ -580,13 +629,12 @@ impl Session {
     /// command. Blocked on locked layers; no-op when no tween starts there.
     pub fn remove_classic_tween(&mut self, layer: usize, start: u32) -> bool {
         let scene = self.active_scene;
+        if self.reject_frame_target(layer, "remove-tween") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("remove-tween:blocked(locked)");
-            return false;
-        }
         if !l.tweens.contains_key(&start) {
             self.log("remove-tween:(none)");
             return false;
@@ -615,13 +663,12 @@ impl Session {
         if from == to || to < 1 {
             return false;
         }
+        if self.reject_frame_target(layer, "seq-move") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("seq-move:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("seq-move:(no source)");
             return false;
@@ -654,13 +701,12 @@ impl Session {
         if delta == 0 {
             return false;
         }
+        if self.reject_frame_target(layer, "resize-span") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("resize-span:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&anchor) {
             self.log("resize-span:(no anchor keyframe)");
             return false;
@@ -696,13 +742,12 @@ impl Session {
         if start > end {
             return false;
         }
+        if self.reject_frame_target(layer, "duplicate-frames") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("duplicate-frames:blocked(locked)");
-            return false;
-        }
         let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
         if !any {
             self.log("duplicate-frames:(none)");
@@ -722,13 +767,12 @@ impl Session {
         if start > end {
             return false;
         }
+        if self.reject_frame_target(layer, "convert-keys") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("convert-keys:blocked(locked)");
-            return false;
-        }
         // need a content hold at `start` and at least one non-keyframe frame
         let hold = l
             .keyframes
@@ -760,13 +804,12 @@ impl Session {
         if start > end {
             return false;
         }
+        if self.reject_frame_target(layer, "convert-blank") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("convert-blank:blocked(locked)");
-            return false;
-        }
         let any_nonblank =
             (start..=end).any(|f| !matches!(l.keyframes.get(&f), Some(Frame::Blank)));
         if !any_nonblank {
@@ -784,13 +827,12 @@ impl Session {
     /// keyframe or the layer is locked.
     pub fn set_frame_label(&mut self, layer: usize, frame: u32, label: Option<&str>) -> bool {
         let scene = self.active_scene;
+        if self.reject_frame_target(layer, "set-label") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("set-label:blocked(locked)");
-            return false;
-        }
         let matches_content = matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. }));
         if !matches_content {
             self.log("set-label:(not a content keyframe)");
@@ -876,11 +918,8 @@ impl Session {
 
         // INV-EDIT-1: do NOT mutate the document here. ConvertToSymbol.apply
         // auto-keys the playhead if needed and reverts that keyframe on undo.
-        if self
-            .doc
-            .layer(self.active_scene, self.active_layer)
-            .is_none()
-        {
+        if self.editable_target_layer().is_none() {
+            self.log("convert-to-symbol:blocked(layer)");
             return NodeId(0);
         }
 
@@ -956,10 +995,8 @@ impl Session {
         if self.doc.symbol(symbol_id).is_none() {
             return NodeId(0);
         }
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if !l.visible || l.locked {
-                return NodeId(0);
-            }
+        if self.editable_target_layer().is_none() {
+            return NodeId(0);
         }
         let instance_id = self.doc.alloc_node_id();
         let instance = Node::SymbolInstance {
@@ -1104,11 +1141,8 @@ impl Session {
             .copied()
             .filter(
                 |id| match node_layer_index(&self.doc, self.active_scene, self.playhead, *id) {
-                    Some(lidx) => self
-                        .doc
-                        .layer(self.active_scene, lidx)
-                        .map(|l| l.visible && !l.locked)
-                        .unwrap_or(false),
+                    Some(lidx) => self.doc.layer_effective_visible(self.active_scene, lidx)
+                        && self.doc.layer_effective_unlocked(self.active_scene, lidx),
                     None => false,
                 },
             )
@@ -1196,20 +1230,14 @@ impl Session {
             self.log("paste:empty");
             return false;
         }
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            // Folders are organizational containers — they hold no frames and
-            // cannot host drawable content (consistent with draw_rect
-            // blocking on folders). Paste/Duplicate must not silently create
-            // orphan nodes that cannot be reached by the renderer.
-            if l.is_folder() {
-                self.log("paste:blocked(active layer is a folder)");
-                return false;
+        if self.editable_target_layer().is_none() {
+            if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+                if l.is_folder() {
+                    self.log("paste:blocked(active layer is a folder)");
+                    return false;
+                }
             }
-            if !l.visible || l.locked {
-                self.log("paste:blocked(layer hidden/locked)");
-                return false;
-            }
-        } else {
+            self.log("paste:blocked(layer hidden/locked)");
             return false;
         }
 
@@ -1806,13 +1834,17 @@ impl Session {
         if l.locked == locked {
             return false;
         }
-        let cmd = SetLayerLocked {
-            scene: self.active_scene,
-            layer_id: l.id,
-            before: l.locked,
-            after: locked,
-        };
-        self.exec(Box::new(cmd));
+        if l.is_folder() {
+            self.cascade_flag(index, LayerFlagKind::Locked, locked);
+        } else {
+            let cmd = SetLayerLocked {
+                scene: self.active_scene,
+                layer_id: l.id,
+                before: l.locked,
+                after: locked,
+            };
+            self.exec(Box::new(cmd));
+        }
         if locked {
             self.prune_selection_by_layer_state();
             self.history
@@ -1987,24 +2019,49 @@ impl Session {
             return None;
         }
         let src = self.doc.scene(scene)?.layers[index].clone();
-        let name = self.next_copy_name(&src.name);
+        // B-4: a folder duplicates its entire subtree (stable engine order).
+        let mut pack_ids: Vec<LayerId> = vec![src.id];
+        if src.is_folder() {
+            pack_ids.extend(self.doc.layer_descendants(scene, src.id));
+        }
+        let sc = self.doc.scene(scene)?;
+        let pack: Vec<Layer> = sc
+            .layers
+            .iter()
+            .filter(|l| pack_ids.contains(&l.id))
+            .cloned()
+            .collect();
+        let last_idx = sc
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| pack_ids.contains(&l.id))
+            .map(|(i, _)| i)
+            .max()
+            .unwrap_or(index);
+        let insert_at = last_idx + 1;
 
-        // Deep-copy content: every node referenced by the source layer gets a
-        // fresh NodeId; the clone is bit-identical except for its id, so the
-        // duplicate layer is fully independent of the source (F-20-01).
-        // (Clone the nodes out first so the immutable read and the mutable
-        // id-allocation phases never overlap.)
+        let mut next_lid = self.doc.alloc_layer_id().0;
+        let mut layer_id_map: std::collections::BTreeMap<LayerId, LayerId> =
+            std::collections::BTreeMap::new();
+        for l in &pack {
+            layer_id_map.insert(l.id, LayerId(next_lid));
+            next_lid += 1;
+        }
+
         let mut remap: std::collections::BTreeMap<NodeId, NodeId> =
             std::collections::BTreeMap::new();
         let mut pending: Vec<(NodeId, Node)> = Vec::new();
-        for fr in src.keyframes.values() {
-            if let Frame::Keyframe { content, .. } = fr {
-                for id in content {
-                    if remap.contains_key(id) {
-                        continue;
-                    }
-                    if let Some(node) = self.doc.nodes.get(id) {
-                        pending.push((*id, node.clone()));
+        for src_l in &pack {
+            for fr in src_l.keyframes.values() {
+                if let Frame::Keyframe { content, .. } = fr {
+                    for id in content {
+                        if remap.contains_key(id) {
+                            continue;
+                        }
+                        if let Some(node) = self.doc.nodes.get(id) {
+                            pending.push((*id, node.clone()));
+                        }
                     }
                 }
             }
@@ -2016,61 +2073,73 @@ impl Session {
             remap.insert(id, new_id);
             copied_nodes.insert(new_id, node.with_id(new_id));
         }
-        let mut keyframes: std::collections::BTreeMap<u32, Frame> =
-            std::collections::BTreeMap::new();
-        for (f, fr) in &src.keyframes {
-            match fr {
-                Frame::Blank => {
-                    keyframes.insert(*f, Frame::Blank);
-                }
-                Frame::Keyframe {
-                    content,
-                    transforms,
-                    label,
-                } => {
-                    let content2: Vec<NodeId> = content
-                        .iter()
-                        .filter_map(|id| remap.get(id).copied())
-                        .collect();
-                    let transforms2: std::collections::BTreeMap<NodeId, Transform> = transforms
-                        .iter()
-                        .filter_map(|(id, t)| remap.get(id).map(|nid| (*nid, t.clone())))
-                        .collect();
-                    keyframes.insert(
-                        *f,
-                        Frame::Keyframe {
-                            content: content2,
-                            transforms: transforms2,
-                            label: label.clone(),
-                        },
-                    );
+
+        let mut layers: Vec<Layer> = Vec::new();
+        for (i, src_l) in pack.iter().enumerate() {
+            let mut keyframes: std::collections::BTreeMap<u32, Frame> =
+                std::collections::BTreeMap::new();
+            for (f, fr) in &src_l.keyframes {
+                match fr {
+                    Frame::Blank => {
+                        keyframes.insert(*f, Frame::Blank);
+                    }
+                    Frame::Keyframe {
+                        content,
+                        transforms,
+                        label,
+                    } => {
+                        let content2: Vec<NodeId> = content
+                            .iter()
+                            .filter_map(|id| remap.get(id).copied())
+                            .collect();
+                        let transforms2: std::collections::BTreeMap<NodeId, Transform> = transforms
+                            .iter()
+                            .filter_map(|(id, t)| remap.get(id).map(|nid| (*nid, t.clone())))
+                            .collect();
+                        keyframes.insert(
+                            *f,
+                            Frame::Keyframe {
+                                content: content2,
+                                transforms: transforms2,
+                                label: label.clone(),
+                            },
+                        );
+                    }
                 }
             }
+            let name = if i == 0 {
+                self.next_copy_name(&src_l.name)
+            } else {
+                src_l.name.clone()
+            };
+            let parent_id = match src_l.parent_id {
+                Some(pid) => layer_id_map.get(&pid).copied().or(Some(pid)),
+                None => None,
+            };
+            layers.push(Layer {
+                id: *layer_id_map.get(&src_l.id).expect("mapped"),
+                name,
+                keyframes,
+                tweens: src_l.tweens.clone(),
+                visible: src_l.visible,
+                locked: src_l.locked,
+                outline: src_l.outline,
+                outline_color: src_l.outline_color.clone(),
+                kind: src_l.kind,
+                parent_id,
+                collapsed: src_l.collapsed,
+            });
         }
-
-        let layer = Layer {
-            id: self.doc.alloc_layer_id(),
-            name,
-            keyframes,
-            tweens: src.tweens.clone(),
-            visible: src.visible,
-            locked: src.locked,
-            outline: src.outline,
-            outline_color: src.outline_color.clone(),
-            kind: src.kind,
-            parent_id: src.parent_id,
-            collapsed: src.collapsed,
-        };
         let cmd = DuplicateLayer {
             scene,
-            source_index: index,
-            layer,
+            insert_at,
+            layers,
             copied_nodes,
         };
         self.exec(Box::new(cmd));
-        self.active_layer = index + 1;
+        self.active_layer = insert_at;
         self.log(&format!("layer:duplicate@{index}"));
-        Some(index + 1)
+        Some(insert_at)
     }
 
     /// Unique name for a duplicated layer, Animate-style: "arm", "arm copy",
@@ -2259,7 +2328,9 @@ impl Session {
                     }
                 }
                 if let Some(layer) = on_layer {
-                    if layer.visible && !layer.locked {
+                    if layer_and_ancestors_visible(&sc.layers, layer)
+                        && layer_and_ancestors_unlocked(&sc.layers, layer)
+                    {
                         keep.push(id);
                     }
                 } else {

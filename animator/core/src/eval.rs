@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::easing::ease_classic;
 use crate::id::NodeId;
-use crate::model::{Document, Frame, Layer, LoopMode, Node, Symbol, SymbolType, Transform};
+use crate::model::{
+    layer_and_ancestors_unlocked, layer_and_ancestors_visible, Document, Frame, Layer, LoopMode,
+    Node, Symbol, SymbolType, Transform,
+};
 
 /// Maximum symbol nesting depth (engineering RSK-002 "Depth cap 32").
 pub const MAX_DEPTH: u32 = 32;
@@ -275,7 +278,12 @@ pub(crate) fn collect_items(
     out: &mut Vec<RectItem>,
 ) {
     for layer in layers {
-        if !layer.visible || (skip_locked && layer.locked) {
+        // B-1: a child of a hidden folder must not render even if its own
+        // visible flag is still true (nest-after-hide). B-3: skip_locked
+        // also honors a locked ancestor folder.
+        if !layer_and_ancestors_visible(layers, layer)
+            || (skip_locked && !layer_and_ancestors_unlocked(layers, layer))
+        {
             continue;
         }
         let layer_outline = if layer.outline {
@@ -474,7 +482,9 @@ fn hit_layers(
     depth: u32,
 ) -> Option<NodeId> {
     for layer in layers.iter().rev() {
-        if !layer.visible || layer.locked {
+        if !layer_and_ancestors_visible(layers, layer)
+            || !layer_and_ancestors_unlocked(layers, layer)
+        {
             continue;
         }
         let states = node_states_at(doc, layer, frame);

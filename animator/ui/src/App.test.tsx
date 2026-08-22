@@ -54,18 +54,20 @@ describe('app shell', () => {
     expect(screen.getByTestId('tool.select')).toBeEnabled()
   })
 
-  it('renders engine-backed Layers and Properties panels by default', () => {
+  it('renders Properties by default; Layers dock is off (U-G7 — one list on the timeline)', () => {
     render(<App />)
-    expect(screen.getByTestId('layers-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
     expect(screen.getByTestId('properties-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-chrome')).toBeInTheDocument()
   })
 
-  it('panel.layers toggle hides the Layers panel (real panel control)', () => {
+  it('panel.layers toggle shows the optional Layers dock (AMB-TL-010)', () => {
     render(<App />)
-    fireEvent.click(screen.getByTestId('panel.layers'))
     expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('panel.layers'))
     expect(screen.getByTestId('layers-panel')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel.layers'))
+    expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
   })
 })
 
@@ -81,6 +83,7 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
 
   it('dragging the Layers resize handle widens the panel (live, min-clamped)', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 530 }) // +30
@@ -113,6 +116,7 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
 
   it('resize is min-clamped (never zero — C-06)', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 0 })
     fireEvent.mouseMove(window, { clientX: -5000 })
@@ -122,6 +126,7 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
 
   it('Escape cancels the resize back to its origin width (C-06)', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 600 }) // +100
@@ -143,6 +148,7 @@ describe('workspace panel resizing (C-06 pnl.resize)', () => {
 
   it('panels never overlap: stage remains present beside resized panels', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 0 })
     fireEvent.mouseMove(window, { clientX: 5000 })

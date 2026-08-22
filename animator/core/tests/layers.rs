@@ -661,3 +661,156 @@ fn collapse_folder_is_undoable() {
     s.undo();
     assert!(!s.doc.scene(0).unwrap().layers[fi].collapsed);
 }
+
+// ——— Increment 0: B-1 … B-5 folder integrity ———
+
+#[test]
+fn b1_hidden_folder_hides_nested_child_even_without_cascade() {
+    // Nest a still-visible child under an already-hidden folder (set_layer_parent
+    // does not rewrite the child's visible flag). Evaluate / hit / Select-All
+    // must still honor the ancestor (B-1).
+    let mut s = session();
+    let fi0 = s.create_folder().unwrap();
+    let folder_id = s.doc.scene(0).unwrap().layers[fi0].id;
+    assert!(s.set_layer_visible(fi0, false));
+    s.set_active_layer(0);
+    s.draw_rect(0.0, 0.0, 20.0, 20.0, "#aabbcc");
+    let li = s.create_layer().unwrap();
+    s.set_active_layer(li);
+    s.draw_rect(40.0, 40.0, 20.0, 20.0, "#112233");
+    let fi = s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .position(|l| l.id == folder_id)
+        .expect("folder still present");
+    assert!(s.set_layer_parent(li, Some(fi)));
+    assert!(
+        s.doc.scene(0).unwrap().layers[li].visible,
+        "child flag stays true — the hole B-1 closes"
+    );
+    let items = s.evaluate(1);
+    let fills: Vec<_> = items.iter().map(|it| it.fill.as_str()).collect();
+    assert_eq!(fills, vec!["#aabbcc"], "child of hidden folder must not render");
+    assert!(
+        !s.select_at(50.0, 50.0),
+        "child of hidden folder is not hittable"
+    );
+    s.clear_selection();
+    s.select_all();
+    assert_eq!(s.selection.len(), 1, "Select-All skips ancestor-hidden child");
+    assert!(!s.export_svg(1).contains("#112233"));
+}
+
+#[test]
+fn b2_frame_ops_blocked_on_folder() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#111111");
+    let fi = s.create_folder().unwrap();
+    s.set_active_layer(fi);
+    let n = s.history.undo_len();
+    assert!(!s.insert_keyframe(5), "F6 on folder blocked");
+    assert!(!s.insert_blank_keyframe(6), "F7 on folder blocked");
+    assert!(!s.insert_frame(1), "F5 on folder blocked");
+    assert!(!s.delete_frame(1), "Shift+F5 on folder blocked");
+    assert!(!s.clear_keyframe(1), "Shift+F6 on folder blocked");
+    assert!(!s.paste_frames(fi, 1), "paste frames on folder blocked");
+    assert!(!s.copy_frames(fi, 1, 10), "copy frames on folder blocked");
+    assert_eq!(s.history.undo_len(), n, "blocked ops create no command");
+    assert!(
+        s.doc.scene(0).unwrap().layers[fi].keyframes.is_empty(),
+        "folder still has no frames"
+    );
+}
+
+#[test]
+fn b3_folder_lock_cascades_one_undo() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    let n = s.history.undo_len();
+    assert!(s.set_layer_locked(fi, true));
+    assert_eq!(s.history.undo_len(), n + 1, "cascade = one command");
+    assert!(s.doc.scene(0).unwrap().layers[fi].locked);
+    assert!(s.doc.scene(0).unwrap().layers[li].locked);
+    s.undo();
+    assert!(!s.doc.scene(0).unwrap().layers[fi].locked);
+    assert!(!s.doc.scene(0).unwrap().layers[li].locked);
+}
+
+#[test]
+fn b3_locked_folder_blocks_child_hit_even_without_cascade() {
+    // Nest an unlocked child under an already-locked folder.
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let folder_id = s.doc.scene(0).unwrap().layers[fi].id;
+    assert!(s.set_layer_locked(fi, true));
+    s.set_active_layer(0);
+    let li = s.create_layer().unwrap();
+    s.set_active_layer(li);
+    s.draw_rect(0.0, 0.0, 20.0, 20.0, "#445566");
+    let fi = s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .position(|l| l.id == folder_id)
+        .unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    assert!(
+        !s.doc.scene(0).unwrap().layers[li].locked,
+        "child flag stays unlocked — ancestor walk must still block hit"
+    );
+    assert_eq!(s.evaluate(1).len(), 1, "locked ancestor still renders");
+    s.clear_selection();
+    assert!(!s.select_at(10.0, 10.0), "ancestor lock blocks hit-test");
+}
+
+#[test]
+fn b4_duplicate_folder_copies_subtree_independently() {
+    let mut s = session();
+    s.draw_rect(0.0, 0.0, 10.0, 10.0, "#aaaaaa"); // keep a root layer
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    s.set_active_layer(li);
+    let src_node = s.draw_rect(30.0, 30.0, 20.0, 20.0, "#abcdef");
+    assert!(s.set_layer_parent(li, Some(fi)));
+    let before = s.doc.scene(0).unwrap().layers.len();
+    let n = s.history.undo_len();
+    let copy_idx = s.duplicate_layer(fi).expect("dup folder");
+    assert_eq!(s.history.undo_len(), n + 1, "one undo for the subtree");
+    let sc = s.doc.scene(0).unwrap();
+    assert_eq!(sc.layers.len(), before + 2, "folder + child copied");
+    assert!(sc.layers[copy_idx].is_folder());
+    assert_eq!(sc.layers[copy_idx].name, "Folder 1 copy");
+    let copy_child = &sc.layers[copy_idx + 1];
+    assert_eq!(copy_child.parent_id, Some(sc.layers[copy_idx].id));
+    let copy_node = copy_child.content_at(1)[0];
+    assert_ne!(copy_node, src_node, "deep-copied node id");
+    assert!(s.doc.nodes.contains_key(&copy_node));
+
+    s.undo();
+    assert_eq!(s.doc.scene(0).unwrap().layers.len(), before);
+    assert!(!s.doc.nodes.contains_key(&copy_node));
+    assert!(s.doc.nodes.contains_key(&src_node));
+    s.redo();
+    assert_eq!(s.doc.scene(0).unwrap().layers.len(), before + 2);
+    assert!(s.doc.nodes.contains_key(&copy_node));
+}
+
+#[test]
+fn b5_draw_and_place_blocked_on_folder_and_hidden_ancestor() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    s.set_active_layer(fi);
+    assert_eq!(
+        s.draw_rect(0.0, 0.0, 10.0, 10.0, "#fff"),
+        animator_core::NodeId(0)
+    );
+    let sid = s.new_symbol("Blob", animator_core::SymbolType::Graphic);
+    assert_eq!(s.place_symbol(sid, 0.0, 0.0), animator_core::NodeId(0));
+}

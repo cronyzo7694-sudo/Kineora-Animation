@@ -18,7 +18,7 @@ export type PanelId = (typeof PANEL_IDS)[number]
 
 export const DEFAULT_VISIBILITY: Record<string, boolean> = {
   tools: true,
-  layers: true,
+  layers: false, // U-G7: unified timeline is the one list; Window ▸ Layers still toggles the dock
   properties: true,
   library: true,
   timeline: true,

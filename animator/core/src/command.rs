@@ -2303,17 +2303,15 @@ impl Command for SetLayerFlags {
     }
 }
 
-/// CMD-LAYER-DUP — duplicate a layer ABOVE the source (Part 20.1 / F-20-01
-/// "Duplicate = deep copy (frames+content)"). The copy carries a fresh LayerId
-/// and every content node is cloned under a NEW NodeId (`Node::with_id`), so
-/// the two layers are fully independent — editing the copy never touches the
-/// source. Symbol instances reference the shared Library (correct: instances
-/// of the same symbols, like Animate). Undo removes the copy + its nodes
-/// exactly.
+/// CMD-LAYER-DUP — duplicate a layer (or a folder + its descendants) as ONE
+/// undo (Part 20.1 / F-20-01 / B-4). Each copy carries a fresh LayerId and
+/// every content node is cloned under a NEW NodeId, so the two trees are
+/// fully independent. `layers` is inserted as a contiguous block at
+/// `insert_at` (engine order). Undo removes every copy + its nodes exactly.
 pub struct DuplicateLayer {
     pub scene: usize,
-    pub source_index: usize,
-    pub layer: Layer,
+    pub insert_at: usize,
+    pub layers: Vec<Layer>,
     pub copied_nodes: BTreeMap<NodeId, Node>,
 }
 
@@ -2328,8 +2326,11 @@ impl Command for DuplicateLayer {
         let Some(sc) = doc.scenes.get_mut(self.scene) else {
             return;
         };
-        let idx = (self.source_index + 1).min(sc.layers.len());
-        sc.layers.insert(idx, self.layer.clone());
+        let mut idx = self.insert_at.min(sc.layers.len());
+        for layer in &self.layers {
+            sc.layers.insert(idx, layer.clone());
+            idx += 1;
+        }
     }
     fn revert(&mut self, doc: &mut Document) {
         for id in self.copied_nodes.keys() {
@@ -2338,7 +2339,8 @@ impl Command for DuplicateLayer {
         let Some(sc) = doc.scenes.get_mut(self.scene) else {
             return;
         };
-        sc.layers.retain(|l| l.id != self.layer.id);
+        sc.layers
+            .retain(|l| !self.layers.iter().any(|c| c.id == l.id));
     }
 }
 

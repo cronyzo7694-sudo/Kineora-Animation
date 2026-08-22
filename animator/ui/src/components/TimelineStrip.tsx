@@ -6,26 +6,35 @@ import {
   convertToBlankKeyframes,
   convertToKeyframes,
   copyFrames,
+  createFolder,
+  createLayer,
   cutFrames,
+  deleteLayer,
   duplicateFrames,
   duplicateKeyframe,
+  duplicateLayer,
   moveKeyframeSequence,
   pasteFrames,
   removeClassicTween,
   removeFrames,
   resizeSpan,
   reverseFrames,
-  setActiveLayer,
   setClassicTween,
   setFrameLabel,
   setPlayhead,
 } from '../engine/client'
 import type { FrameMarkerJson, StatusJson, TweenJson } from '../engine/wasmTypes'
+import { ResizeHandle } from './ResizeHandle'
+import { TimelineChrome } from './timeline/TimelineChrome'
+import { displayRows } from './timeline/timelineRows'
+import { TIMELINE_NAME_W, clamp } from '../panelLayout'
 
 /** Base cell width in px at 1× timeline zoom (exported for tests). */
 export const CELL_W = 18
-/** Layer-name column width in px (exported for tests). */
-export const NAME_W = 92
+/** Grid-relative origin (U-13: ruler + playhead live in the grid column only).
+ *  Kept as 0 so existing tests that add NAME_W to cell math stay valid. */
+export const NAME_W = 0
+const DEFAULT_CHROME_W = 200
 const RULER_H = 20
 const ROW_H = 22
 /** Initial visible viewport width (cells). This is a VIEW convenience, NOT a
@@ -45,6 +54,9 @@ interface Props {
   /** Fixed panel height (px) from the workspace layout (C-08 §tl.resize). When
    *  omitted, the timeline auto-sizes to fit its layers (backward compat). */
   height?: number
+  /** Chrome (name+flags) width. Prefs-owned (U-G9). */
+  nameW?: number
+  onNameW?: (w: number) => void
 }
 
 type CellKind = 'key' | 'blank' | 'held' | 'empty'
@@ -89,8 +101,12 @@ function rulerInterval(cellW: number): number {
  * `.`/`,` step; Alt+`,`/Alt+`.` keyframe-hop; Home/End; first/last/center
  * buttons. Frame ops (F5/F6/F7/Shift+F5/F6) are undoable engine commands.
  */
-export function TimelineStrip({ status, notify, height }: Props) {
+export function TimelineStrip({ status, notify, height, nameW: nameWProp, onNameW }: Props) {
   const gridRef = useRef<HTMLDivElement | null>(null)
+  const chromeRef = useRef<HTMLDivElement | null>(null)
+  const [nameW, setNameW] = useState(() => clamp(nameWProp ?? DEFAULT_CHROME_W, TIMELINE_NAME_W[0], TIMELINE_NAME_W[1]))
+  const nameWOrigin = useRef(nameW)
+  useEffect(() => { onNameW?.(nameW) }, [nameW]) // eslint-disable-line react-hooks/exhaustive-deps
   const scrubRef = useRef(false)
   // frame selection is single-layer (per row, like Animate's frame selection):
   // selLayer = the layer the selection lives on; selFrames = the frames on it.
@@ -133,19 +149,7 @@ export function TimelineStrip({ status, notify, height }: Props) {
   const playhead = status?.playhead ?? 1
   const layers = status?.layers ?? []
   layersRef.current = layers
-  const ancestorCollapsed = (l: StatusJson['layers'][number]): boolean => {
-    let pid = l.parent_id ?? 0
-    const seen = new Set<number>()
-    while (pid > 0 && !seen.has(pid)) {
-      seen.add(pid)
-      const p = layers.find((x) => x.id === pid)
-      if (!p) break
-      if (p.collapsed) return true
-      pid = p.parent_id ?? 0
-    }
-    return false
-  }
-  const rows = [...layers].reverse().filter((l) => !ancestorCollapsed(l))
+  const rows = displayRows(layers)
   const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
 
   // selected range + tween state (view state; the engine validates mutations)
@@ -583,9 +587,16 @@ export function TimelineStrip({ status, notify, height }: Props) {
   return (
     <div data-testid="timeline" style={{ height: height ?? 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
-        <span style={{ color: '#aaa', fontSize: 11, minWidth: 120 }}>
+        <span style={{ color: '#aaa', fontSize: 11, minWidth: 168 }}>
           frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(cells, playhead)}
+          <span data-testid="timeline-time-readout" style={{ color: '#888', marginLeft: 8 }}>
+            {(((playhead - 1) / Math.max(1, status?.fps ?? 24))).toFixed(3)}s
+          </span>
         </span>
+        <button data-testid="timeline-add-layer" aria-label="Add layer" title="Add layer" disabled={!attached} onClick={() => { const i = createLayer(); if (i >= 0) notify(`layer added (index ${i})`) }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>+</button>
+        <button data-testid="timeline-add-folder" aria-label="Add folder" title="Add folder" disabled={!attached} onClick={() => { const i = createFolder(); if (i >= 0) notify(`folder added (index ${i})`) }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>📁</button>
+        <button data-testid="timeline-dup-layer" aria-label="Duplicate active layer" title="Duplicate active layer" disabled={!attached || layers.length === 0} onClick={() => { const a = layers.findIndex((l) => l.active); const i = a >= 0 ? duplicateLayer(a) : -1; notify(i > 0 ? `layer duplicated (index ${i})` : 'duplicate layer: failed') }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>⧉</button>
+        <button data-testid="timeline-del-layer" aria-label="Delete active layer" title="Delete active layer" disabled={!attached || layers.length <= 1} onClick={() => { if (deleteLayer(layers.findIndex((l) => l.active))) notify('layer deleted') }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>🗑</button>
         {navBtn('timeline-first', '⏮', 'Go to first frame (Home)', () => setPlayhead(1))}
         {navBtn('timeline-last', '⏭', 'Go to last frame (End)', () => setPlayhead(Math.max(1, status?.duration ?? 1)))}
         {navBtn('timeline-center', '◎', 'Center playhead', centerFrame)}
@@ -696,7 +707,28 @@ export function TimelineStrip({ status, notify, height }: Props) {
         )}
       </div>
 
-      <div ref={gridRef} data-testid="timeline-grid" style={{ position: 'relative', overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
+      <div data-testid="timeline-body" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div
+          ref={chromeRef}
+          data-testid="timeline-chrome-scroll"
+          onScroll={() => {
+            if (gridRef.current && chromeRef.current) gridRef.current.scrollTop = chromeRef.current.scrollTop
+          }}
+          style={{ width: nameW, flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid #2a2a2a' }}
+        >
+          <div style={{ height: RULER_H, borderBottom: '1px solid #2a2a2a', flexShrink: 0 }} aria-hidden />
+          <TimelineChrome status={status} notify={notify} variant="chrome" rowHeight={ROW_H} />
+        </div>
+        <ResizeHandle
+          testId="resize-timeline-name"
+          direction={1}
+          onBegin={() => { nameWOrigin.current = nameW }}
+          onDelta={(dx) => setNameW((w) => clamp(w + dx, TIMELINE_NAME_W[0], TIMELINE_NAME_W[1]))}
+          onCancel={() => setNameW(nameWOrigin.current)}
+        />
+      <div ref={gridRef} data-testid="timeline-grid" onScroll={() => {
+        if (gridRef.current && chromeRef.current) chromeRef.current.scrollTop = gridRef.current.scrollTop
+      }} style={{ position: 'relative', overflowX: 'auto', overflowY: 'auto', flex: 1, minWidth: 0 }}>
         <div style={{ width: totalWidth, position: 'relative', minHeight: '100%' }}>
           <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a', cursor: 'pointer' }}>
             {Array.from({ length: Math.ceil(cells / interval) }, (_, i) => (i === 0 ? 1 : i * interval)).map((f) => (
@@ -709,26 +741,14 @@ export function TimelineStrip({ status, notify, height }: Props) {
 
           {rows.map((l) => {
             const engineIndex = layers.findIndex((x) => x.id === l.id)
+            const isFolder = l.kind === 'folder'
             const kinds = cellKinds(l.keyframes, cells)
             return (
-              <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #242424', background: l.active ? '#232f3d' : 'transparent' }}>
-                <span
-                  data-testid={`timeline-layer-name-${engineIndex}`}
-                  title={l.locked ? `${l.name} (locked)` : l.name}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (attached) setActiveLayer(engineIndex)
-                  }}
-                  style={{ position: 'absolute', left: 4, top: 3, width: NAME_W - 8, color: l.locked ? '#777' : '#bbb', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-                >
-                  {l.locked ? '🔒 ' : ''}{l.name}
-                  {!l.visible && (
-                    <span data-testid={`timeline-layer-hidden-${engineIndex}`} title="Layer hidden (not rendered / not exported)" style={{ color: '#e66', fontSize: 10, marginLeft: 3 }}>
-                      ✕
-                    </span>
-                  )}
-                </span>
-                <div style={{ position: 'absolute', left: NAME_W, top: 0, right: 0, bottom: 0 }}>
+              <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #242424', background: l.active ? '#232f3d' : isFolder ? '#191919' : 'transparent' }}>
+                {isFolder ? (
+                  <div data-testid={`timeline-folder-strip-${engineIndex}`} aria-hidden style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(90deg, #1a1a1a 0 8px, #161616 8px 18px)' }} />
+                ) : (
+                <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}>
                   {kinds.map((kind, i) => {
                     const f = i + 1
                     const selected = selLayer === engineIndex && selFrames.has(f)
@@ -789,6 +809,7 @@ export function TimelineStrip({ status, notify, height }: Props) {
                     )
                   })}
                 </div>
+                )}
               </div>
             )
           })}
@@ -803,6 +824,7 @@ export function TimelineStrip({ status, notify, height }: Props) {
             style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW - 5, top: 0, width: 10, height: RULER_H, cursor: 'ew-resize' }}
           />
         </div>
+      </div>
       </div>
     </div>
   )

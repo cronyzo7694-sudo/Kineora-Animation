@@ -25,13 +25,13 @@ describe('panel layout — timeline vertical resize (C-08 tl.resize)', () => {
     expect(grown).toBe(before + 40)
   })
 
-  it('timeline height clamps to the 96px minimum', () => {
+  it('timeline height clamps to the 168px minimum (U-G8)', () => {
     render(<App />)
     const handle = screen.getByTestId('resize-timeline')
     fireEvent.mouseDown(handle, { button: 0, clientY: 400 })
     fireEvent.mouseMove(window, { clientY: 5000 }) // huge down → shrink
     fireEvent.mouseUp(window)
-    expect(screen.getByTestId('timeline')).toHaveStyle('height: 96px')
+    expect(screen.getByTestId('timeline')).toHaveStyle('height: 168px')
   })
 
   it('timeline height clamps to 60% of the viewport (C-08 max)', () => {
@@ -145,6 +145,7 @@ describe('panel layout — persistence + Reset Workspace (Part 01 §1.1.2 / C-06
   it('resized sizes persist to localStorage', () => {
     const setSpy = vi.spyOn(Storage.prototype, 'setItem')
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 600 })
@@ -155,6 +156,7 @@ describe('panel layout — persistence + Reset Workspace (Part 01 §1.1.2 / C-06
 
   it('Reset Workspace restores the blueprint defaults', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     // first grow layers
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
@@ -163,12 +165,14 @@ describe('panel layout — persistence + Reset Workspace (Part 01 §1.1.2 / C-06
     expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 300px')
 
     fireEvent.click(screen.getByTestId('reset-workspace'))
-    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 200px')
+    expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
     expect(screen.getByTestId('properties-panel')).toHaveStyle('width: 240px')
+    expect(screen.getByTestId('timeline')).toHaveStyle('height: 200px')
   })
 
   it('remount restores persisted sizes', () => {
     const { unmount } = render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
     fireEvent.mouseMove(window, { clientX: 620 }) // +120 → 320
@@ -176,6 +180,7 @@ describe('panel layout — persistence + Reset Workspace (Part 01 §1.1.2 / C-06
     unmount()
 
     render(<App />)
+    if (!screen.queryByTestId('layers-panel')) fireEvent.click(screen.getByTestId('panel.layers'))
     expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 320px')
   })
 })

@@ -347,10 +347,9 @@ export function duplicateKeyframe(layer: number, from: number, to: number): bool
   return ok
 }
 
+/** COPY FRAMES is session clipboard only — never emits document:changed (B-8 / H04). */
 export function copyFrames(layer: number, start: number, end: number): boolean {
-  const ok = mod?.kineora_copy_frames(layer, start, end) ?? false
-  if (ok) docChanged('frame')
-  return ok
+  return mod?.kineora_copy_frames(layer, start, end) ?? false
 }
 
 export function cutFrames(layer: number, start: number, end: number): boolean {

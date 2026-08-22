@@ -7,7 +7,7 @@
  *  - Layers width 140–480      [BLUEPRINT REQUIRED via C-22/C-06 min-clamp]
  *  - Properties width 240–520  [BLUEPRINT REQUIRED — C-09 "min 240×320"]
  *  - Properties height ≥320    [BLUEPRINT REQUIRED — C-09]
- *  - Timeline height 96px..60% viewport [BLUEPRINT REQUIRED — C-08 §A]
+ *  - Timeline height 168px..60% viewport [U-G8 — C-08 "96" was paper for a thinner strip]
  *  - Library height 96–480 · Debug height 120–480 [OUR DESIGN DECISION — the
  *    blueprint gives no exact number; C-36 "never zero" + touch-target floor]
  */
@@ -18,6 +18,8 @@ export interface PanelLayout {
   timelineH: number
   libraryH: number
   debugH: number
+  /** Unified timeline chrome (name+flags) width. Prefs only (U-G9). */
+  timelineNameW: number
 }
 
 /** A resizable vertical pane (a dock panel participates as one of these). */
@@ -33,8 +35,9 @@ export const SPLITTER_SIZE = 6
 
 export const LAYERS_W: [number, number] = [140, 480]
 export const PROPS_W: [number, number] = [240, 520]
-export const TIMELINE_H_MIN = 96 // C-08 "min 96px"
+export const TIMELINE_H_MIN = 168 // U-G8: 2 headers + ruler + 1 row + chrome padding
 export const TIMELINE_H_MAX_FRAC = 0.6 // C-08 "max 60% viewport"
+export const TIMELINE_NAME_W: [number, number] = [160, 360] // U-G9
 export const PROPS_PANE: [number, number] = [320, 2400]
 export const LIBRARY_PANE: [number, number] = [96, 480]
 export const DEBUG_PANE: [number, number] = [120, 480]
@@ -42,9 +45,10 @@ export const DEBUG_PANE: [number, number] = [120, 480]
 export const DEFAULT_LAYOUT: PanelLayout = {
   layersW: 200,
   propsW: 240,
-  timelineH: 156,
+  timelineH: 200, // U-G8: 2–3 layers visible without dragging
   libraryH: 160,
   debugH: 200,
+  timelineNameW: 200,
 }
 
 export function clamp(v: number, min: number, max: number): number {
@@ -105,6 +109,7 @@ export function clampLayout(l: PanelLayout): PanelLayout {
     timelineH: clamp(l.timelineH, TIMELINE_H_MIN, timelineMaxH()),
     libraryH: clamp(l.libraryH, LIBRARY_PANE[0], LIBRARY_PANE[1]),
     debugH: clamp(l.debugH, DEBUG_PANE[0], DEBUG_PANE[1]),
+    timelineNameW: clamp(l.timelineNameW ?? 200, TIMELINE_NAME_W[0], TIMELINE_NAME_W[1]),
   }
 }
 

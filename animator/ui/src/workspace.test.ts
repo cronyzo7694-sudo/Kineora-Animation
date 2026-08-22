@@ -67,7 +67,7 @@ describe('workspace prefs (SYS-01 §7/§18)', () => {
     const { prefs, corrupt } = loadWorkspacePrefs()
     expect(corrupt).toBe(false)
     expect(prefs.workspaces.Essentials.visibility.library).toBe(false)
-    expect(prefs.workspaces.Essentials.visibility.layers).toBe(true) // default preserved
+    expect(prefs.workspaces.Essentials.visibility.layers).toBe(false) // U-G7 default preserved
   })
 
   it('missing active workspace → default snapshot substituted', () => {

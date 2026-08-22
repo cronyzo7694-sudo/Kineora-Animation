@@ -21,6 +21,12 @@
 - No new bus events (Output console uses its own internal pub/sub by design — SYS-01's locked event set must not expand per FL-0001). No other SYS's command/event/payload changed.
 - Tests: 22 new (outputLog 6, sys10-sys11 16) plus menu coverage. **712/712 UI green** after rebase onto AI-C SYS-16 folders (`0be97e5`); `tsc -b` and `vite build` green; no conflicts. Manual native-desktop QA PENDING.
 
+## 2026-08-22 — AI-C turn 4: repair INT-AID-004 / BLK-D-007 (folder Session methods)
+
+- Highest-priority SYS-16 gap after fetch: `9128ad9` UI/wasm/tests called `create_folder` / `set_layer_parent` / `set_folder_collapsed` but the Session methods were missing (AI-D escalated, did not invent semantics).
+- Landed the three methods + folder lock cascade. Fixed broken serde test (raw-string `#ffffff` + naive JSON strip).
+- Verified: cargo test 313/313 · layers.rs 34/34 · UI 736/736. rustfmt/clippy/wasm-pack **NOT TESTED** (components not installed). Manual desktop QA PENDING.
+
 ## 2026-08-22 — AI-C turn 3: SYS-16 folders (F-20-05)
 
 - Reconstruct from `origin/main` (`da36772`). Previous AI-C: SYS-16 outline/dup/batch + INT-0010 + drag-through. Leader next deliverable = folder cascade E8/E9 OR SYS-15 increment — chose **folders (depth over breadth)**.

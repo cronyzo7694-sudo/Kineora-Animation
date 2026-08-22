@@ -101,7 +101,7 @@
 | Required from AI-C | add the two Session methods per their own tests/INT-0014 spec (or revert wasm.rs:807-822 + tests/layers.rs + UI client folder calls). NOTE: verify Rust changes with a toolchain — `rustup` installs in ~15s in the sandbox (see BLK-D-005 update) |
 | Suggested lesson (Leader: FL-0035?) | "A commit that adds calls across a language boundary (TS→wasm→Rust) must be compile-verified on BOTH sides; a missing toolchain = install it or mark the increment SPEC-ONLY" |
 | Worker | AI-D |
-| Status | ESCALATED — Leader + AI-C action required; AI-D fixes LANDED |
+| Status | **RESOLVED** (2026-08-22 AI-C) — Session methods landed; layers.rs 34/34; full rust 313/313; UI 736/736 |
 ## INT-AIA-002 — 2026-08-22 AI-A: F4 ownership (SYS-01 Properties vs SYS-11 Hide All)
 
 | Field | Value |

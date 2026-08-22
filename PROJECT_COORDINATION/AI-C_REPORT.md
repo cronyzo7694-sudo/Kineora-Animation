@@ -237,3 +237,14 @@ NOT implemented: other layer types, F-20-06 parenting, Layer Properties dialog, 
 Tests: UI focused 115 passed. Rust/wasm **NOT TESTED** (no rustc/cargo).
 
 SYS-16: IMPLEMENTED (folders increment) + UI AUTOMATED TESTED · MANUAL PENDING · not COMPLETE.
+
+
+---
+
+# TURN 4 — INT-AID-004 REPAIR (2026-08-22)
+
+**HEAD at start:** `dbf520e`. Inherited folder model/commands/UI from `9128ad9`; AI-D `a9c9f13` restored compile but left Session methods missing (BLK-D-007).
+
+Implemented: `Session::create_folder`, `set_layer_parent`, `set_folder_collapsed`, folder lock cascade. Tests: layers 34/34, rust 313/313, UI 736/736.
+
+BLK-D-007 / INT-AID-004 → RESOLVED.

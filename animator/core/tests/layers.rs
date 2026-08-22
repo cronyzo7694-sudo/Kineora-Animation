@@ -607,9 +607,22 @@ fn folder_round_trip_serde_defaults() {
     let json = serde_json::to_string(&s.doc).unwrap();
     let doc: animator_core::Document = serde_json::from_str(&json).unwrap();
     assert!(doc.scenes[0].layers.iter().any(|l| l.is_folder()));
-    // old file without kind still loads as Normal
-    let legacy = json.replace("\"kind\":\"folder\"", "");
-    let _ok: animator_core::Document = serde_json::from_str(&legacy).unwrap();
+
+    // Old files without kind/parent_id/collapsed still load as Normal (serde defaults).
+    let legacy = r##"{
+        "settings":{"width":1920.0,"height":1080.0,"fps":24,"backgroundColor":"#ffffff"},
+        "scenes":[{"id":1,"name":"Scene 1","layers":[{
+            "id":1,"name":"Layer 1","keyframes":{"1":{"Keyframe":{"content":[],"transforms":{}}}},
+            "visible":true,"locked":false
+        }]}],
+        "nodes":{},
+        "next_id":1
+    }"##;
+    let old: animator_core::Document = serde_json::from_str(legacy).expect("legacy layer JSON");
+    let l = &old.scenes[0].layers[0];
+    assert!(!l.is_folder());
+    assert_eq!(l.parent_id, None);
+    assert!(!l.collapsed);
 }
 
 #[test]

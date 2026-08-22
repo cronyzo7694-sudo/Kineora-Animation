@@ -1507,6 +1507,105 @@ impl Session {
         Some(index)
     }
 
+    /// Create a folder ABOVE the active layer (F-20-05 / Part 20.1). Becomes
+    /// active. Folders store no frames (organizational only).
+    pub fn create_folder(&mut self) -> Option<usize> {
+        let scene = self.active_scene;
+        let count = self.doc.scene(scene)?.layers.len();
+        let index = (self.active_layer + 1).min(count);
+        let name = self.next_folder_name();
+        let layer = Layer::new_folder(self.doc.alloc_layer_id(), name);
+        let cmd = CreateLayer {
+            scene,
+            index,
+            layer,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.active_layer = index;
+        self.log(&format!("folder:create@{index}"));
+        Some(index)
+    }
+
+    fn next_folder_name(&self) -> String {
+        let mut n = 1;
+        loop {
+            let candidate = format!("Folder {n}");
+            let taken = self
+                .doc
+                .scenes
+                .iter()
+                .flat_map(|sc| sc.layers.iter())
+                .any(|l| l.name == candidate);
+            if !taken {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
+
+    /// Nest `child` under `parent` (must be a folder). `parent == None` un-nests.
+    /// Cycle / non-folder parent / self = no-op (no command).
+    pub fn set_layer_parent(&mut self, child: usize, parent: Option<usize>) -> bool {
+        let scene = self.active_scene;
+        let Some(sc) = self.doc.scene(scene) else {
+            return false;
+        };
+        let Some(child_l) = sc.layers.get(child).cloned() else {
+            return false;
+        };
+        let after = if let Some(p) = parent {
+            let Some(pl) = sc.layers.get(p) else {
+                return false;
+            };
+            if !pl.is_folder() {
+                self.log("nest:blocked(parent not folder)");
+                return false;
+            }
+            if self.doc.layer_is_ancestor(scene, child_l.id, pl.id) {
+                self.log("nest:blocked(cycle)");
+                return false;
+            }
+            Some(pl.id)
+        } else {
+            None
+        };
+        if child_l.parent_id == after {
+            return false;
+        }
+        let cmd = SetLayerParent {
+            scene,
+            layer_id: child_l.id,
+            before: child_l.parent_id,
+            after,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log("layer:parent");
+        true
+    }
+
+    pub fn set_folder_collapsed(&mut self, index: usize, collapsed: bool) -> bool {
+        let Some(l) = self
+            .doc
+            .scene(self.active_scene)
+            .and_then(|sc| sc.layers.get(index))
+            .cloned()
+        else {
+            return false;
+        };
+        if !l.is_folder() || l.collapsed == collapsed {
+            return false;
+        }
+        let cmd = SetFolderCollapsed {
+            scene: self.active_scene,
+            layer_id: l.id,
+            before: l.collapsed,
+            after: collapsed,
+        };
+        self.history.execute(&mut self.doc, Box::new(cmd));
+        self.log(&format!("folder:collapsed@{index}={collapsed}"));
+        true
+    }
+
     fn next_layer_name(&self) -> String {
         let mut n = 1;
         loop {

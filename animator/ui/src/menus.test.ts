@@ -78,7 +78,10 @@ describe('menu tree (Blueprint Part 01 §1.2 + Adobe menu bar)', () => {
       'control.loop',
       'panel.timeline',
       'panel.library',
+      'window.hideAllPanels',
       'window.resetWorkspace',
+      'debug.clearOutput',
+      'debug.copyOutput',
       'help.shortcuts',
       'help.about',
     ]) {

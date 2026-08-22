@@ -117,6 +117,9 @@ export interface CommandContext {
   openGoToFrame: () => void
   /** SYS-12: open the local Help dialog ('docs' or 'troubleshoot'). */
   openHelp: (section: 'docs' | 'troubleshoot') => void
+  /** SYS-11: set the visibility of ALL panels at once (F4 Hide/Show All).
+   *  `false` hides every panel (chrome-only stage); `true` restores them. */
+  setAllPanelsVisible: (visible: boolean) => void
   // ——— SYS-02 File ———
   /** Canonical unsaved-changes guard: run `proceed` now (clean) or after the
    *  Close-Confirmation Save/Discard resolves (dirty). Cancel → not run.
@@ -189,6 +192,17 @@ export interface TimelineViewController {
 
 export const stageViewController: { current: StageViewController | null } = { current: null }
 export const timelineViewController: { current: TimelineViewController | null } = { current: null }
+
+/**
+ * SYS-10 view-controller: the Developer panel registers so Debug-menu
+ * commands (Clear / Copy output) can reach the Output console without the
+ * command registry importing React/panel internals (FL-0009).
+ */
+export interface DebugViewController {
+  clearOutput: () => void
+  outputText: () => string
+}
+export const debugViewController: { current: DebugViewController | null } = { current: null }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1640,6 +1654,58 @@ export const commands: Command[] = [
     reason: 'legacy ActionScript debugging is not applicable to this engine',
     run: () => {},
   },
+  {
+    id: 'debug.clearOutput',
+    label: 'Clear Output Console',
+    category: 'debug',
+    status: 'FUNCTIONAL',
+    source: '[OUR DESIGN DECISION] SYS-10 output console (Blueprint Part 01 §1.2.9: built-in inspector)',
+    run: (c) => {
+      // The Output console's clear lives in the SYS-10 module; the command
+      // reaches it through the same view-controller registry pattern as the
+      // Stage/Timeline so the menu never imports panel internals.
+      debugViewController.current?.clearOutput()
+      c.notify('output: cleared')
+    },
+  },
+  {
+    id: 'debug.copyOutput',
+    label: 'Copy Output to Clipboard',
+    category: 'debug',
+    status: 'FUNCTIONAL',
+    source: '[OUR DESIGN DECISION] SYS-10 output console',
+    run: (c) => {
+      const text = debugViewController.current?.outputText() ?? ''
+      if (!text) {
+        c.notify('output: nothing to copy')
+        return
+      }
+      // navigator.clipboard may be unavailable in non-secure contexts; fall
+      // back to a temporary textarea + execCommand (legacy path, not silent).
+      const nav = navigator as Navigator & { clipboard?: { writeText?: (s: string) => Promise<void> } }
+      if (nav.clipboard?.writeText) {
+        nav.clipboard.writeText(text).then(
+          () => c.notify('output: copied to clipboard'),
+          () => c.notify('output: clipboard copy failed'),
+        )
+      } else {
+        try {
+          const ta = document.createElement('textarea')
+          ta.value = text
+          ta.setAttribute('readonly', '')
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          const ok = document.execCommand('copy')
+          document.body.removeChild(ta)
+          c.notify(ok ? 'output: copied to clipboard' : 'output: clipboard copy failed')
+        } catch {
+          c.notify('output: clipboard copy failed')
+        }
+      }
+    },
+  },
 
   // ——— Window (Part 01 §1.2.10 / Adobe-verified) ———
   {
@@ -1694,6 +1760,20 @@ export const commands: Command[] = [
     source: '[ADOBE REFERENCE] Window ▸ Tools (Ctrl+F2)',
     checked: (c) => !!c.panels.tools,
     run: (c) => c.togglePanel('tools'),
+  },
+  {
+    id: 'window.hideAllPanels',
+    label: 'Hide All Panels',
+    category: 'window',
+    shortcut: 'F4',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT + ADOBE] Window ▸ Hide All Panels (F4) — Part 01 §1.1.2 (panels hide/show; stage remains)',
+    /** Checked = at least one panel is visible (so the next F4 hides them). */
+    checked: (c) => Object.values(c.panels).some(Boolean),
+    run: (c) => {
+      const anyVisible = Object.values(c.panels).some(Boolean)
+      c.setAllPanelsVisible(!anyVisible)
+    },
   },
   {
     id: 'window.resetWorkspace',
@@ -2001,6 +2081,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     exitEditRoot: () => {},
     openGoToFrame: () => {},
     openHelp: () => {},
+    setAllPanelsVisible: () => {},
     confirmClose: (proceed) => proceed(),
     confirmCloseDoc: async () => 'cancel',
     openNewDialog: () => {},

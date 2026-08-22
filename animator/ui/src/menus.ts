@@ -343,6 +343,9 @@ export const menus: MenuDef[] = [
     items: [
       { type: 'command', id: 'panel.debug' },
       sep,
+      { type: 'command', id: 'debug.clearOutput' },
+      { type: 'command', id: 'debug.copyOutput' },
+      sep,
       { type: 'command', id: 'debug.as3' },
     ],
   },
@@ -356,6 +359,8 @@ export const menus: MenuDef[] = [
       { type: 'command', id: 'panel.properties' },
       { type: 'command', id: 'panel.library' },
       { type: 'command', id: 'panel.debug' },
+      sep,
+      { type: 'command', id: 'window.hideAllPanels' },
       sep,
       {
         type: 'submenu',

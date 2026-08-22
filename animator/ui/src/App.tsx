@@ -16,6 +16,7 @@ import {
 import { RecoveryDialog } from './components/RecoveryDialog'
 import { platform, type Identity, type ShellStatus } from './platform'
 import { bus } from './bus'
+import { outputInfo, outputWarn, outputError } from './outputLog'
 import {
   DEBUG_PANE,
   DEFAULT_LAYOUT,
@@ -136,10 +137,12 @@ export default function App() {
     layoutRef.current = layout
   }, [layout])
 
-  // route bus failures to a user-facing toast (never silent)
+  // route bus failures to a user-facing toast AND the output console (SYS-10)
   useEffect(() => {
     bus.setErrorHandler((event, err) => {
-      notify(`event ${event} failed: ${err instanceof Error ? err.message : String(err)}`)
+      const msg = `event ${event} failed: ${err instanceof Error ? err.message : String(err)}`
+      outputError('bus', msg)
+      notify(msg)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -236,6 +239,18 @@ export default function App() {
   const notify = (msg: string) => {
     setToast(msg)
     setToasts((t) => [...t.slice(-19), msg])
+    // SYS-10 Output console: mirror user-facing notifications (handoffs,
+    // errors, status) so they survive the toast dismissal. Source tagged by
+    // simple heuristic; callers can use outputWarn/error directly for precise
+    // levels.
+    const lower = msg.toLowerCase()
+    if (lower.includes('fail') || lower.includes('error') || lower.includes('not attached')) {
+      outputError('notify', msg)
+    } else if (lower.includes('gap') || lower.includes('future') || lower.includes('not implemented')) {
+      outputWarn('notify', msg)
+    } else {
+      outputInfo('notify', msg)
+    }
   }
 
   const setTool = (t: string) => {
@@ -247,6 +262,35 @@ export default function App() {
     const next = { ...panels, [id]: !panels[id] }
     setPanels(next)
     bus.emit('panel:changed', { id, change: 'visibility', visible: next[id] })
+  }
+
+  // SYS-11 Window ▸ Hide/Show All Panels (F4). Toggling is VIEW state only
+  // (no undo, no document mutation). Preserves each panel's prior visibility
+  // so two F4 presses restore the exact layout (per-panel bus emissions keep
+  // the workspace snapshot and any panel subscribers consistent).
+  const hiddenAllSnapshot = useRef<Record<string, boolean> | null>(null)
+  const setAllPanelsVisible = (visible: boolean) => {
+    if (visible) {
+      const restore = hiddenAllSnapshot.current
+      hiddenAllSnapshot.current = null
+      const next = restore
+        ? { ...restore }
+        : // no prior hide in this session → fall back to defaults
+          { ...DEFAULT_VISIBILITY }
+      setPanels(next)
+      for (const [id, v] of Object.entries(next)) {
+        bus.emit('panel:changed', { id, change: 'visibility', visible: v })
+      }
+      return
+    }
+    // hide: snapshot current visibility then turn every known panel off.
+    hiddenAllSnapshot.current = { ...panels }
+    const next: Record<string, boolean> = {}
+    for (const id of Object.keys(panels)) next[id] = false
+    setPanels(next)
+    for (const id of Object.keys(panels)) {
+      bus.emit('panel:changed', { id, change: 'visibility', visible: false })
+    }
   }
 
   const toggleCollapse = (id: string) => {
@@ -453,6 +497,7 @@ export default function App() {
     exitEditRoot,
     openGoToFrame: () => setGotoOpen(true),
     openHelp: (section) => setHelp({ open: true, section }),
+    setAllPanelsVisible,
     confirmClose,
     confirmCloseDoc,
     openNewDialog: () => setNewOpen(true),
@@ -484,6 +529,8 @@ export default function App() {
       'panel.timeline',
       'panel.library',
       'panel.properties',
+      // SYS-11 F4 = Hide/Show All Panels (restore is per-panel, view state only)
+      'window.hideAllPanels',
       'timeline.play',
       'palette.open',
       'help.shortcuts',

@@ -155,3 +155,11 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
   (self-contained player, fps/loop). `export:done{format,path}` emitted for the first time
   (contract §D producer). Video/GIF/movie + publish settings/profiles remain honest handoffs.
   Import = BLOCKED on MOD-DOC asset entities (BLK-D-006). UI suite 711/711; tsc clean.
+
+## 2026-08-22 — AI-D · build restoration (INT-AID-005) + SYS-23 MOD-EASING completion
+- Rust+WASM build FULLY restored: 3 lost SYS-16 facades reconstructed verbatim from AI-C's own
+  artifacts (Rule-17 repair, review requested) · arrange bridge de-mangled · wasm.rs EOF fragment
+  removed · invalid legacy-JSON test fixture rebuilt. BLK-D-007 CLOSED. First clean wasm32 check
+  since 9128ad9. cargo 313→320/320, UI 736/736.
+- SYS-23: MOD-EASING complete per eng 08 REQ-TWN-004 (quart/quint/expo/circ/back/elastic/bounce +
+  steps(n), canonical Penner constants, 7 property tests). Motion-tween-ready easing surface.

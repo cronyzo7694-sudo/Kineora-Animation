@@ -448,3 +448,50 @@ No SYS COMPLETE.
 ## S6.4 Status
 
 File ▸ Save = **AUTOMATED TESTED / PARTIAL**. Not COMPLETE (no native QA; no-FSA browser still downloads; handle lost on reload = honest SESSION). SYS-02 File menu **not COMPLETE**. Did not start Open/New/Close this increment.
+
+---
+
+# SESSION 7 — EXPORT FORENSIC RESEARCH (docs only) — 2026-08-23
+
+**Worker:** AI-A  
+**Role this session:** EXPORT FORENSIC RESEARCH ENGINEER (user order).  
+**HEAD at check-in:** `7ab803a0120e624fa82dc30f9be9136dd5e79711` (`docs(ai-d): BUG-D-001…`). Fetched; `origin/main` equal; working tree clean. Remote URL has no token.
+
+## S7.1 Scope (binding)
+
+- RESEARCH → documented contract. **Did not implement Export. Did not modify product code. Did not invent requirements.**
+- File-menu human order still in force: Save done (`094f08f`); **next File feature = Open**. This session is **not** File ▸ Open.
+- Export **engines** = **SYS-27 / AI-D**. SYS-02 / AI-A owns H08 **handoff only**.
+
+## S7.2 Deliverable
+
+`PROJECT_COORDINATION/EXPORT_FORENSIC_RESEARCH.md` — 26 sections (Executive Summary → Final acceptance checklist).
+
+Authority: Blueprint > Phase 2 / 2.5 / Phase 3 > decisions > forensic specs > Adobe > code-as-evidence.
+
+## S7.3 Snapshot (evidence, not a COMPLETE claim)
+
+| Area | Honest status |
+|---|---|
+| Still image SVG/PNG/JPEG/WebP + scale 1/2/4 | PARTIAL (raster ignores `backgroundAlpha`; JPEG quality hardcoded 0.92) |
+| SVG sequence + fps sidecar + `export:done` | PARTIAL (menu says PNG Sequence) |
+| HTML5 publish | PARTIAL (one self-contained HTML; not 28.5 bundle) |
+| GIF / Video / Movie | honest handoff toasts — no encoder in repo |
+| Publish Settings / Profiles | honest toasts |
+| STM-EXPORT / `st.export` consumer | missing |
+| Import | BLOCKED `BLK-D-006` |
+| SYS-27 | **PARTIAL+** — not COMPLETE |
+
+New research AMBs **AMB-EXP-001..013** recorded as open (not decided).
+
+## S7.4 Git / security
+
+- Docs-only commit intended: `docs(research): forensic export research and implementation blueprint`
+- Previous Save PAT treated as **compromised** (BLK-B-005). **Not reused.** Push waits for a **rotated** PAT.
+- BUG-D-001 on main: not absorbed.
+
+## S7.5 Tests this session
+
+None executed (no product change). Existing export tests listed as evidence in the research doc §18 — **not** claimed PASS this turn.
+
+No SYS COMPLETE.

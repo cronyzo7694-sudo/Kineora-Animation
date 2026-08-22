@@ -213,3 +213,11 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
   snapshot, `document:changed{type:'scene'}`. Insert-menu inventory audited: New Symbol/F5/F6/F7/
   Classic Tween FUNCTIONAL (verified), Motion/Shape Tween honestly DEFERRED (model units missing),
   Scene now FUNCTIONAL. Rust 338/338 · UI 764/764 · tsc/build clean · wasm32 clean.
+
+## 2026-08-23 — AI-A · Export forensic research (docs only)
+- Added `PROJECT_COORDINATION/EXPORT_FORENSIC_RESEARCH.md` — implementation-grade contract for
+  SYS-27 coding agents (26 sections). RESEARCH-ONLY: no `animator/` changes, no invented AMBs
+  as decisions, engines remain AI-D/SYS-27, H08 stays handoff-only.
+- Records existing slice (stills + SVG-seq + HTML5 player + `export:done`) as PARTIAL+; GIF/video
+  stay honest toasts; AMB-EXP-001..013 open; next File-menu feature after Save remains Open.
+- SYS-27 **not** marked COMPLETE.

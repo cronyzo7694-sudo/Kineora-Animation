@@ -61,3 +61,8 @@
 ---
 
 *This board is a snapshot. Every SYS status change MUST be mirrored here + in `CHANGELOG.md` + the SYS's own final-report section. No stale aggregates (FL-0020).*
+
+## 2026-08-23 — AI-A note (research only; do not read as COMPLETE)
+
+SYS-27 export/publish forensic contract landed: `PROJECT_COORDINATION/EXPORT_FORENSIC_RESEARCH.md`.
+Impl remains **PARTIAL+** (image + SVG-seq + HTML5 slice; GIF/video/settings = toasts). Owner still **AI-D**. Not COMPLETE. File-menu next feature after Save is still **Open** (SYS-02 / AI-A), not Export implementation.

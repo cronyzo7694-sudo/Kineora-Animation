@@ -36,9 +36,13 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
   const loop = isLoopEnabled()
 
   // saving:changed (bus) → st.saving cell; produced by File ▸ Save.
-  const [saving, setSaving] = useState<string | null>(null)
+  // H11 §4: st.saving states idle/saving/saved/error with success/danger tokens
+  const [saving, setSaving] = useState<{ text: string; danger: boolean } | null>(null)
   useBus('saving:changed', (p) => {
-    setSaving(p.state === 'saved' && p.time ? `saved ${p.time}` : p.state === 'saving' ? 'saving…' : null)
+    if (p.state === 'saved' && p.time) setSaving({ text: `saved ${p.time}`, danger: false })
+    else if (p.state === 'saving') setSaving({ text: 'saving…', danger: false })
+    else if (p.state === 'error') setSaving({ text: 'save error', danger: true })
+    else setSaving(null)
   })
 
   return (
@@ -80,8 +84,8 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
         <span style={{ color: playing ? '#8ec8ff' : dim }}>{playing ? '▶ playing' : '⏸ stopped'}</span>
         <span style={{ color: loop ? '#8ec8ff' : dim }}>{loop ? 'loop' : 'once'}</span>
       </span>
-      <span data-testid="st-saving" style={cell}>
-        <span style={{ color: saving ? '#8ec8ff' : dim }}>{saving ?? 'save —'}</span>
+      <span data-testid="st-saving" style={cell} aria-live="polite">
+        <span style={{ color: saving ? (saving.danger ? 'var(--kineora-danger)' : 'var(--kineora-accent-text)') : dim }}>{saving?.text ?? 'save —'}</span>
       </span>
       <span data-testid="st-export" style={cell}>
         <span style={{ color: dim }}>export —</span>

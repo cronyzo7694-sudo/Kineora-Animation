@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import { allCommands } from '../commands'
+import { allCommands, shortcutAliases, shortcutDisplayFor } from '../commands'
+import { menus } from '../menus'
 
 interface Props {
   open: boolean
@@ -40,11 +41,33 @@ export function ShortcutsDialog({ open, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // H09 §6/§10: shortcut rows = direct command bindings + alias bindings for
+  // parameterized commands (file.import('stage'|'library'), file.export('image'))
+  // — the shortcut column shows the same binding the menu shows.
   const groups = useMemo(() => {
-    return CATEGORY_ORDER.map(([cat, label]) => ({
-      label,
-      items: allCommands().filter((c) => c.category === cat && c.shortcut),
-    })).filter((g) => g.items.length > 0)
+    return CATEGORY_ORDER.map(([cat, label]) => {
+      const rows: { key: string; label: string; shortcut: string; testId: string }[] = []
+      for (const c of allCommands().filter((x) => x.category === cat)) {
+        if (c.shortcut) {
+          rows.push({ key: c.id, label: c.label, shortcut: c.shortcut, testId: `shortcut-${c.id}` })
+        }
+        for (const [, alias] of Object.entries(shortcutAliases)) {
+          if (alias.id !== c.id) continue
+          const display = shortcutDisplayFor(c.id, alias.input)
+          if (!display) continue
+          const entry = menus
+            .flatMap((m) => m.items.flatMap((i) => (i.type === 'submenu' ? i.items : [i])))
+            .find((i) => i.type === 'command' && i.id === c.id && i.input === alias.input)
+          rows.push({
+            key: `${c.id}-${String(alias.input)}`,
+            label: entry && entry.type === 'command' ? entry.label ?? c.label : c.label,
+            shortcut: display,
+            testId: `shortcut-${c.id}-${String(alias.input)}`,
+          })
+        }
+      }
+      return { label, items: rows }
+    }).filter((g) => g.items.length > 0)
   }, [])
 
   if (!open) return null
@@ -62,11 +85,11 @@ export function ShortcutsDialog({ open, onClose }: Props) {
           {groups.map((g) => (
             <section key={g.label} style={{ marginTop: 10 }}>
               <div style={{ color: '#8ef', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{g.label}</div>
-              {g.items.map((c) => (
-                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#bbb' }}>
-                  <span>{c.label}</span>
-                  <span data-testid={`shortcut-${c.id}`} style={{ color: '#8ec8ff', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>
-                    {c.shortcut}
+              {g.items.map((row) => (
+                <div key={row.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#bbb' }}>
+                  <span>{row.label}</span>
+                  <span data-testid={row.testId} style={{ color: '#8ec8ff', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>
+                    {row.shortcut}
                   </span>
                 </div>
               ))}

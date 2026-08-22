@@ -270,7 +270,7 @@ export function DocumentTabs({ ctx }: Props) {
                   data-testid={`doc-tab-dirty-${d.id}`}
                   aria-label="unsaved changes"
                   title="unsaved changes"
-                  style={{ color: 'var(--kineora-warning)' }}
+                  style={{ color: 'var(--kineora-danger)' }}
                 >
                   ●
                 </span>

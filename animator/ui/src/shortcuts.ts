@@ -12,7 +12,7 @@
 // ============================================================================
 
 import { useEffect, useRef } from 'react'
-import { findCommandByEvent, type CommandContext } from './commands'
+import { findShortcutInvocation, type CommandContext } from './commands'
 
 /**
  * Attach a scoped global shortcut listener.
@@ -35,7 +35,8 @@ export function useShortcutScope(scope: ReadonlySet<string>, ctx: CommandContext
       // pure modifier presses never dispatch
       if (e.key === 'Control' || e.key === 'Meta' || e.key === 'Alt' || e.key === 'Shift') return
 
-      const cmd = findCommandByEvent(e)
+      const inv = findShortcutInvocation(e)
+      const cmd = inv?.cmd
       if (!cmd || !scopeRef.current.has(cmd.id)) return
 
       const c = ctxRef.current
@@ -47,7 +48,7 @@ export function useShortcutScope(scope: ReadonlySet<string>, ctx: CommandContext
         return
       }
       e.preventDefault()
-      cmd.run(c)
+      cmd.run(c, inv?.input)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

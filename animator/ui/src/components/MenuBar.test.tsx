@@ -57,9 +57,9 @@ describe('MenuBar — open/close', () => {
   it('submenu flyout opens on hover', () => {
     render(<MenuBar ctx={ctx()} />)
     fireEvent.click(screen.getByTestId('menu.file'))
-    expect(screen.queryByTestId('menu-item-file.export')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('menu-item-file.export-image')).not.toBeInTheDocument()
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Export'))
-    expect(screen.getByTestId('menu-item-file.export')).toBeInTheDocument()
+    expect(screen.getByTestId('menu-item-file.export-image')).toBeInTheDocument()
   })
 })
 

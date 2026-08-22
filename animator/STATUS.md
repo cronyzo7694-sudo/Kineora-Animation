@@ -708,3 +708,67 @@ Formal spec `H01_NEW_DOCUMENT_TEMPLATES.md` (v2) audited against the build; gaps
 | H08 Import/Export/Publish | ✅ (handoffs) | verified; SYS-27 engines out of scope |
 
 **Unresolved product decisions (NOT invented, isolated + reported):** AMB-H01-002 (duplicate template name — current: guarded Replace, PROVISIONAL) · AMB-H01-003 (seeded-doc identity — current: Untitled-N, PROVISIONAL) · AMB-H07-001 (survivor after close-active — current: right-neighbour/last, PROVISIONAL via `survivor_index`) · AMB-002/003/004 deferred to H10/H11.
+
+## SYS-02 H09 — File Commands + Menus + Shortcuts (H09-RELEASE spec)
+- **Canonical registry enforced (17 commandIds, H09 §5):** `file.importStage`/`file.importLibrary` merged into ONE `file.import(target)` command (input 'stage'|'library'); `file.exportVideo/Gif/Movie/Sequence` merged into ONE `file.export(format)` command (input image|video|gif|movie|sequence). `file.openRecent` remains a REUSE of `file.open` (entry as input) — not a commandId. `file.close()` (active doc) vs `tab.close(docId)` (targeted doc) remain two intentional distinct commands (H09 §5.1).
+- **Shortcut aliases now carry input** (H09 §7/§10): Ctrl+R → file.import('stage'), Ctrl+I → file.import('library'), Ctrl+Shift+R → file.export('image') — the menu entries and the shortcut bindings resolve to the SAME commandId + input (invocation equivalence, INV-CMD-3). The menu items display their shortcut via `shortcutDisplayFor`.
+- **H09 §9 enable/disable:** NO_DOCUMENT → doc-scoped commands DISABLED-BY-CONTEXT ("no document open"); New/Open/OpenExternalLibrary/Exit always enabled; legacy AIR/Print/Page-Setup remain HIDDEN (no commandId, no trigger).
+- **Tests:** NEW `h09.test.tsx` (7 — T-cmd-single-id 17-ID registry + removed-ID check, file.close vs tab.close targeting, T-cmd-import/export parameterized menu+shortcut equivalence, T-cmd-disabled-no-doc, T-cmd-hidden-print, T-cmd-open-recent reuse).
+
+## SYS-02 H10 — Persistence + Recovery boundary (H10-RELEASE spec)
+- **Boundary made explicit in code** (H10 §5 handoff markers at the `saveDocument`/`openDocument` seams in file.ts): SYS-02 triggers + handles results + UI feedback; serializer/atomic-write/checksum/migration/autosave/recovery = **SYS-28 internals — NOT implemented here (INV-PERS-1)**.
+- **UNRESOLVED — IMPLEMENTATION BLOCKED (registered, NOT invented):** Document-ID persistence in the project JSON + collision-recovery behavior (AMB-002 — source-silent recovery semantics; the no-duplicate invariant INV-IDENT-4 stands); `formatVersion` + `migrate(from,to)` (P-9 gap, SYS-28); autosave (2s+30s debounce, .autosave slot) + recovery prompt UI (H00 T12–T14) — blocked until SYS-28 ships; recent-file store API (AMB-003 — the current localStorage store remains PROVISIONAL, H10-owned decision pending).
+
+## SYS-02 H11 — Visual / Accessibility / Error (H11-RELEASE spec)
+- **INV-VIS-2 tokens:** File surfaces tokenized — CloseConfirmationDialog (Discard via `--kineora-danger`, Save via `--kineora-accent-text`), no-document state buttons (`--kineora-btn-*`/`--kineora-disabled-text`/`--kineora-panel-2`), MenuBar menu-item colors (`--kineora-dropdown`/`--kineora-btn-primary-bg`/`--kineora-text`/`--kineora-disabled-text`/`--kineora-border-2`).
+- **One dirty-● design (H11 §4/§8):** tab ● + header dot now on `--kineora-danger` (was mixed warning yellow) — one design across tab + title.
+- **st.saving states (H11 §4):** idle/saving/saved/**error** — `save error` now displayed on the danger token (previously the error state fell back to idle); cell is `aria-live="polite"` (T-a11y-save-announce).
+- **Guard submitting state (H11 §4 / H13 §6):** the guard dialog is busy while a Save is in flight — all buttons disabled, "Saving…" label, **no double-submit** (T double-submit test: exactly one write attempt).
+- **Tests:** NEW `h11.test.tsx` (13 — T-vis-tab-dirty/-guard-danger/-no-doc-empty/-menu-states, T-a11y-tab-role/-tab-focus/-ctx-menu/-dirty-live/-guard-trap/-save-announce, T-err-save-fail/-open-fail(CASE A), T-edge-empty-recent, double-submit).
+
+## SYS-02 H12 — UI→Engine Connection Matrix (H12-RELEASE spec)
+- Wiring matrix verified against code (H12 §3/§5): every control → command → target → state → event chain exists; handoff controls (import/export/publish) make NO engine call and never dirty (SYS-27 owns mutation); tab controls are VIEW/SESSION (no doc mutation); the dirty indicator re-reads on `document:changed` (event-driven, no poll).
+- **Tests:** NEW `h12.test.tsx` (8 — T-import-stage/library, T-export(+no-dirty), T-publish-*, T-tab-activate/-close(adversarial inactive), T-dirty-indicator event-driven, rapid Open already-open, rapid switching pointer integrity, stale-reference re-read).
+
+## SYS-02 H13 — QA / Manual Acceptance (H13-RELEASE spec)
+- Automated layer: all bound T-* test IDs are automated (see H09–H12 test sections above; 593 UI + 262 Rust tests).
+- **Manual layer (user's desktop — the authoritative layer per H00 §19/H13 §7):** matrix below.
+
+### Manual acceptance matrix — H09–H12 (report `1-P 2-F …`)
+| # | Action | Expect |
+|---|---|---|
+| 1 | File ▸ Import ▸ Import to Stage (Ctrl+R) / to Library (Ctrl+I) | honest "integration gap — owned by SYS-27" toast; doc NOT dirtied |
+| 2 | File ▸ Export ▸ Image (Ctrl+Shift+R) | the working export dialog opens (image = working unit) |
+| 3 | File ▸ Export ▸ Video/GIF/Movie/Sequence | honest SYS-27 handoff toast; doc NOT dirtied |
+| 4 | File ▸ Publish Settings (Ctrl+Shift+F12) / Publish (Shift+Alt+F12) | honest SYS-27 handoff toasts |
+| 5 | Save a dirty doc | status cell shows "Saving…" then "saved hh:mm" (announced) |
+| 6 | Save to a failing path (read-only) | status cell shows "save error" (red); ● stays |
+| 7 | dirty doc → Close → guard → click Save TWICE fast | exactly ONE save attempt; Save button shows "Saving…" disabled |
+| 8 | guard Esc | Cancel — nothing changed |
+| 9 | Open Recent with an empty list | "No recent files" |
+| 10 | Open the SAME file twice in quick succession | one tab, no reload, edits intact |
+| 11 | Keyboard: Tab to a tab, Enter | activates; focus lands on the activated tab |
+| 12 | right-click a tab → Esc | menu closes; focus returns to the tab; nothing closed |
+
+## H14 — FINAL RECONCILIATION (re-run against ACTUAL CODE, not the H14 file's claims)
+Fresh audit of the implemented code (evidence via grep/test runs, this commit):
+1. **Command drift: 0** — exactly the 17 canonical H09 §5 commandIds exist (`grep "id: 'file\./tab.'" commands.ts` = 17); removed IDs (file.openRecent/importStage/importLibrary/exportVideo/Gif/Movie/Sequence) verified absent (h09 T-cmd-single-id test); file.close vs tab.close distinct (tested).
+2. **Event drift: 0** — emitters: activeDoc:changed (6), openSet:changed (6), document:changed (1), saving:changed (5), tool/panel/workspace/playback (SYS-01 chrome); NO library:changed / export:done emitters in SYS-02 (H12 §4: SYS-02 never emits SYS-18/SYS-27 events) ✓.
+3. **Payload drift: 0** — openSet:changed single canonical `{change, docId?}` schema (all 6 emitters); saving:changed single `{state, time?}` (FL-0030); activeDoc:changed `{docId}`.
+4. **State contradictions: 0** — STM-DIRTY snapshot-based (engine tests); lifecycle DIM-A/B/C (no OPEN_FAILED state — open failure is an error outcome, tested T-err-open-fail CASE A).
+5. **Ownership collisions: 0** — guard decision contract = H04 (App confirmClose/confirmCloseDoc), dialog chrome = H07+SYS-01 (CloseConfirmationDialog), save = H05 (saveDocument), persistence internals = NOT in SYS-02 (INV-PERS-1 — H10 boundary markers).
+6. **Scope leaks: 0** — import/export/publish = handoff toasts only (no SYS-27 internals); autosave/recovery/formatVersion = NOT invented (registered BLOCKED, H10).
+7. **Dead controls: 0** — registry lint (FUNCTIONAL ⇒ commandId) + all menu items wired (h09/h11 tests); legacy items HIDDEN.
+8. **Orphan commands: 0** — all 17 have ≥1 visible trigger (menu/shortcut/tab UI — audit §H09 above).
+9. **Orphan events: 0** — every emitted event has consumers (openSet→tabs, activeDoc→App rebind, document:changed→App+tabs, saving→StatusBar, SYS-01 chrome events→panels).
+10. **Stale UI bindings: 0** — panels re-read on activeDoc:changed/document:changed (event-driven); T-stale-ref + T-dirty-indicator tests.
+11. **Dirty-state leaks: 0** — per-doc dirty (native + UI tests); export/publish never dirty (h12); view ops never dirty (native).
+12. **Undo leaks: 0** — save never clears history (native test); guard discard = non-undoable (by design).
+13. **Persistence leaks: 0** — workspace/prefs never written into project JSON (INV-PERS-3); recent/templates = prefs store (PROVISIONAL, AMB-003 registered).
+14. **Accessibility gaps: 0** (in scope) — tabs/menu/guard/dirty/save-status covered (h11 tests); guard initial focus = `[NOT SPECIFIED]` (not invented).
+15. **Shortcut conflicts: 0** — validateCommands lint clean (h09 test); Ctrl+R/Ctrl+I/Ctrl+Shift+R aliases unique; no SYS-01/SYS-04 collisions.
+16. **Error paths: 0 silent** — save-fail (status+toast), open-fail (toast), open-path-block (explicit error), engine-unavailable (honest "engine not attached"), guard-save-fail (dialog stays).
+17. **Edge cases** — 593 UI + 262 Rust tests green (this commit).
+18. **Unresolved ambiguities** — ALL registered, NONE invented: AMB-H01-002/003 (H01, PROVISIONAL behavior flagged in code+STATUS), AMB-H07-001 (H07, PROVISIONAL `survivor_index` policy named+flagged in code), AMB-002/003/004 (H10/H11, BLOCKED-registered), AMB-H05-001 (recommendation only), guard initial focus `[NOT SPECIFIED]`.
+19. **Lesson violations: 0** — FL-0007/0008 (no fake events), FL-0010 (no invented commands), FL-0016 (no scope absorption), FL-0017 (code evidence only), FL-0023 (no silent ambiguity resolution), FL-0025 (invariants↔transitions consistent), FL-0030 (payload drift 0), FL-0032 (guard-on-Open removed in the H00–H08 pass, still absent).
+   *New lesson candidate (test-validity class, from this pass's debug): a `vi.mock` of a module imported by a DEPENDENCY module can appear applied to the test's own import while the dependency still calls the real module — assert the mock's call count EARLY (before behavior assertions) so a mock-miss fails the test immediately instead of masquerading as wrong behavior. Proposed FL-0033.*

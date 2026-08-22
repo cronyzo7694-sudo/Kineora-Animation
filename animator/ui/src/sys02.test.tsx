@@ -163,10 +163,10 @@ describe('SYS-02 File menu + hidden controls', () => {
     }
     // submenu entries (Import / Export / Publish)
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Import'))
-    expect(screen.getByTestId('menu-item-file.importStage')).toBeInTheDocument()
-    expect(screen.getByTestId('menu-item-file.importLibrary')).toBeInTheDocument()
+    expect(screen.getByTestId('menu-item-file.import-stage')).toBeInTheDocument() // H09: file.import('stage')
+    expect(screen.getByTestId('menu-item-file.import-library')).toBeInTheDocument() // H09: file.import('library')
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Export'))
-    expect(screen.getByTestId('menu-item-file.export')).toBeInTheDocument()
+    expect(screen.getByTestId('menu-item-file.export-image')).toBeInTheDocument() // H09: file.export('image')
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Publish'))
     expect(screen.getByTestId('menu-item-file.publishSettings')).toBeInTheDocument()
     expect(screen.getByTestId('menu-item-file.publish')).toBeInTheDocument()
@@ -202,7 +202,7 @@ describe('SYS-02 File menu + hidden controls', () => {
     render(<App />)
     fireEvent.click(screen.getByTestId('menu.file'))
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.file-Import'))
-    fireEvent.click(screen.getByTestId('menu-item-file.importStage'))
+    fireEvent.click(screen.getByTestId('menu-item-file.import-stage'))
     expect(screen.getByTestId('toast')).toHaveTextContent('SYS-27')
   })
 

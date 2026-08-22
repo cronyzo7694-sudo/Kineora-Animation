@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { getCommand, type CommandContext } from '../commands'
+import { getCommand, shortcutDisplayFor, type CommandContext } from '../commands'
 import { listRecent } from '../file'
 import { menus, type MenuDef, type MenuEntry } from '../menus'
 
-// ——— style tokens (Kineora identity: dark slate + cyan accents) ———
-const itemBg = '#232323'
-const hoverBg = '#0a3f7f'
-const text = '#ddd'
-const dim = '#777'
-const border = '#3a3a3a'
+// ——— style tokens (H11 §4 / INV-VIS-2: SYS-01 design tokens, no hard-coded
+// values — Kineora dark-slate identity via the token definitions) ———
+const itemBg = 'var(--kineora-dropdown)'
+const hoverBg = 'var(--kineora-btn-primary-bg)'
+const text = 'var(--kineora-text)'
+const dim = 'var(--kineora-disabled-text)'
+const border = 'var(--kineora-border-2)'
 
 interface MenuBarProps {
   ctx: CommandContext
@@ -228,7 +229,7 @@ function Entries({
             </div>
           )
         }
-        return <CommandRow key={e.id} id={e.id} onRun={onRun} ctx={ctx} />
+        return <CommandRow key={`${e.id}${e.input !== undefined ? '-' + String(e.input) : ''}`} entry={e} onRun={onRun} ctx={ctx} />
       })}
     </>
   )
@@ -327,9 +328,13 @@ function SubRow({ label, expanded }: { label: string; expanded: boolean }) {
   )
 }
 
-function CommandRow({ id, onRun, ctx }: { id: string; onRun: () => void; ctx: CommandContext }) {
-  const cmd = getCommand(id)
+function CommandRow({ entry, onRun, ctx }: { entry: { id: string; input?: unknown; label?: string }; onRun: () => void; ctx: CommandContext }) {
+  const cmd = getCommand(entry.id)
   if (!cmd) return null
+  const label = entry.label ?? cmd.label
+  // H09 §10: menu and shortcut invoke the SAME commandId — for parameterized
+  // commands the entry's input is what the shortcut alias would carry.
+  const shortcutDisplay = entry.input !== undefined ? shortcutDisplayFor(entry.id, entry.input) : undefined
 
   const disabledByStatus = cmd.status !== 'FUNCTIONAL'
   const disabledByContext = cmd.status === 'FUNCTIONAL' && cmd.enabled ? !cmd.enabled(ctx) : false
@@ -343,7 +348,7 @@ function CommandRow({ id, onRun, ctx }: { id: string; onRun: () => void; ctx: Co
 
   return (
     <button
-      data-testid={`menu-item-${cmd.id}`}
+      data-testid={`menu-item-${cmd.id}${entry.input !== undefined ? '-' + String(entry.input) : ''}`}
       data-disabled={disabled ? 'true' : 'false'}
       role="menuitem"
       disabled={disabled}
@@ -351,7 +356,7 @@ function CommandRow({ id, onRun, ctx }: { id: string; onRun: () => void; ctx: Co
       onClick={() => {
         if (disabled) return
         onRun()
-        cmd.run(ctx)
+        cmd.run(ctx, entry.input)
       }}
       style={{
         display: 'flex',
@@ -375,9 +380,9 @@ function CommandRow({ id, onRun, ctx }: { id: string; onRun: () => void; ctx: Co
       }}
     >
       <span style={{ width: 14, display: 'inline-block', textAlign: 'center' }}>{isChecked ? '✓' : ''}</span>
-      <span style={{ flex: 1 }}>{cmd.label}</span>
+      <span style={{ flex: 1 }}>{label}</span>
       {disabledByStatus && <span style={{ fontSize: 10, color: '#a88' }}>{cmd.status === 'DEFERRED' ? 'future' : 'n/a'}</span>}
-      {cmd.shortcut && <span style={{ color: dim, fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{cmd.shortcut}</span>}
+      {(cmd.shortcut ?? shortcutDisplay) && <span style={{ color: dim, fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{cmd.shortcut ?? shortcutDisplay}</span>}
     </button>
   )
 }

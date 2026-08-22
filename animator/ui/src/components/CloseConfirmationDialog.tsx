@@ -12,6 +12,9 @@ interface Props {
   onSave: () => void
   onDiscard: () => void
   onCancel: () => void
+  /** H11 §4 / H13 §6: the guard is in the 'submitting' state (a Save is
+   *  in flight) — all buttons disabled, no double-submit. */
+  busy?: boolean
 }
 
 /**
@@ -20,7 +23,7 @@ interface Props {
  * document exactly unchanged. Esc = Cancel. Triggered by DIRTY alone — never
  * by document identity.
  */
-export function CloseConfirmationDialog({ request, onSave, onDiscard, onCancel }: Props) {
+export function CloseConfirmationDialog({ request, onSave, onDiscard, onCancel, busy = false }: Props) {
   useEffect(() => {
     if (!request) return
     const onKey = (e: KeyboardEvent) => {
@@ -46,14 +49,15 @@ export function CloseConfirmationDialog({ request, onSave, onDiscard, onCancel }
           {label} unsaved changes. Save before closing {request.what}?
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button data-testid="dlg-close-cancel" onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-border)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-text)', cursor: 'pointer', fontSize: 13 }}>
+          <button data-testid="dlg-close-cancel" onClick={onCancel} disabled={busy} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-border)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-text)', cursor: 'pointer', fontSize: 13, opacity: busy ? 0.5 : 1 }}>
             Cancel
           </button>
-          <button data-testid="dlg-close-discard" onClick={onDiscard} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-danger)', background: 'var(--kineora-btn-bg)', color: '#ffb3b3', cursor: 'pointer', fontSize: 13 }}>
+          {/* H11 §4: the destructive button is distinguished via the danger token */}
+          <button data-testid="dlg-close-discard" onClick={onDiscard} disabled={busy} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-danger)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-danger)', cursor: 'pointer', fontSize: 13, opacity: busy ? 0.5 : 1 }}>
             Discard
           </button>
-          <button data-testid="dlg-close-save" onClick={onSave} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
-            Save
+          <button data-testid="dlg-close-save" onClick={onSave} disabled={busy} style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: 'var(--kineora-accent-text)', cursor: 'pointer', fontSize: 13, opacity: busy ? 0.5 : 1 }}>
+            {busy ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>

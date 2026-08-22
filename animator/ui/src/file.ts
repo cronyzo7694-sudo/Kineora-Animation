@@ -137,6 +137,10 @@ export function findDocByPath(path: string): number | undefined {
   return undefined
 }
 
+// H10 §5.2 OPEN HANDOFF (SYS-02 → SYS-28): SYS-02 triggers the load, handles
+// the ok/fail outcomes (CASE A/B) and the UI; validate → migrate → re-link →
+// integrity is SYS-28's. A failed load is an ERROR OUTCOME (toast +
+// unchanged), never a lifecycle state.
 export function openDocument(notify: Notify): void {
   if (!engineOk()) return notify('open: engine not attached')
   void (async () => {
@@ -176,6 +180,15 @@ export function openDocument(notify: Notify): void {
  */
 /** @returns true when the document was saved (and marked clean); false on
  *  cancel / failure (document left dirty and unchanged). */
+// H10 §5.1 SAVE HANDOFF (SYS-02 → SYS-28): SYS-02 defines the trigger, the
+// handoff (platform.writeProject = the SYS-28 atomic-write seam in the
+// desktop shell), the result handling and the UI feedback. The serializer /
+// atomic-write / checksum IMPLEMENTATION is SYS-28's — never re-implemented
+// here (INV-PERS-1). Autosave (2s+30s debounce, .autosave slot) and
+// recovery are SYS-28 MOD-AUTOSAVE/RECOVERY — SYS-02 observes them only via
+// the recovery prompt (H00 T12–T14, wired when SYS-28 ships). formatVersion
+// + migrate() + Document-ID persistence = SYS-28 (P-9 gap; AMB-002 recovery
+// behavior OPEN — not invented).
 export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = {}): Promise<boolean> {
   if (!engineOk()) {
     notify('save: engine not attached')

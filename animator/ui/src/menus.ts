@@ -7,7 +7,9 @@
 // ============================================================================
 
 export type MenuEntry =
-  | { type: 'command'; id: string }
+  /** `input` = parameter for parameterized commands (H09: file.import(target),
+   *  file.export(format)); `label` overrides the command label for the entry. */
+  | { type: 'command'; id: string; input?: unknown; label?: string }
   | { type: 'submenu'; label: string; items: MenuEntry[] }
   | { type: 'separator' }
   /** Dynamic list of saved workspaces (each runs workspace.load with its name). */
@@ -45,8 +47,8 @@ export const menus: MenuDef[] = [
         type: 'submenu',
         label: 'Import',
         items: [
-          { type: 'command', id: 'file.importStage' },
-          { type: 'command', id: 'file.importLibrary' },
+          { type: 'command', id: 'file.import', input: 'stage', label: 'Import to Stage…' },
+          { type: 'command', id: 'file.import', input: 'library', label: 'Import to Library…' },
           { type: 'command', id: 'file.openExternalLibrary' },
         ],
       },
@@ -54,11 +56,11 @@ export const menus: MenuDef[] = [
         type: 'submenu',
         label: 'Export',
         items: [
-          { type: 'command', id: 'file.export' },
-          { type: 'command', id: 'file.exportVideo' },
-          { type: 'command', id: 'file.exportGif' },
-          { type: 'command', id: 'file.exportMovie' },
-          { type: 'command', id: 'file.exportSequence' },
+          { type: 'command', id: 'file.export', input: 'image', label: 'Export Image…' },
+          { type: 'command', id: 'file.export', input: 'video', label: 'Export Video…' },
+          { type: 'command', id: 'file.export', input: 'gif', label: 'Export Animated GIF…' },
+          { type: 'command', id: 'file.export', input: 'movie', label: 'Export Movie…' },
+          { type: 'command', id: 'file.export', input: 'sequence', label: 'Export PNG Sequence…' },
         ],
       },
       {

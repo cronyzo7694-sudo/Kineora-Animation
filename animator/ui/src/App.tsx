@@ -94,6 +94,10 @@ export default function App() {
   // H07 §6 — SEQUENTIAL Close All: the per-document guard (one dirty doc at a
   // time). Resolves the in-flight closeAllDocuments() promise.
   const [seqGuard, setSeqGuard] = useState<{ docId: number; resolve: (d: CloseAllDecision) => void } | null>(null)
+  // H11 §4 / H13 §6 — guard 'submitting' state: a Save is in flight → the
+  // guard dialog is busy (no double-submit; retry only after the write resolves).
+  const [guardBusy, setGuardBusy] = useState(false)
+  const [seqGuardBusy, setSeqGuardBusy] = useState(false)
   const [exited, setExited] = useState(false)
   // ——— desktop shell diagnostics (Dev panel; desktop only) ———
   const [shellStatus, setShellStatus] = useState<ShellStatus | null>(null)
@@ -288,13 +292,18 @@ export default function App() {
 
   const onSeqGuardSave = async () => {
     const req = seqGuard
-    if (!req) return
-    // H05 save of THAT document (guard Save reuses file.save — H07 §9)
-    setActiveDoc(req.docId)
-    const ok = await saveDocument(notify)
-    if (!ok) return // save failed → stay DIRTY, close BLOCKED, dialog stays open (retry/cancel)
-    setSeqGuard(null)
-    req.resolve('save-ok')
+    if (!req || seqGuardBusy) return
+    setSeqGuardBusy(true)
+    try {
+      // H05 save of THAT document (guard Save reuses file.save — H07 §9)
+      setActiveDoc(req.docId)
+      const ok = await saveDocument(notify)
+      if (!ok) return // save failed → stay DIRTY, close BLOCKED, dialog stays open (retry/cancel)
+      setSeqGuard(null)
+      req.resolve('save-ok')
+    } finally {
+      setSeqGuardBusy(false)
+    }
   }
   const onSeqGuardDiscard = () => {
     const req = seqGuard
@@ -309,14 +318,19 @@ export default function App() {
 
   const onCloseSave = async () => {
     const req = closeReq
-    if (!req) return
-    for (const id of req.dirtyIds) {
-      setActiveDoc(id)
-      const ok = await saveDocument(notify)
-      if (!ok) return // save cancelled/failed → stay DIRTY, keep dialog open
+    if (!req || guardBusy) return
+    setGuardBusy(true)
+    try {
+      for (const id of req.dirtyIds) {
+        setActiveDoc(id)
+        const ok = await saveDocument(notify)
+        if (!ok) return // save cancelled/failed → stay DIRTY, keep dialog open
+      }
+      setCloseReq(null)
+      req.proceed()
+    } finally {
+      setGuardBusy(false)
     }
-    setCloseReq(null)
-    req.proceed()
   }
 
   const onCloseDiscard = () => {
@@ -431,8 +445,7 @@ export default function App() {
       'file.closeAll',
       'file.save',
       'file.saveAs',
-      'file.importStage',
-      'file.importLibrary',
+      'file.import',
       'file.export',
       'file.publishSettings',
       'file.publish',
@@ -504,7 +517,7 @@ export default function App() {
         {status && (
           <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {status.doc_title}
-            {status.dirty && <span data-testid="header-dirty-dot" style={{ color: '#eec13b' }}> ●</span>}
+            {status.dirty && <span data-testid="header-dirty-dot" aria-label="unsaved changes" style={{ color: 'var(--kineora-danger)' }}> ●</span>}
           </span>
         )}
         <button
@@ -642,10 +655,11 @@ export default function App() {
       <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} onCreate={(s) => getCommand('file.new')?.run(ctx, s)} />
       <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
       <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
-      <CloseConfirmationDialog request={closeReq} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
+      <CloseConfirmationDialog request={closeReq} busy={guardBusy} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
       {/* H07 §6 — sequential Close All guard (one dirty document at a time) */}
       <CloseConfirmationDialog
         request={seqGuard ? { what: 'this document', dirtyCount: 1 } : null}
+        busy={seqGuardBusy}
         onSave={onSeqGuardSave}
         onDiscard={onSeqGuardDiscard}
         onCancel={onSeqGuardCancel}
@@ -657,10 +671,10 @@ export default function App() {
             <div style={{ color: '#8ef', fontSize: 18, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>KINEORA ANIMATION</div>
             <div style={{ color: '#777', fontSize: 13, marginBottom: 16 }}>No document open</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
+              <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: 'var(--kineora-accent-text)', cursor: 'pointer', fontSize: 13 }}>
                 New (Ctrl+N)
               </button>
-              <button data-testid="no-doc-open" onClick={() => openDocument(notify)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 13 }}>
+              <button data-testid="no-doc-open" onClick={() => openDocument(notify)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid var(--kineora-btn-border)', background: 'var(--kineora-btn-bg)', color: 'var(--kineora-text)', cursor: 'pointer', fontSize: 13 }}>
                 Open (Ctrl+O)
               </button>
             </div>

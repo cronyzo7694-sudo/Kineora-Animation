@@ -421,78 +421,43 @@ export const commands: Command[] = [
     },
   },
   {
-    id: 'file.importStage',
-    label: 'Import to Stage…',
+    id: 'file.import',
+    label: 'Import…',
     category: 'file',
-    shortcut: 'Ctrl+R',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 27 → handoff SYS-27',
+    // H09 §5 #11: ONE canonical command file.import(target) — the two targets
+    // (stage/library) are menu entries + shortcut aliases that carry the
+    // input. No second command for the same semantic action.
+    source: '[H09 §5 #11] file.import(target) → SYS-27 MOD-IMPORT (handoff)',
     enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
     whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
-    run: (c) => importHandoff('stage', c.notify),
-  },
-  {
-    id: 'file.importLibrary',
-    label: 'Import to Library…',
-    category: 'file',
-    shortcut: 'Ctrl+I',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 27 → handoff SYS-27',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
-    run: (c) => importHandoff('library', c.notify),
+    // input: 'stage' | 'library' (menu entries + Ctrl+R/Ctrl+I aliases)
+    run: (c, input) => {
+      const target = input === 'library' ? 'library' : 'stage'
+      importHandoff(target, c.notify)
+    },
   },
   {
     id: 'file.export',
-    label: 'Export Image…',
+    label: 'Export…',
     category: 'file',
-    shortcut: 'Ctrl+Shift+R',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 / C-31 (export image = working)',
-    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: () => 'no document open',
-    run: (c) => c.openExport(),
     toolbar: true,
-  },
-  {
-    id: 'file.exportVideo',
-    label: 'Export Video…',
-    category: 'file',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
-    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: () => 'no document open',
-    run: (c) => exportHandoff('Video', c.notify),
-  },
-  {
-    id: 'file.exportGif',
-    label: 'Export Animated GIF…',
-    category: 'file',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
-    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: () => 'no document open',
-    run: (c) => exportHandoff('Animated GIF', c.notify),
-  },
-  {
-    id: 'file.exportMovie',
-    label: 'Export Movie…',
-    category: 'file',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
-    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: () => 'no document open',
-    run: (c) => exportHandoff('Movie', c.notify),
-  },
-  {
-    id: 'file.exportSequence',
-    label: 'Export PNG Sequence…',
-    category: 'file',
-    status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
-    enabled: (c) => (c.getStatus()?.doc_id ?? 0) !== 0,
-    whyDisabled: () => 'no document open',
-    run: (c) => exportHandoff('PNG sequence', c.notify),
+    // H09 §5 #12: ONE canonical command file.export(format). 'image' = the
+    // working in-app export dialog; video/gif/movie/sequence = SYS-27
+    // handoffs (honest integration-gap feedback, no fake success).
+    source: '[H09 §5 #12] file.export(format) → SYS-27 MOD-EXPORT (handoff)',
+    enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
+    whyDisabled: () => 'no document open', // H09 §9: DISABLED-BY-CONTEXT reason
+    // input: 'image' | 'video' | 'gif' | 'movie' | 'sequence'
+    run: (c, input) => {
+      const format = typeof input === 'string' ? input : 'image'
+      if (format === 'image') c.openExport()
+      else if (format === 'video') exportHandoff('Video', c.notify)
+      else if (format === 'gif') exportHandoff('Animated GIF', c.notify)
+      else if (format === 'movie') exportHandoff('Movie', c.notify)
+      else exportHandoff('PNG sequence', c.notify)
+    },
   },
   {
     id: 'file.publishSettings',
@@ -1829,10 +1794,35 @@ export function eventToCanonical(e: {
 
 /** Extra key bindings that target an existing command (e.g. Ctrl+Y = Redo).
  *  Kept out of the registry so the palette/shortcut viewer list one entry. */
-const shortcutAliases: Record<string, string> = {
-  'ctrl+y': 'edit.redo',
+/** Extra key bindings that target an existing command — with an optional
+ *  INPUT for parameterized commands (H09 §7): Ctrl+R/Ctrl+I bind
+ *  file.import('stage'|'library'); Ctrl+Shift+R binds file.export('image'). */
+export interface ShortcutInvocation {
+  cmd: Command
+  input?: unknown
+}
+export const shortcutAliases: Record<string, { id: string; input?: unknown }> = {
+  'ctrl+y': { id: 'edit.redo' },
+  'ctrl+r': { id: 'file.import', input: 'stage' },
+  'ctrl+i': { id: 'file.import', input: 'library' },
+  'ctrl+shift+r': { id: 'file.export', input: 'image' },
 }
 
+
+/** Display string for a parameterized command's shortcut binding (H09 §6:
+ *  the menu shows the shortcut even though the binding lives in the alias
+ *  map with its input). */
+export function shortcutDisplayFor(id: string, input: unknown): string | undefined {
+  for (const [canon, alias] of Object.entries(shortcutAliases)) {
+    if (alias.id === id && alias.input === input) {
+      const parts = canon.split('+')
+      return parts
+        .map((p) => (p === 'ctrl' ? 'Ctrl' : p === 'shift' ? 'Shift' : p === 'alt' ? 'Alt' : p === 'cmd' ? 'Cmd' : p.length === 1 ? p.toUpperCase() : p))
+        .join('+')
+    }
+  }
+  return undefined
+}
 /** Find the command bound to a keyboard event (or null). */
 export function findCommandByEvent(e: {
   key: string
@@ -1841,11 +1831,28 @@ export function findCommandByEvent(e: {
   altKey?: boolean
   shiftKey?: boolean
 }): Command | undefined {
+  return findShortcutInvocation(e)?.cmd
+}
+
+/** Find the command + input bound to a keyboard event (parameterized
+ *  commands carry their target through the alias — H09 §10 invocation
+ *  equivalence: shortcut and menu invoke the SAME commandId). */
+export function findShortcutInvocation(e: {
+  key: string
+  ctrlKey?: boolean
+  metaKey?: boolean
+  altKey?: boolean
+  shiftKey?: boolean
+}): ShortcutInvocation | undefined {
   const canon = eventToCanonical(e)
   const cmd = commands.find((c) => c.shortcut && shortcutToCanonical(c.shortcut) === canon)
-  if (cmd) return cmd
+  if (cmd) return { cmd }
   const alias = shortcutAliases[canon]
-  return alias ? byId.get(alias) : undefined
+  if (alias) {
+    const aliased = byId.get(alias.id)
+    if (aliased) return { cmd: aliased, input: alias.input }
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

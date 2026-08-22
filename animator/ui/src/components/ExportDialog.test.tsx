@@ -3,11 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../engine/client', () => ({
   getEngineStatus: () => ({ kind: 'ok' as const, detail: 'mock' }),
+  getEngine: () => ({}),
   statusJson: () => ({
+    doc_id: 1,
+    doc_title: 'My Movie',
     playhead: 7,
     doc_width: 1920,
     doc_height: 1080,
     background: '#ffffff',
+    duration: 10,
+    fps: 24,
   }),
   evaluate: () => [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
   exportSvgScaled: vi.fn((_f: number, _s: number) => '<svg>mock</svg>'),
@@ -120,5 +125,59 @@ describe('ExportDialog (C-31 exp.image)', () => {
   it('closed dialog renders nothing', () => {
     render(<ExportDialog open={false} engine={{ kind: 'ok', detail: 'mock' }} onClose={onClose} notify={notify} />)
     expect(screen.queryByTestId('export-dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ——— SYS-27 slice 1: SVG sequence mode (INT-AID-003) ———
+import { bus } from '../bus'
+
+describe('ExportDialog — SVG sequence (eng 14 range + sidecar)', () => {
+  it('selecting the sequence format reveals the range inputs (default = full timeline)', () => {
+    renderDialog()
+    expect(screen.queryByTestId('export-seq-range')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('export-format'), { target: { value: 'svgseq' } })
+    expect(screen.getByTestId('export-seq-range')).toBeInTheDocument()
+    expect(screen.getByTestId('export-seq-first')).toHaveValue(1)
+    expect(screen.getByTestId('export-seq-last')).toHaveValue(10) // duration
+  })
+
+  it('exports the range + sidecar, emits export:done{sequence}, closes', () => {
+    const events: unknown[] = []
+    const off = bus.on('export:done', (p) => events.push(p))
+    renderDialog()
+    fireEvent.change(screen.getByTestId('export-format'), { target: { value: 'svgseq' } })
+    fireEvent.change(screen.getByTestId('export-seq-first'), { target: { value: '2' } })
+    fireEvent.change(screen.getByTestId('export-seq-last'), { target: { value: '4' } })
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    // 3 frames + 1 sidecar
+    expect(downloadBlobMock).toHaveBeenCalledTimes(4)
+    expect(downloadBlobMock.mock.calls[0][0]).toBe('My Movie_0002.svg')
+    expect(downloadBlobMock.mock.calls[3][0]).toBe('My Movie_sequence.json')
+    expect(events).toEqual([{ format: 'sequence', path: 'My Movie_0002.svg' }])
+    expect(onClose).toHaveBeenCalled()
+    off()
+  })
+
+  it('an invalid range refuses: nothing downloaded, no event, dialog STAYS open', () => {
+    const events: unknown[] = []
+    const off = bus.on('export:done', (p) => events.push(p))
+    renderDialog()
+    fireEvent.change(screen.getByTestId('export-format'), { target: { value: 'svgseq' } })
+    fireEvent.change(screen.getByTestId('export-seq-last'), { target: { value: '99' } }) // > duration 10
+    fireEvent.click(screen.getByTestId('export-confirm'))
+    expect(downloadBlobMock).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('exceeds the timeline'))
+    expect(onClose).not.toHaveBeenCalled()
+    off()
+  })
+
+  it('single-frame image exports now emit export:done (contract §D)', () => {
+    const events: { format: string }[] = []
+    const off = bus.on('export:done', (p) => events.push(p))
+    renderDialog()
+    fireEvent.click(screen.getByTestId('export-confirm')) // svg default
+    expect(events).toEqual([{ format: 'svg', path: 'kineora.svg' }])
+    off()
   })
 })

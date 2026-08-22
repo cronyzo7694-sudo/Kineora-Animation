@@ -62,6 +62,8 @@ import {
   type CloseAllDecision,
   type NewDocSettings,
 } from './file'
+// SYS-27 MOD-EXPORT engines (slice 1 — INT-AID-003)
+import { publishHtml5 } from './export27'
 import type { StatusJson } from './engine/wasmTypes'
 
 export type CommandStatus = 'FUNCTIONAL' | 'DEFERRED' | 'UNAVAILABLE'
@@ -495,7 +497,11 @@ export const commands: Command[] = [
       else if (format === 'video') exportHandoff('Video', c.notify)
       else if (format === 'gif') exportHandoff('Animated GIF', c.notify)
       else if (format === 'movie') exportHandoff('Movie', c.notify)
-      else exportHandoff('PNG sequence', c.notify)
+      // SYS-27 slice 1 (INT-AID-003): sequence is now a REAL engine — the
+      // export dialog hosts the range UI (SVG sequence + fps sidecar,
+      // eng 14). Video/GIF/movie remain honest handoff toasts (no fake
+      // encoders).
+      else c.openExport()
     },
   },
   {
@@ -515,10 +521,14 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Shift+Alt+F12',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 28 → handoff SYS-27',
+    // SYS-27 slice 1 (INT-AID-003): Publish is now a REAL engine for the
+    // default platform (P-8 = HTML5 Canvas): self-contained HTML player
+    // (every frame, fps, loop — eng 14 "HTML5"). Emits export:done{format:
+    // 'html5', path} (contract §D — SYS-27 is the producer).
+    source: '[BLUEPRINT REQUIRED] Part 28 → SYS-27 MOD-EXPORT (HTML5 publish, slice 1)',
     enabled: (c) => engineOk(c) && (c.getStatus()?.doc_id ?? 0) !== 0,
     whyDisabled: (c) => (engineOk(c) ? 'no document open' : NOT_ATTACHED),
-    run: (c) => publishHandoff('Publish', c.notify),
+    run: (c) => publishHtml5(c.notify),
   },
   {
     id: 'file.publishProfiles',

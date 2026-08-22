@@ -165,17 +165,22 @@ describe('H12 §3.3 — handoff controls (SYS-27): no engine call, no dirty, hon
     expect(fake.state.docs[0].dirty).toBe(before.dirty)
   })
 
-  it('T-export: image → the working dialog; video/gif/movie/sequence → SYS-27 handoff; never dirties', () => {
+  it('T-export: image + sequence → the working dialog; video/gif/movie → SYS-27 handoff; never dirties', () => {
     newDoc()
     fake.state.docs[0].dirty = true
     const openExport = vi.fn()
     getCommand('file.export')!.run(ctx({ openExport }), 'image')
     expect(openExport).toHaveBeenCalledTimes(1)
+    // SYS-27 slice 1 (INT-AID-003): 'sequence' is now a REAL engine hosted in
+    // the export dialog (range UI) — it opens the dialog instead of toasting.
+    const openSeq = vi.fn()
+    getCommand('file.export')!.run(ctx({ openExport: openSeq }), 'sequence')
+    expect(openSeq).toHaveBeenCalledTimes(1)
     const notify = vi.fn()
-    for (const f of ['video', 'gif', 'movie', 'sequence']) {
+    for (const f of ['video', 'gif', 'movie']) {
       getCommand('file.export')!.run(ctx({ openExport: vi.fn(), notify }), f)
     }
-    expect(notify).toHaveBeenCalledTimes(4)
+    expect(notify).toHaveBeenCalledTimes(3)
     expect(fake.state.docs[0].dirty).toBe(true) // export is NON-mUTATING (T-export-no-dirty)
   })
 

@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { evaluate, exportSvgScaled, statusJson } from '../engine/client'
 import { downloadBlob, downloadCanvasBlob } from '../engine/actions'
 import { rasterizeContent } from '../render/canvasRenderer'
+import { bus } from '../bus'
+// SYS-27 MOD-EXPORT engines (sequence slice — INT-AID-003)
+import { buildSvgSequence, deliverExport } from '../export27'
 import type { EngineStatus } from '../controlRegistry'
 
-export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp'
+export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq'
 
 interface Props {
   open: boolean
@@ -18,6 +21,8 @@ const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; mime: strin
   { id: 'png', label: 'PNG (raster)', ext: 'png', mime: 'image/png' },
   { id: 'jpeg', label: 'JPEG (raster)', ext: 'jpg', mime: 'image/jpeg' },
   { id: 'webp', label: 'WebP (raster)', ext: 'webp', mime: 'image/webp' },
+  // SYS-27 slice 1: real sequence engine (eng 14 "Sequence: range + sidecar fps")
+  { id: 'svgseq', label: 'SVG sequence (frame range)', ext: 'svg', mime: 'image/svg+xml' },
 ]
 const SCALES = [1, 2, 4]
 
@@ -32,15 +37,32 @@ const SCALES = [1, 2, 4]
 export function ExportDialog({ open, engine, onClose, notify }: Props) {
   const [format, setFormat] = useState<ExportFormat>('svg')
   const [scale, setScale] = useState(1)
+  // sequence range (SYS-27 slice 1): defaults = full timeline
+  const [seqFirst, setSeqFirst] = useState(1)
+  const [seqLast, setSeqLast] = useState(0) // 0 = "use duration" until touched
 
   if (!open) return null
   const attached = engine.kind === 'ok'
   const status = statusJson()
   const frame = status?.playhead ?? 1
+  const duration = Math.max(1, status?.duration ?? 1)
+  const effLast = seqLast === 0 ? duration : seqLast
 
   const doExport = () => {
     if (!attached) {
       notify('export: engine not attached')
+      return
+    }
+    if (format === 'svgseq') {
+      // SYS-27 sequence engine: build EVERYTHING first (no partial output),
+      // deliver + emit export:done once (contract §D).
+      const base = (status?.doc_title ?? 'kineora').trim() || 'kineora'
+      const ok = deliverExport(
+        'sequence',
+        buildSvgSequence({ first: seqFirst, last: effLast, scale, baseName: base }),
+        notify,
+      )
+      if (ok) onClose()
       return
     }
     const f = FORMATS.find((x) => x.id === format)!
@@ -51,6 +73,9 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
         return
       }
       downloadBlob(`kineora.${f.ext}`, svg, f.mime)
+      // SYS-27 contract §D: export:done{format, path} on every successful
+      // export (browser dev mode: path = the download file name).
+      bus.emit('export:done', { format: 'svg', path: `kineora.${f.ext}` })
       notify(`export: downloaded kineora.${f.ext} (${scale}×)`)
     } else {
       const items = evaluate(frame)
@@ -70,6 +95,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
       }
       const quality = format === 'jpeg' ? 0.92 : undefined
       downloadCanvasBlob(canvas, `kineora.${f.ext}`, f.mime, quality)
+      bus.emit('export:done', { format, path: `kineora.${f.ext}` })
       notify(`export: downloaded kineora.${f.ext} (${canvas.width}×${canvas.height})`)
     }
     onClose()
@@ -97,6 +123,19 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
             ))}
           </select>
         </label>
+
+        {format === 'svgseq' && (
+          <div data-testid="export-seq-range" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <label style={{ flex: 1 }}>
+              <span style={{ color: '#999', display: 'block', marginBottom: 3 }}>First frame</span>
+              <input data-testid="export-seq-first" type="number" min={1} max={duration} value={seqFirst} onChange={(e) => setSeqFirst(Number(e.target.value))} style={{ width: '100%', background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: 4, boxSizing: 'border-box' }} />
+            </label>
+            <label style={{ flex: 1 }}>
+              <span style={{ color: '#999', display: 'block', marginBottom: 3 }}>Last frame (≤ {duration})</span>
+              <input data-testid="export-seq-last" type="number" min={seqFirst} max={duration} value={effLast} onChange={(e) => setSeqLast(Number(e.target.value))} style={{ width: '100%', background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: 4, boxSizing: 'border-box' }} />
+            </label>
+          </div>
+        )}
 
         {!attached && (
           <div data-testid="export-not-attached" style={{ color: '#e66', marginBottom: 10, fontSize: 12 }}>

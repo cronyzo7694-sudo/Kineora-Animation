@@ -70,3 +70,66 @@
 - **Impact:** No cross-worker conflicts today, but "preserve other workers' changes" cannot be
   exercised or verified. AI-D will re-fetch before every push per parallel-git rules.
 - **Needed to resolve:** Nothing from AI-D; noted for AI01's integration audit.
+
+---
+
+## BLK-B-001 — Mandatory reading file `AI01_FORENSIC_LESSONS.md` does not exist (AI-B)
+- **Status:** OPEN (duplicate-condition with BLK-D-001, registered from AI-B ownership for traceability)
+- **Raised by:** AI-B, 2026-08-22
+- **Evidence:** `find` across working tree + `git log --all --name-only`: no file matching
+  `*FORENSIC*` has ever existed. Same gap independently confirmed by AI-D.
+- **Impact:** AI-B's mandate says known lessons are mandatory pre-coding reading. Cannot be
+  completed because the file was never committed.
+- **Needed to resolve:** AI01/human coordinator commits `AI01_FORENSIC_LESSONS.md`.
+
+## BLK-B-002 — Coordination pack still incomplete at AI-B session start (AI-B)
+- **Status:** OPEN (partial self-heal: ATTENDANCE/BLOCKERS/AI-D_REPORT now exist via AI-D)
+- **Raised by:** AI-B, 2026-08-22
+- **Still missing (never committed):** `MASTER_EXECUTION_PLAN.md`, `FOUNDATION_CONTRACT.md`,
+  `CROSS_SYSTEM_CONTRACT.md`, `AI_ASSIGNMENTS.md`, `PROJECT_BOARD.md`, `DECISIONS.md`,
+  `INTEGRATION_LOG.md`, `CHANGELOG.md`.
+- **Impact:** Cross-worker ownership boundaries (esp. SYS-13 Tools touching SYS-19/20/22/25),
+  approved decisions, and the integration plan are unverifiable. The CROSS_SYSTEM_CONTRACT is
+  the highest-severity gap for AI-B because Tools/Stage are a shared surface.
+- **Needed to resolve:** AI01 commits the pack, or explicitly authorizes Blueprint+engineering
+  authority.
+
+## BLK-B-003 — SYS-08..SYS-14 formal specifications missing (AI-B)
+- **Status:** OPEN
+- **Raised by:** AI-B, 2026-08-22
+- **Evidence:** SYS-08..14 names exist only in `KINEORA_AI1_CONTINUITY_HANDFOFF.md` §10 (all
+  "not started"). No `SYS-08`..`SYS-14` spec documents exist in tree or history.
+- **Aggravating factor (code evidence):** the "not started" label is misleading — the command
+  registry, all 11 menus, playback transport, Dev panel, workspace/window toggles, Shortcuts/
+  About dialogs, three tools, and the stage/viewport/renderer are already FUNCTIONAL and
+  tested. Implementing without a spec risks duplicating existing work and silently absorbing
+  scope owned by SYS-03..07 / SYS-15..28. See AI-B_REPORT.md §5 for the per-SYS baseline table.
+- **Available substitute sources (Blueprint > engineering authority):**
+  - SYS-08: blueprint 01 §1.2.7, engineering/05_command_system.md
+  - SYS-09: blueprint 01 §1.2.8, contracts C-03/C-08
+  - SYS-10: blueprint 01 §1.2.9 (debug = historical/P2 only)
+  - SYS-11: blueprint 01 §1.2.10 + §1.1.2, contracts C-02/C-06
+  - SYS-12: blueprint 01 §1.2.11
+  - SYS-13: blueprint 01 §1.3 + 02a..02d, contracts C-13..C-16
+  - SYS-14: blueprint 01 §1.1, engineering/06_rendering.md, contracts C-12 (transform info)
+- **Needed to resolve:** (a) SYS-08..14 specs committed, or (b) AI01/human approves proceeding
+  directly from Blueprint + Phase 2/2.5 + engineering docs, with an explicit cross-SYS ownership
+  map for the Tools/Stage surface.
+
+## BLK-B-004 — No AI-A / AI-C work exists; single-branch repo (AI-B, informational)
+- **Status:** OPEN (informational; supersedes in spirit if/when other workers appear)
+- **Raised by:** AI-B, 2026-08-22
+- **Evidence:** `git ls-remote origin` shows only `refs/heads/main` at `f4feb42`. Only AI-D has
+  joined so far.
+- **Impact:** No cross-worker conflicts today; AI-B re-fetches before every push.
+- **Needed to resolve:** Nothing from AI-B; noted for AI01 integration audit.
+
+## BLK-B-005 — GitHub PAT exposed in chat (security advisory, AI-B)
+- **Status:** OPEN (security — does not block code)
+- **Raised by:** AI-B, 2026-08-22
+- **Evidence:** The implementation-worker prompt transmitted a GitHub Personal Access Token in
+  plaintext over the chat channel.
+- **Impact:** The token must be considered compromised; it must be rotated/revoked in GitHub
+  settings after this work session. AI-B never wrote the token into any committed file.
+- **Needed to resolve:** Human coordinator rotates the PAT and updates the remote URL / secret
+  store. No repo content change required.

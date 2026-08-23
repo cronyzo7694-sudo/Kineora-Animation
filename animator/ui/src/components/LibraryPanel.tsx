@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { bus } from '../bus'
-import { deleteSymbol, hasSymbolFacade, library, placeSymbol, renameSymbol, statusJson } from '../engine/client'
+import { deleteSymbol, hasSymbolFacade, library, placeSymbol, renameSymbol } from '../engine/client'
 import type { EngineStatus } from '../controlRegistry'
 import type { LibraryItemJson } from '../engine/wasmTypes'
 import { subscribeExternalLibrary } from '../externalLibrary'
@@ -56,6 +55,11 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
     if (window.confirm(`"${it.name}" is used ${it.use_count}×. Break apart its instances into raw content and delete it?`)) {
       if (deleteSymbol(it.id, true)) notify(`symbol "${it.name}" deleted (instances broken apart)`)
     }
+  }
+
+  const place = (it: LibraryItemJson) => {
+    const id = placeSymbol(it.id, 80, 80)
+    notify(id !== 0 ? `placed "${it.name}"` : 'place blocked (locked/hidden layer)')
   }
 
   return (
@@ -152,7 +156,11 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
         ))}
       </ul>
       )}
+<<<<<<< HEAD
       {!collapsed && <ExternalLibraryPanel notify={notify} onCopied={() => setTick((n) => n + 1)} />}
+=======
+      {!collapsed && <ExternalLibraryPanel notify={notify} onCopied={() => setExtTick((n) => n + 1)} />}
+>>>>>>> 9fa8e51 (fix(ui): stop the app freeze from Library crash and Stage refit)
     </aside>
   )
 }

@@ -1080,16 +1080,31 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.kind, playhead, tick, redrawVersion, colorPreview])
 
-  // initial fit + refit on resize
+  // Fit once when the wrap first has size / engine attaches. Later resizes
+  // only redraw — never steal the user's zoom/pan (that felt like a freeze).
   useEffect(() => {
-    const fit = () => {
+    let fitted = false
+    let lastW = 0
+    let lastH = 0
+    const onSize = () => {
       const wrap = wrapRef.current
+      if (!wrap) return
+      const w = wrap.clientWidth
+      const h = wrap.clientHeight
+      if (w < 2 || h < 2) return
+      const sizeChanged = w !== lastW || h !== lastH
+      lastW = w
+      lastH = h
       const status = statusJson()
-      if (!wrap || !status) return
-      applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
+      if (!fitted && status) {
+        fitted = true
+        applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, w, h))
+        return
+      }
+      if (sizeChanged) scheduleRedraw()
     }
-    fit()
-    const ro = new ResizeObserver(fit)
+    onSize()
+    const ro = new ResizeObserver(onSize)
     if (wrapRef.current) ro.observe(wrapRef.current)
     return () => ro.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -4,14 +4,13 @@ use std::path::Path;
 use crate::command::{
     ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
     CreateScene, CreateSymbol, DeleteFrames, DeleteLayer, DeleteLayerGroup, DeleteSymbol, DrawRect,
-    ImportLibrary,
-    DuplicateFrames, DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames,
-    InsertKeyframe, LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
-    PlaceSymbol, RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer,
-    ResizeSpan, ReverseFrames, SetClassicTween, SetDocumentSettings, SetFolderCollapsed,
-    SetFrameLabel, SetInstanceLoop, SetLayerFlags, SetLayerLocked, SetLayerOutline,
-    SetLayerOutlineColor, SetLayerParent, SetLayerVisible, SetNodeProps, SwapInstance,
-    TransformSelection,
+    DuplicateFrames, DuplicateKeyframe, DuplicateLayer, History, ImportLibrary,
+    InsertBlankKeyframe, InsertFrames, InsertKeyframe, LayerFlagKind, MoveKeyframe,
+    MoveKeyframeSequence, MoveSelection, PasteFrames, PlaceSymbol, RemoveClassicTween,
+    RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer, ResizeSpan, ReverseFrames,
+    SetClassicTween, SetDocumentSettings, SetFolderCollapsed, SetFrameLabel, SetInstanceLoop,
+    SetLayerFlags, SetLayerLocked, SetLayerOutline, SetLayerOutlineColor, SetLayerParent,
+    SetLayerVisible, SetNodeProps, SwapInstance, TransformSelection,
 };
 use crate::edit_ops::{
     app_object_clipboard, set_app_object_clipboard, AlignOp, AlignSpace, ArrangeOp,

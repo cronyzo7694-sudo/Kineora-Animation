@@ -383,6 +383,73 @@ describe('A6.6 card rendering', () => {
   })
 })
 
+describe('A6.8 visible bounded conversation history', () => {
+  it('renders previous user/assistant turns chronologically from the existing A6.2 store', () => {
+    const rt = runtime()
+    rt.context.appendTurn(1, { role: 'user', content: 'older user' })
+    rt.context.appendTurn(1, { role: 'assistant', content: 'older assistant' })
+    renderPanel(rt)
+    const history = screen.getByTestId('ai-conversation-history')
+    expect(history.children).toHaveLength(2)
+    expect(history.children[0]).toHaveTextContent('older user')
+    expect(history.children[1]).toHaveTextContent('older assistant')
+    expect(screen.queryByTestId('ai-empty-state')).not.toBeInTheDocument()
+  })
+
+  it('never renders more than the structurally retained 12 turns', () => {
+    const rt = runtime()
+    for (let index = 0; index < 20; index += 1) {
+      rt.context.appendTurn(1, { role: index % 2 ? 'assistant' : 'user', content: `history-${index}` })
+    }
+    renderPanel(rt)
+    expect(screen.getByTestId('ai-conversation-history').children).toHaveLength(12)
+    expect(screen.queryByText('history-7')).not.toBeInTheDocument()
+    expect(screen.getByText('history-8')).toBeInTheDocument()
+    expect(screen.getByText('history-19')).toBeInTheDocument()
+  })
+
+  it('renders current completed interaction exactly once, not once from each store', () => {
+    const rt = runtime((interaction) => {
+      interaction.begin(1, 'current user')
+      interaction.addCard(1, { kind: 'assistant-message', text: 'current assistant' })
+      interaction.transition(1, 'completed')
+    })
+    rt.context.appendTurn(1, { role: 'user', content: 'older user' })
+    rt.context.appendTurn(1, { role: 'assistant', content: 'older assistant' })
+    rt.context.appendTurn(1, { role: 'user', content: 'current user' })
+    rt.context.appendTurn(1, { role: 'assistant', content: 'current assistant' })
+    renderPanel(rt)
+    expect(screen.getAllByText('current user')).toHaveLength(1)
+    expect(screen.getAllByText('current assistant')).toHaveLength(1)
+    expect(screen.getByText('older user')).toBeInTheDocument()
+    expect(screen.getByText('older assistant')).toBeInTheDocument()
+  })
+
+  it('keeps historical turns document-local across A → B → A switching', () => {
+    const rt = runtime()
+    rt.context.appendTurn(1, { role: 'user', content: 'A history' })
+    rt.context.appendTurn(2, { role: 'user', content: 'B history' })
+    const rendered = render(<AiPanel runtime={rt} documentId={1} onClose={() => {}} />)
+    expect(screen.getByText('A history')).toBeInTheDocument()
+    expect(screen.queryByText('B history')).not.toBeInTheDocument()
+    rendered.rerender(<AiPanel runtime={rt} documentId={2} onClose={() => {}} />)
+    expect(screen.getByText('B history')).toBeInTheDocument()
+    expect(screen.queryByText('A history')).not.toBeInTheDocument()
+    rendered.rerender(<AiPanel runtime={rt} documentId={1} onClose={() => {}} />)
+    expect(screen.getByText('A history')).toBeInTheDocument()
+  })
+
+  it('close/reopen retains visible history without project persistence', () => {
+    const rt = runtime()
+    rt.context.appendTurn(1, { role: 'assistant', content: 'session-only history' })
+    const first = render(<AiPanel runtime={rt} documentId={1} onClose={() => {}} />)
+    expect(screen.getByText('session-only history')).toBeInTheDocument()
+    first.unmount()
+    render(<AiPanel runtime={rt} documentId={1} onClose={() => {}} />)
+    expect(screen.getByText('session-only history')).toBeInTheDocument()
+  })
+})
+
 describe('A6.6 document isolation/settings/footer', () => {
   it('close/reopen with the same App-owned runtime preserves document context/state', () => {
     const rt = runtime((interaction) => {

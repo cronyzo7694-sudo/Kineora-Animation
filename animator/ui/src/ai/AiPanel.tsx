@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useState } from 'react'
 import { AiProviderSettings } from './AiProviderSettings'
 import { AiCardStream } from './AiCards'
+import { visibleConversationHistory } from './conversationView'
 import type { AiMode } from './prompt'
 import { redactText } from './redact'
 import type { AiRuntime } from './runtime'
@@ -50,6 +51,8 @@ export function AiPanel({ runtime, documentId, onClose }: AiPanelProps) {
   }, [documentId, runtime])
 
   const state = interactionState
+  const contextTurns = documentId ? runtime.context.get(documentId).turns : []
+  const visibleHistory = visibleConversationHistory(contextTurns, state)
   const provider = runtime.providerStore.active()
   const hasKey = provider ? runtime.keyVault.has(provider.id) : false
   const consent = runtime.hasConsent()
@@ -243,7 +246,7 @@ export function AiPanel({ runtime, documentId, onClose }: AiPanelProps) {
           )}
 
           <main data-testid="ai-panel-body" style={{ flex: 1, overflow: 'auto', padding: 8 }}>
-            {state.cards.length === 0 && (
+            {state.cards.length === 0 && visibleHistory.length === 0 && (
               <div data-testid="ai-empty-state" style={{ color: '#aaa' }}>
                 <strong>Animation command center</strong>
                 {examples.length > 0 ? (
@@ -251,6 +254,27 @@ export function AiPanel({ runtime, documentId, onClose }: AiPanelProps) {
                 ) : (
                   <p>Live supported capabilities attach hone par safe examples dikhenge.</p>
                 )}
+              </div>
+            )}
+            {visibleHistory.length > 0 && (
+              <div data-testid="ai-conversation-history" style={{ display: 'grid', gap: 7, marginBottom: 7 }}>
+                {visibleHistory.map((turn, index) => (
+                  <div
+                    key={`${index}-${turn.role}`}
+                    data-testid={`ai-history-${turn.role}`}
+                    style={{
+                      border: '1px solid #333',
+                      borderRadius: 6,
+                      padding: 9,
+                      marginLeft: turn.role === 'user' ? 26 : 0,
+                      background: turn.role === 'user' ? '#203044' : '#1b1b1b',
+                      color: '#ddd',
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {turn.content}
+                  </div>
+                ))}
               </div>
             )}
             <AiCardStream

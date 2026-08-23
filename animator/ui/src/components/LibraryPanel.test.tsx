@@ -9,9 +9,11 @@ vi.mock('../engine/client', () => ({
   renameSymbol: vi.fn(() => true),
   deleteSymbol: vi.fn(() => true),
   hasSymbolFacade: vi.fn(() => true),
+  placeSymbol: vi.fn(() => 9),
+  statusJson: vi.fn(() => ({ doc_width: 1920, doc_height: 1080 })),
 }))
 
-import { deleteSymbol, hasSymbolFacade, library, renameSymbol } from '../engine/client'
+import { deleteSymbol, hasSymbolFacade, library, placeSymbol, renameSymbol } from '../engine/client'
 import { LibraryPanel } from './LibraryPanel'
 import type { EngineStatus } from '../controlRegistry'
 

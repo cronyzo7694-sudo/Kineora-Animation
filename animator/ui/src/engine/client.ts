@@ -1008,21 +1008,44 @@ export function duplicateObjects(): boolean {
 }
 
 export function rotateSelection(degrees: number): boolean {
-  const ok = mod?.kineora_rotate_selection?.(degrees) ?? false
-  if (ok) docChanged('transform')
-  return ok
+  if (mod?.kineora_rotate_selection) {
+    const ok = mod.kineora_rotate_selection(degrees)
+    if (ok) docChanged('transform')
+    return ok
+  }
+  // Older wasm: rotate each selected node in place (same visual result for 90°).
+  const details = statusJson()?.selection_details ?? []
+  if (details.length === 0) return false
+  patchTransforms(details.map((d) => ({ id: d.id, rotation: d.rotation + degrees })))
+  return true
 }
 
 export function flipSelection(horizontal: boolean): boolean {
-  const ok = mod?.kineora_flip_selection?.(horizontal) ?? false
-  if (ok) docChanged('transform')
-  return ok
+  if (mod?.kineora_flip_selection) {
+    const ok = mod.kineora_flip_selection(horizontal)
+    if (ok) docChanged('transform')
+    return ok
+  }
+  const details = statusJson()?.selection_details ?? []
+  if (details.length === 0) return false
+  patchTransforms(
+    details.map((d) =>
+      horizontal ? { id: d.id, scale_x: -d.scale_x } : { id: d.id, scale_y: -d.scale_y },
+    ),
+  )
+  return true
 }
 
 export function removeTransform(): boolean {
-  const ok = mod?.kineora_remove_transform?.() ?? false
-  if (ok) docChanged('transform')
-  return ok
+  if (mod?.kineora_remove_transform) {
+    const ok = mod.kineora_remove_transform()
+    if (ok) docChanged('transform')
+    return ok
+  }
+  const details = statusJson()?.selection_details ?? []
+  if (details.length === 0) return false
+  patchTransforms(details.map((d) => ({ id: d.id, scale_x: 1, scale_y: 1, rotation: 0 })))
+  return true
 }
 
 export function arrangeSelection(op: 'front' | 'forward' | 'back' | 'backward'): boolean {

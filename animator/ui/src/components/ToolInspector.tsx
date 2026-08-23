@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOptions'
+import { SelectionActions } from './SelectionActions'
 import { ToolColors } from './ToolColors'
 import { ToolOptions } from './ToolOptions'
 
@@ -97,7 +98,7 @@ const input: CSSProperties = { width: 72, background: '#111', color: '#eee', bor
  * active tool are shown — Rectangle does not show text size, Zoom does not
  * show fill chips, etc.
  */
-export function ToolInspector({ tool }: { tool: string }) {
+export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: string) => void }) {
   const [colors, setColors] = useState(loadToolColors)
   const [opts, setOpts] = useState(loadToolOptions)
   useEffect(() => subscribeToolColors(() => setColors(loadToolColors())), [])
@@ -170,6 +171,13 @@ export function ToolInspector({ tool }: { tool: string }) {
       )}
 
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
+      {tool === 'select' && (
+        <>
+          <ToolOptions tool="select" />
+          <SelectionActions notify={notify ?? (() => {})} />
+        </>
+      )}
+      {tool === 'transform' && <SelectionActions notify={notify ?? (() => {})} />}
 
       {(tool === 'pencil' || tool === 'brush' || tool === 'eraser') && (
         <div style={{ marginTop: 4 }}>

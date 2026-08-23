@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { deleteSymbol, hasSymbolFacade, library, renameSymbol } from '../engine/client'
+import { bus } from '../bus'
+import { deleteSymbol, hasSymbolFacade, library, placeSymbol, renameSymbol, statusJson } from '../engine/client'
 import type { EngineStatus } from '../controlRegistry'
 import type { LibraryItemJson } from '../engine/wasmTypes'
 import { subscribeExternalLibrary } from '../externalLibrary'
@@ -85,8 +86,8 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
           </li>
         )}
         {supported && items.length === 0 && (
-          <li data-testid="library-empty" style={{ padding: 8, color: '#888' }}>
-            No symbols yet — select objects and press F8, or create one.
+          <li data-testid="library-empty" style={{ padding: 8, color: '#888', lineHeight: 1.45 }}>
+            No symbols yet. Select shapes and press <strong>F8</strong> to convert, or click <strong>+ Symbol</strong>.
           </li>
         )}
         {supported && items.map((it) => (
@@ -126,6 +127,19 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
             <span style={{ color: '#666', fontSize: 10 }}>{it.type}</span>
             <span data-testid={`library-use-${it.id}`} style={{ color: '#0a7cff', width: 18, textAlign: 'right' }}>{it.use_count > 0 ? `×${it.use_count}` : ''}</span>
             <button
+              data-testid={`library-place-${it.id}`}
+              type="button"
+              aria-label={`Place ${it.name} on stage`}
+              title="Place on stage (or drag the row)"
+              onClick={(e) => {
+                e.stopPropagation()
+                place(it)
+              }}
+              style={{ padding: '0 5px', height: 18, borderRadius: 3, border: '1px solid #3a5a80', background: '#1e3348', color: '#cde', cursor: 'pointer', fontSize: 10 }}
+            >
+              Place
+            </button>
+            <button
               data-testid={`library-delete-${it.id}`}
               aria-label={`Delete ${it.name}`}
               title="Delete symbol"
@@ -138,6 +152,7 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
         ))}
       </ul>
       )}
+      {!collapsed && <ExternalLibraryPanel notify={notify} onCopied={() => setTick((n) => n + 1)} />}
     </aside>
   )
 }

@@ -1061,6 +1061,21 @@ pub fn kineora_duplicate_objects() -> bool {
     with_session(|s| s.duplicate_objects()).unwrap_or(false)
 }
 
+#[wasm_bindgen]
+pub fn kineora_rotate_selection(degrees: f64) -> bool {
+    with_session(|s| s.rotate_selection(degrees)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_flip_selection(horizontal: bool) -> bool {
+    with_session(|s| s.flip_selection(horizontal)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_remove_transform() -> bool {
+    with_session(|s| s.remove_transform()).unwrap_or(false)
+}
+
 /// `op` = front|forward|backward|back (Blueprint 1.2.5 Arrange).
 /// [REPAIR — INT-AID-005]: this bridge's opening was mangled in the landed
 /// commit ("#[wasm_bindngeOp::Backward," — a splice of `#[wasm_bindgen]`

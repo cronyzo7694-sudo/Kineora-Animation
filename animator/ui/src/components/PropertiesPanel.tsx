@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { library, patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
+import { SelectionActions } from './SelectionActions'
 import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkStore'
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
@@ -175,7 +176,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
           </div>
         )}
 
-        {attached && !!tool && <ToolInspector tool={tool} />}
+        {attached && !!tool && <ToolInspector tool={tool} notify={notify} />}
 
         {attached && details.length === 0 && inkSel.length === 0 && (
           <div>
@@ -259,6 +260,10 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
                   }}
                 />
               </div>
+            )}
+
+            {details.length > 0 && tool !== 'select' && tool !== 'transform' && (
+              <SelectionActions notify={notify} />
             )}
 
             {single && (

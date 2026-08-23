@@ -1,5 +1,22 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — AI-T · Tools forensic research + Tools-panel layout correction (session rebuild)
+
+- The previous AI-T session's work (Oval tool + tools forensic doc + panel correction)
+  was LOST out-of-band: the arena sandbox re-cloned to the squashed PR-#3 merge with a
+  clean tree. Rebuilt from scratch in this session; nothing pulled from anywhere else.
+- NEW `PROJECT_COORDINATION/TOOLS_FORENSIC_RESEARCH_AI-T.md`: spec-verified 29-row tool
+  matrix (Blueprint Part 02a–d, every T2A/T2B/T2C/T2D id), engine unlock ladder E1–E5,
+  the LOCKED build order (rect group → §1.3.2 tool-interface refactor → PATH model →
+  Pen→Line→Pencil→Brush → Subselection/Width → Lasso → Eraser → Text), and the 10-rule
+  per-tool "done" checklist.
+- Tools panel per Blueprint §1.3.1 + the locked UI rules: 36px icon-only rail (name +
+  shortcut on hover/focus), Tools+View in a scroll region, Colors+Options PINNED bottom,
+  Colors area = Fill/Stroke chips + swap + black&white + no-color (chip click opens the
+  picker popover), stroke width moved OFF the rail into the W-button popover (numerics
+  never loose on the rail).
+- UI 887/887 green · tsc + vite build clean.
+
 ## 2026-08-23 — Timeline Adobe chrome + onion P1 + header-all (product code)
 
 - Built on Inc 0+1 (`1321f68`). Adobe Help timeline/layers screenshots + Blueprint 7.1.1/7.1.5. Playhead stays **red** (Blueprint 7.1.3).

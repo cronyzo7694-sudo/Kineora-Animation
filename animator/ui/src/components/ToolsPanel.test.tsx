@@ -81,3 +81,28 @@ describe('ToolsPanel — Adobe-style vertical icon strip', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 })
+
+describe('ToolsPanel — rail layout contract (Blueprint §1.3.1)', () => {
+  it('the rail is exactly 36px wide', () => {
+    renderPanel()
+    expect(screen.getByTestId('tools-panel').style.width).toBe('36px')
+  })
+
+  it('tools + view areas live in a scroll region that grows with the tool list', () => {
+    renderPanel()
+    const scroll = screen.getByTestId('tools-scroll')
+    expect(scroll.style.overflowY).toBe('auto')
+    expect(scroll.style.flex).toContain('1')
+    // the sections that scroll: tools area, divider, view area
+    expect(scroll.contains(screen.getByTestId('tool-select'))).toBe(true)
+    expect(scroll.contains(screen.getByTestId('tool-zoom'))).toBe(true)
+  })
+
+  it('colors + options are PINNED at the bottom — never inside the scroll region', () => {
+    render(<ToolsPanel tool="zoom" onPick={vi.fn()} />)
+    const pinned = screen.getByTestId('tools-pinned')
+    expect(pinned.contains(screen.getByTestId('tool-colors'))).toBe(true)
+    expect(pinned.contains(screen.getByTestId('tool-options'))).toBe(true)
+    expect(screen.getByTestId('tools-scroll').contains(screen.getByTestId('tool-colors'))).toBe(false)
+  })
+})

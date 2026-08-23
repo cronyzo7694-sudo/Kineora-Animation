@@ -153,7 +153,7 @@ function validAction(rng: () => number): Record<string, unknown> {
     case 1: return { action: 'selection.clear' }
     case 2: return { action: 'scene.inspect', params: { level: pick(rng, ['status', 'summary', 'detail'] as const) } }
     case 3: return { action: 'node.transform', params: { node: pick(rng, [100, 101, 103, 104] as const), x: Math.floor(rng() * 500) } }
-    case 4: return { action: 'playback.gotoFrame', params: { frame: 1 + Math.floor(rng() * 40) } }
+    case 4: return { action: 'keyframe.insert', params: { frame: 2 + Math.floor(rng() * 39) } }
     default:
       return {
         action: 'shape.create',

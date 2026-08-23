@@ -168,7 +168,7 @@ fn capability_manifest_matches_the_current_engine_exactly() {
         assert_eq!(f[k], true, "{k} must be supported on this build");
     }
     // Honestly absent today (audit Q14):
-    for k in ["nodeOpacity", "namedEasings", "paths", "text", "motionTween", "shapeTween", "masks", "camera", "audio"] {
+    for k in ["playbackAutomation", "nodeOpacity", "namedEasings", "paths", "text", "motionTween", "shapeTween", "masks", "camera", "audio"] {
         assert_eq!(f[k], false, "{k} must honestly report unsupported");
     }
 }

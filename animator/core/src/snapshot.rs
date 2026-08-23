@@ -395,6 +395,9 @@ pub fn capabilities() -> String {
             "strokeAtDraw": true,      // E1: stroke params on draw
             "selectionByIds": true,    // E-AI-3 (this build)
             "compositeUndo": true,     // E-AI-1 (this build)
+            // UI can move the playhead, but A5 intentionally has no playback
+            // compiler. AI-REQ-112: visible in Kineora != exposed to AI.
+            "playbackAutomation": false,
             "nodeOpacity": false,      // no per-node alpha field (audit Q8)
             "namedEasings": false,     // Penner lib exists, NOT wired to tweens
             "paths": false,            // PATH model pending (tools lane E2)

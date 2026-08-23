@@ -169,12 +169,11 @@ describe('golden plans — valid model output passes end-to-end', () => {
     expect(plan.budget).toEqual({ actions: 5, estimatedMutations: 5 })
   })
 
-  it('read-only plan (inspect + selection + playback) estimates zero mutations', () => {
+  it('read-only plan (inspect + selection) estimates zero mutations', () => {
     const plan = expectOk(validatePlan(J({
       plan: [
         { action: 'scene.inspect', params: { level: 'summary' } },
         { action: 'selection.set', params: { nodes: [100, 'n2'] } },
-        { action: 'playback.gotoFrame', params: { frame: 12 } },
       ],
     }), opts()))
     expect(plan.budget.estimatedMutations).toBe(0)
@@ -325,19 +324,20 @@ describe('stage 5 · parameter values — NO coercion, NO expressions', () => {
     expect(expectFail(validatePlan(shape({ x: '930' }), opts()))[0]).toMatchObject({ code: 'E_RANGE', stage: 5 })
   })
   it('boundary numbers: frame must be a safe whole 1..200000', () => {
-    expect(expectFail(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: 2.5 } }] }), opts()))[0].message)
+    const keyframe = (frame: number) => J({ plan: [{ action: 'keyframe.insert', params: { frame } }] })
+    expect(expectFail(validatePlan(keyframe(2.5), opts()))[0].message)
       .toContain('whole frame')
-    expect(expectFail(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: 0 } }] }), opts()))[0])
+    expect(expectFail(validatePlan(keyframe(0), opts()))[0])
       .toMatchObject({ code: 'E_RANGE', stage: 5 })
-    const over = expectFail(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: AI_BUDGETS.maxFrame + 1 } }] }), opts()))[0]
+    const over = expectFail(validatePlan(keyframe(AI_BUDGETS.maxFrame + 1), opts()))[0]
     expect(over).toMatchObject({ code: 'E_RANGE', limit: AI_BUDGETS.maxFrame, actual: AI_BUDGETS.maxFrame + 1 })
-    expect(expectOk(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: 200000 } }] }), opts())).actions.length)
+    expect(expectOk(validatePlan(keyframe(200000), opts())).actions.length)
       .toBe(1) // boundary itself is legal
     // Absurd magnitudes the wasm u32 could never address are fenced by the range.
-    expect(expectFail(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: Number.MAX_SAFE_INTEGER } }] }), opts()))[0])
+    expect(expectFail(validatePlan(keyframe(Number.MAX_SAFE_INTEGER), opts()))[0])
       .toMatchObject({ code: 'E_RANGE', stage: 5 })
     // Non-safe/non-whole doubles fail the integer fence explicitly.
-    expect(expectFail(validatePlan(J({ plan: [{ action: 'playback.gotoFrame', params: { frame: 1.0000000000001 } }] }), opts()))[0].message)
+    expect(expectFail(validatePlan(keyframe(1.0000000000001), opts()))[0].message)
       .toContain('safe integer')
   })
   it('spec min/max enforced (w≥0.01, ease -100..100, fps 1..240)', () => {
@@ -648,6 +648,12 @@ describe('stage 10 · capability honesty (single source = engine manifest)', () 
     const r = validatePlan(J({ plan: [{ action: 'node.setOpacity', params: { node: 100, alpha: 0.5 } }] }), opts())
     const issue = expectFail(r)[0]
     expect(issue).toMatchObject({ code: 'E_CAPABILITY', stage: 10 })
+
+    const playback = expectFail(validatePlan(J({
+      plan: [{ action: 'playback.gotoFrame', params: { frame: 12 } }],
+    }), opts()))[0]
+    expect(playback).toMatchObject({ code: 'E_CAPABILITY', stage: 10 })
+    expect(playback.message).toContain('deferred')
     expect(issue.message).toContain('available nahi')
     expect(issue.hint).toContain('per-node alpha')
   })

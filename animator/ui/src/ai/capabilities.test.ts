@@ -25,6 +25,7 @@ function currentEngineJson(): string {
       strokeAtDraw: true,
       selectionByIds: true,
       compositeUndo: true,
+      playbackAutomation: false,
       nodeOpacity: false,
       namedEasings: false,
       paths: false,
@@ -111,6 +112,16 @@ describe('CapabilityRegistry — honesty rows + prompt text', () => {
     const row = reg.get('doc.open')
     expect(row?.state).toBe('deferred')
     expect(row?.limitations?.join(' ')).toContain('AI ke liye exposed nahi hai')
+  })
+
+  it('playback is visible in Kineora but honestly NOT exposed through A5', () => {
+    const row = reg.get('playback.gotoFrame')
+    expect(row?.state).toBe('deferred')
+    expect(row?.limitations).toEqual([
+      'Ye Kineora mein available hai, lekin AI ke liye abhi exposed nahi hai.',
+    ])
+    expect(reg.toPromptText()).toContain('playback.gotoFrame')
+    expect(reg.toPromptText()).toContain('NOT EXPOSED TO AI')
   })
 
   it('unknown actions are not in the registry (validator stage 3 fails closed)', () => {

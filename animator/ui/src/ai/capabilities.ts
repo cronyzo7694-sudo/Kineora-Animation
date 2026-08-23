@@ -462,9 +462,16 @@ export function buildCapabilityRegistry(
     mapsTo: 'clear_selection',
   })
   add({
-    action: 'playback.gotoFrame', state: 'supported', tier: 'A',
+    action: 'playback.gotoFrame',
+    state: f('playbackAutomation') ? 'supported' : 'deferred',
+    tier: 'A',
     params: Object.freeze({ frame: FRAME }),
-    mapsTo: 'UI playback control (not an engine mutation)',
+    mapsTo: f('playbackAutomation') ? 'A5 transaction compiler' : '(human-only in A6)',
+    limitations: f('playbackAutomation')
+      ? undefined
+      : Object.freeze([
+          'Ye Kineora mein available hai, lekin AI ke liye abhi exposed nahi hai.',
+        ]),
   })
 
   // ---- honestly-unsupported rows (spec 07 NOT SUPPORTED + AI-REQ-112) --------

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isLoopEnabled, playbackState } from '../engine/actions'
+import { selectedInkIds, subscribeInk } from '../editor/inkStore'
 import type { EngineStatus } from '../controlRegistry'
 import type { StatusJson } from '../engine/wasmTypes'
 import { useBus } from '../useBus'
@@ -24,10 +25,20 @@ function SnapCellInner() {
 }
 
 export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameClick }: Props) {
+  const [, setInkTick] = useState(0)
+  useEffect(() => subscribeInk(() => setInkTick((n) => n + 1)), [])
+  const inkN = selectedInkIds().length
   const selection = status?.selection ?? []
   const details = status?.selection_details ?? []
   const selKind =
-    selection.length === 0 ? '' : details.length > 0 && details.every((d) => d.kind === details[0].kind) ? details[0].kind : 'mixed'
+    inkN > 0 && selection.length === 0
+      ? 'ink'
+      : selection.length === 0
+        ? ''
+        : details.length > 0 && details.every((d) => d.kind === details[0].kind)
+          ? details[0].kind
+          : 'mixed'
+  const selCount = selection.length + inkN
   const activeLayer = status?.layers?.[status.active_layer ?? 0]
 
   const [, forcePlayback] = useState(0)
@@ -50,9 +61,9 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
       <span data-testid="st-activeTool" style={{ ...cell, background: '#232323', padding: '2px 8px', borderRadius: 3 }}>
         <span style={label}>tool</span> <strong style={{ color: '#eee' }}>{tool}</strong>
       </span>
-      <span data-testid="st-selection" style={{ ...cell, background: selection.length > 0 ? 'rgba(126,184,255,0.12)' : 'transparent', padding: '2px 8px', borderRadius: 3, opacity: selection.length > 0 ? 1 : 0.5 }}>
+      <span data-testid="st-selection" style={{ ...cell, background: selCount > 0 ? 'rgba(126,184,255,0.12)' : 'transparent', padding: '2px 8px', borderRadius: 3, opacity: selCount > 0 ? 1 : 0.5 }}>
         <span style={label}>sel</span>
-        <span style={{ color: selection.length > 0 ? '#8ec8ff' : dim }}>{selection.length > 0 ? `${selection.length} ${selKind}` : '—'}</span>
+        <span style={{ color: selCount > 0 ? '#8ec8ff' : dim }}>{selCount > 0 ? `${selCount} ${selKind}` : '—'}</span>
       </span>
       <span data-testid="st-activeLayer" style={cell}>
         <span style={label}>layer</span>

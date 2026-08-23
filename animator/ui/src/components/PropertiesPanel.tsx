@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { library, patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
+import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkStore'
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
@@ -33,6 +34,9 @@ interface Props {
  */
 export function PropertiesPanel({ status, notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
   const attached = status !== null
+  const [, setInkTick] = useState(0)
+  useEffect(() => subscribeInk(() => setInkTick((n) => n + 1)), [])
+  const inkSel = listInk().filter((it) => selectedInkIds().includes(it.id))
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
   const multi = details.length > 1
@@ -108,7 +112,17 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
   const previewStrokeColor = (c: string | null) => onPreview?.(c === null ? null : single ? { item: { id: single.id, stroke: c } } : null)
   const previewStrokeWidth = (n: number | null) => onPreview?.(n === null ? null : single ? { item: { id: single.id, strokeWidth: n } } : null)
 
-  const contextChip = !attached ? '—' : details.length === 0 ? 'Document' : multi ? `Objects (${details.length})` : 'Object'
+  const contextChip = !attached
+    ? '—'
+    : inkSel.length > 0
+      ? inkSel.length === 1
+        ? `Ink (${inkSel[0].kind})`
+        : `Ink (${inkSel.length})`
+      : details.length === 0
+        ? 'Document'
+        : multi
+          ? `Objects (${details.length})`
+          : 'Object'
 
   return (
     <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
@@ -122,7 +136,41 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
           <div data-testid="props-empty" style={{ color: '#e66' }}>Properties unavailable — engine not attached.</div>
         )}
 
-        {attached && details.length === 0 && (
+        {attached && inkSel.length > 0 && (
+          <div>
+            <SectionTitle>Ink object</SectionTitle>
+            <div style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 8 }}>{inkSel.length} selected · {inkSel[0].kind}</div>
+            {inkSel.length === 1 && inkSel[0].kind === 'text' && (
+              <Field label="Text">
+                <input
+                  data-testid="prop-ink-text"
+                  value={inkSel[0].text ?? ''}
+                  onChange={(e) => updateInk(inkSel[0].id, { text: e.target.value })}
+                  style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+                />
+              </Field>
+            )}
+            {inkSel.length === 1 && inkSel[0].kind !== 'text' && (
+              <>
+                <ColorField
+                  testId="prop-ink-stroke"
+                  label="Stroke"
+                  value={inkSel[0].stroke ?? '#000000'}
+                  onCommit={(c) => updateInk(inkSel[0].id, { stroke: c })}
+                />
+                <NumberField
+                  testId="prop-ink-width"
+                  label="Width"
+                  value={fmt(inkSel[0].strokeWidth)}
+                  min={0}
+                  onCommit={(n) => updateInk(inkSel[0].id, { strokeWidth: n })}
+                />
+              </>
+            )}
+          </div>
+        )}
+
+        {attached && details.length === 0 && inkSel.length === 0 && (
           <div>
             <SectionTitle>Document</SectionTitle>
             <NumberField testId="doc-width" label="Width" value={status ? fmt(status.doc_width) : ''} min={2} onCommit={(n) => commitDoc({ width: n })} />

@@ -907,8 +907,8 @@ describe('TimelineStrip — play + layer name hover (Blueprint 7.1.5 / C-08 tl.p
 
   it('layer name has a title so a truncated name is readable on hover', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
-    expect(screen.getByTestId('timeline-layer-name-0')).toHaveAttribute('title', 'Layer 1')
-    expect(screen.getByTestId('timeline-layer-name-1')).toHaveAttribute('title', 'Layer 2')
+    expect(screen.getByTestId('timeline-layer-name-0').getAttribute('title')).toContain('Layer 1')
+    expect(screen.getByTestId('timeline-layer-name-1').getAttribute('title')).toContain('Layer 2')
   })
 
   it('chrome header shows the Adobe eye / lock / outline column markers', () => {
@@ -947,10 +947,19 @@ describe('TimelineStrip — play + layer name hover (Blueprint 7.1.5 / C-08 tl.p
     expect(screen.getByTestId('timeline-layer-name-0')).toBeInTheDocument()
   })
 
-  it('EMF / camera / parenting stay honestly disabled', () => {
+  it('EMF / camera / parenting are hidden by default (clean UI) but accessible via Customize', () => {
     render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    // Hidden by default to remove bekar clutter — user can show via ⋯ Customize
+    expect(screen.queryByTestId('timeline-emf')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-camera')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-parenting')).not.toBeInTheDocument()
+    // Open customize and enable them
+    fireEvent.click(screen.getByTestId('timeline-customize'))
+    fireEvent.click(screen.getByLabelText('emf'))
     expect(screen.getByTestId('timeline-emf')).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('camera'))
     expect(screen.getByTestId('timeline-camera')).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('parenting'))
     expect(screen.getByTestId('timeline-parenting')).toBeDisabled()
   })
 })

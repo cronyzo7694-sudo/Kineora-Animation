@@ -3,8 +3,9 @@ import { makeCommandContext, stageViewController } from '../commands'
 import { useShortcutScope } from '../shortcuts'
 import type { EngineStatus } from '../controlRegistry'
 import {
-  drawRect,
+  drawShape,
   evaluate,
+  hasShapeDrawFacade,
   setNodeProps,
   moveSelection,
   placeSymbol,
@@ -65,6 +66,7 @@ export function stageCursor(tool: string, zoomMode: 'in' | 'out' = 'in'): string
     case 'zoom':
       return zoomMode === 'out' ? 'zoom-out' : 'zoom-in'
     case 'rect':
+    case 'oval':
       return 'crosshair'
     case 'transform':
       return 'move'
@@ -83,12 +85,17 @@ interface SelectGesture {
   dragging: boolean
 }
 
+/** Drag-draw gesture shared by the Rectangle (T2B.4) and Oval (T2B.5) tools —
+ *  same bounding-box drag, same Shift/Alt modifier math; `shape` picks the
+ *  committed geometry (the tool-interface refactor lifts this into per-tool
+ *  classes — Blueprint §1.3.2, next increment). */
 interface RectGesture {
   startX: number
   startY: number
   dragging: boolean
   lastDocX: number
   lastDocY: number
+  shape: 'rect' | 'oval'
 }
 
 interface TransformGesture {
@@ -119,7 +126,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const selectGestureRef = useRef<SelectGesture | null>(null)
   const previewRef = useRef<{ x: number; y: number } | null>(null)
   const rectGestureRef = useRef<RectGesture | null>(null)
-  const rectPreviewRef = useRef<DocRect | null>(null)
+  const rectPreviewRef = useRef<(DocRect & { shape: 'rect' | 'oval' }) | null>(null)
   const transformRef = useRef<TransformGesture | null>(null)
   const pendingRef = useRef<Map<number, AbsTransformOut> | null>(null)
   const marqueeRef = useRef<DocRect | null>(null)
@@ -302,9 +309,9 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         }
       }
 
-      // rect-tool draw
+      // shape-tool draw (Rectangle T2B.4 / Oval T2B.5 — shared drag gesture)
       const rg = rectGestureRef.current
-      if (rg && activeTool() === 'rect') {
+      if (rg && (activeTool() === 'rect' || activeTool() === 'oval')) {
         if (!rg.dragging) {
           if (!pastDragThreshold(sx - rg.startX, sy - rg.startY)) return
           rg.dragging = true
@@ -312,10 +319,13 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         rg.lastDocX = doc.x
         rg.lastDocY = doc.y
         const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
-        rectPreviewRef.current = buildRect(a.x, a.y, doc.x, doc.y, {
-          square: e.shiftKey,
-          fromCenter: e.altKey,
-        })
+        rectPreviewRef.current = {
+          ...buildRect(a.x, a.y, doc.x, doc.y, {
+            square: e.shiftKey,
+            fromCenter: e.altKey,
+          }),
+          shape: rg.shape,
+        }
         scheduleRedraw()
       }
     }
@@ -378,8 +388,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         moveSelection(p.x, p.y)
       }
 
-      // commit rect draw — rebuild from last pointer + modifiers at release
-      // so Shift/Alt held through mouseup still apply (T2B.4).
+      // commit shape draw — rebuild from last pointer + modifiers at release
+      // so Shift/Alt held through mouseup still apply (T2B.4, T2B.5 §6).
       const rg = rectGestureRef.current
       rectGestureRef.current = null
       rectPreviewRef.current = null
@@ -390,13 +400,17 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           fromCenter: e.altKey,
         })
         if (isValidRect(rp)) {
-          // BUG-TOOL-007: the Rectangle tool used a hard-coded #3f9bf5. Adobe:
-          // "The Tools panel Stroke Color and Fill Color controls set the
-          // painting attributes of new objects you create with the drawing and
-          // painting tools."
-          const id = drawRect(rp.x, rp.y, rp.w, rp.h, loadToolColors().fill ?? '#ffffff')
+          // Part 02b preamble: drawing tools honor the current stroke AND
+          // fill style. BUG-TOOL-007: no more hard-coded blue — the Colors
+          // section decides what new objects look like.
+          const colors = loadToolColors()
+          const id = drawShape(rg.shape, rp.x, rp.y, rp.w, rp.h, colors.fill ?? '#ffffff', colors.stroke, colors.strokeWidth)
           if (id === 0 && engine.kind === 'ok' && notify) {
-            notify('draw blocked: active layer is locked, hidden, or a folder')
+            notify(
+              rg.shape === 'oval' && !hasShapeDrawFacade()
+                ? 'Oval tool: engine build too old — rebuild with `npm run wasm`'
+                : 'draw blocked: active layer is locked, hidden, or a folder',
+            )
           }
         }
       }
@@ -692,7 +706,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       return
     }
 
-    if (e.button === 0 && activeTool() === 'rect') {
+    if (e.button === 0 && (activeTool() === 'rect' || activeTool() === 'oval')) {
       const startDoc = screenToDoc(vpRef.current, sx, sy)
       rectGestureRef.current = {
         startX: sx,
@@ -700,6 +714,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         dragging: false,
         lastDocX: startDoc.x,
         lastDocY: startDoc.y,
+        shape: activeTool() === 'oval' ? 'oval' : 'rect',
       }
       rectPreviewRef.current = null
       scheduleRedraw()

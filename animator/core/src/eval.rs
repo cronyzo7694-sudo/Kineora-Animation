@@ -6,7 +6,7 @@ use crate::easing::ease_classic;
 use crate::id::NodeId;
 use crate::model::{
     layer_and_ancestors_unlocked, layer_and_ancestors_visible, Document, Frame, Layer, LoopMode,
-    Node, Symbol, SymbolType, Transform,
+    Node, ShapeKind, Symbol, SymbolType, Transform,
 };
 
 /// Maximum symbol nesting depth (engineering RSK-002 "Depth cap 32").
@@ -33,6 +33,10 @@ pub struct RectItem {
     /// always draw the full content (F-20-01 "outline exports fully").
     #[serde(default)]
     pub outline_color: Option<String>,
+    /// Parametric shape geometry (E1). Serde default = rect so render JSON
+    /// fixtures written before E1 keep parsing.
+    #[serde(default)]
+    pub shape: ShapeKind,
 }
 
 fn base_transform(doc: &Document, id: NodeId) -> Transform {
@@ -231,6 +235,7 @@ fn compose_rect_item(it: &RectItem, ctx: &Transform) -> RectItem {
         stroke: it.stroke.clone(),
         stroke_width: it.stroke_width * ((ctx.scale_x.abs() + ctx.scale_y.abs()) / 2.0),
         outline_color: it.outline_color.clone(),
+        shape: it.shape,
     }
 }
 
@@ -304,6 +309,7 @@ pub(crate) fn collect_items(
                     fill,
                     stroke,
                     stroke_width,
+                    shape,
                     ..
                 }) => {
                     let it = RectItem {
@@ -317,6 +323,7 @@ pub(crate) fn collect_items(
                         stroke: stroke.clone(),
                         stroke_width: *stroke_width,
                         outline_color: layer_outline.map(str::to_string),
+                        shape: *shape,
                     };
                     out.push(match ctx {
                         Some(c) => compose_rect_item(&it, c),
@@ -368,20 +375,115 @@ pub fn evaluate(doc: &Document, scene: usize, frame: u32) -> Vec<RectItem> {
     out
 }
 
-/// Point-in-rotated-rect test (rotation around the rect CENTER).
-fn rect_contains(r: &RectItem, px: f64, py: f64) -> bool {
-    if r.rotation == 0.0 {
-        return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
-    }
+/// Local (unrotated, center-origin) coordinates of a point for an item.
+/// Rotation is around the item CENTER (matches the renderer + SVG export).
+fn local_point(r: &RectItem, px: f64, py: f64) -> (f64, f64) {
     let cx = r.x + r.w / 2.0;
     let cy = r.y + r.h / 2.0;
-    let rad = -r.rotation.to_radians();
-    let (cos, sin) = (rad.cos(), rad.sin());
     let dx = px - cx;
     let dy = py - cy;
-    let lx = dx * cos - dy * sin;
-    let ly = dx * sin + dy * cos;
-    lx.abs() <= r.w / 2.0 && ly.abs() <= r.h / 2.0
+    if r.rotation == 0.0 {
+        return (dx, dy);
+    }
+    let rad = -r.rotation.to_radians();
+    let (cos, sin) = (rad.cos(), rad.sin());
+    (dx * cos - dy * sin, dx * sin + dy * cos)
+}
+
+/// Point-in-rotated-shape test — dispatched on the parametric shape (E1).
+/// An AABB test on an oval is a BUG, not an approximation (TOOLS plan E1):
+/// the ellipse gets the exact implicit-equation test.
+fn shape_contains(r: &RectItem, px: f64, py: f64) -> bool {
+    let (lx, ly) = local_point(r, px, py);
+    match r.shape {
+        ShapeKind::Rect => lx.abs() <= r.w / 2.0 && ly.abs() <= r.h / 2.0,
+        ShapeKind::Oval => ellipse_contains(r.w / 2.0, r.h / 2.0, lx, ly),
+    }
+}
+
+/// Exact point-in-ellipse test (center-origin local space, radii rx·ry).
+fn ellipse_contains(rx: f64, ry: f64, px: f64, py: f64) -> bool {
+    if rx <= 0.0 || ry <= 0.0 {
+        return false;
+    }
+    let nx = px / rx;
+    let ny = py / ry;
+    nx * nx + ny * ny <= 1.0
+}
+
+/// Marquee (contact) overlap — dispatched on the parametric shape (E1).
+/// Rect uses the rotated-AABB test; the oval uses the exact ellipse∩box test
+/// so a marquee touching only the bounding-box corner air selects nothing.
+fn item_touches_rect(it: &RectItem, left: f64, right: f64, top: f64, bottom: f64) -> bool {
+    match it.shape {
+        ShapeKind::Rect => aabb_overlaps(it, left, right, top, bottom),
+        ShapeKind::Oval => ellipse_overlaps_rect(it, left, right, top, bottom),
+    }
+}
+
+/// Exact ellipse∩box overlap.
+/// Axis-aligned ellipse: the box point closest to the centre decides — the
+/// ellipse metric (px/rx)²+(py/ry)² is separable, so clamping each axis to
+/// the box minimises it exactly. Rotated ellipse: corners-inside ⊕
+/// centre-inside ⊕ edge-crossing, which is exact for two convex sets.
+fn ellipse_overlaps_rect(it: &RectItem, left: f64, right: f64, top: f64, bottom: f64) -> bool {
+    let rx = it.w / 2.0;
+    let ry = it.h / 2.0;
+    if rx <= 0.0 || ry <= 0.0 {
+        return false;
+    }
+    let cx = it.x + rx;
+    let cy = it.y + ry;
+    if it.rotation == 0.0 {
+        let px = cx.clamp(left, right);
+        let py = cy.clamp(top, bottom);
+        return ellipse_contains(rx, ry, px - cx, py - cy);
+    }
+    // the box corners in the ellipse's local frame
+    let mut corners = [(0.0f64, 0.0f64); 4];
+    for (i, c) in [(left, top), (right, top), (right, bottom), (left, bottom)]
+        .iter()
+        .enumerate()
+    {
+        corners[i] = local_point(it, c.0, c.1);
+    }
+    if corners.iter().any(|&(lx, ly)| ellipse_contains(rx, ry, lx, ly)) {
+        return true;
+    }
+    // ellipse centre inside the box (the box fully contains the ellipse)
+    if cx >= left && cx <= right && cy >= top && cy <= bottom {
+        return true;
+    }
+    // any box edge crossing the ellipse boundary
+    for i in 0..4 {
+        let (x0, y0) = corners[i];
+        let (x1, y1) = corners[(i + 1) % 4];
+        if segment_crosses_ellipse(rx, ry, x0, y0, x1, y1) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Segment∩ellipse-boundary test: parametric quadratic in the ellipse's
+/// local frame; true when a root t ∈ [0,1] exists.
+fn segment_crosses_ellipse(rx: f64, ry: f64, x0: f64, y0: f64, x1: f64, y1: f64) -> bool {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let a = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+    if a == 0.0 {
+        return false; // degenerate (zero-length) segment
+    }
+    let b = 2.0 * ((x0 * dx) / (rx * rx) + (y0 * dy) / (ry * ry));
+    let c = (x0 * x0) / (rx * rx) + (y0 * y0) / (ry * ry) - 1.0;
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return false;
+    }
+    let sq = disc.sqrt();
+    let t0 = (-b - sq) / (2.0 * a);
+    let t1 = (-b + sq) / (2.0 * a);
+    (0.0..=1.0).contains(&t0) || (0.0..=1.0).contains(&t1)
 }
 
 /// Axis-aligned bounding box size of a w×h rect rotated by `deg` degrees.
@@ -429,7 +531,12 @@ pub fn hits_in_rect(
                 continue;
             };
             match doc.nodes.get(&id) {
-                Some(Node::Rect { width, height, .. }) => {
+                Some(Node::Rect {
+                    width,
+                    height,
+                    shape,
+                    ..
+                }) => {
                     let it = RectItem {
                         id: id.0,
                         x: t.x,
@@ -441,8 +548,9 @@ pub fn hits_in_rect(
                         stroke: None,
                         stroke_width: 0.0,
                         outline_color: None,
+                        shape: *shape,
                     };
-                    if aabb_overlaps(&it, left, right, top, bottom) {
+                    if item_touches_rect(&it, left, right, top, bottom) {
                         out.push(id);
                     }
                 }
@@ -499,6 +607,7 @@ fn hit_layers(
                     fill,
                     stroke,
                     stroke_width,
+                    shape,
                     ..
                 }) => {
                     let it = RectItem {
@@ -512,8 +621,9 @@ fn hit_layers(
                         stroke: stroke.clone(),
                         stroke_width: *stroke_width,
                         outline_color: None,
+                        shape: *shape,
                     };
-                    if rect_contains(&it, x, y) {
+                    if shape_contains(&it, x, y) {
                         return Some(id);
                     }
                 }

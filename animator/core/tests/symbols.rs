@@ -321,6 +321,7 @@ fn animated_symbol(s: &mut Session) -> (SymbolId, animator_core::NodeId) {
             fill: "#123456".into(),
             stroke: None,
             stroke_width: 0.0,
+            shape: Default::default(),
         },
     );
     // frame 1: [inner]; frame 2: [inner] x=100; frame 3: [inner] x=200

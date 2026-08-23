@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, HashMap};
 use crate::eval::{collect_items, instance_child_frame, node_layer_index, node_transform_at};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
-    ClassicTween, Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, Transform,
+    ClassicTween, Document, Frame, Layer, LoopMode, Node, Scene, Settings, ShapeKind, Symbol,
+    Transform,
 };
 
 /// Remove tweens whose start OR end keyframe is the removed frame `frame`.
@@ -175,7 +176,9 @@ impl History {
     }
 }
 
-/// CMD-DRAW — draw a rectangle into the current frame's keyframe.
+/// CMD-DRAW — draw a parametric shape (E1: rectangle / oval) into the current
+/// frame's keyframe. The struct keeps its pre-E1 name; the undo label follows
+/// the ShapeKind so History reads "Draw oval" for an oval.
 pub struct DrawRect {
     pub scene: usize,
     pub layer: usize,
@@ -185,7 +188,13 @@ pub struct DrawRect {
 
 impl Command for DrawRect {
     fn label(&self) -> String {
-        "Draw rectangle".into()
+        match &self.node {
+            Node::Rect {
+                shape: ShapeKind::Oval,
+                ..
+            } => "Draw oval".into(),
+            _ => "Draw rectangle".into(),
+        }
     }
     fn apply(&mut self, doc: &mut Document) {
         let id = self.node.id();
@@ -1939,6 +1948,7 @@ impl Command for DeleteSymbol {
                                 fill: it.fill.clone(),
                                 stroke: it.stroke.clone(),
                                 stroke_width: it.stroke_width,
+                                shape: it.shape,
                             },
                         );
                         nid

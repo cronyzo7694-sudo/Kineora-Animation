@@ -1,5 +1,5 @@
-use crate::eval::evaluate;
-use crate::model::Document;
+use crate::eval::{evaluate, RectItem};
+use crate::model::{Document, ShapeKind};
 
 /// SVG export (slice 1; IMP-DEC-005). Renders ONLY the content pass — authoring
 /// overlays are not part of `evaluate`, so they cannot leak (REQ-EXP-002).
@@ -49,35 +49,65 @@ pub fn export_svg_scaled(doc: &Document, scene: usize, frame: u32, scale: f64) -
         ));
     }
     for it in items {
-        // Rotation is around the rect CENTER (pivot=center, matches renderer).
-        if it.rotation == 0.0 {
-            s.push_str(&format!(
-                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}""#,
-                it.x, it.y, it.w, it.h, it.fill
-            ));
-            if let Some(c) = it.stroke {
-                s.push_str(&format!(
-                    r#" stroke="{c}" stroke-width="{}""#,
-                    it.stroke_width
-                ));
-            }
-            s.push_str("/>");
-        } else {
-            let cx = it.x + it.w / 2.0;
-            let cy = it.y + it.h / 2.0;
-            s.push_str(&format!(
-                r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" transform="rotate({} {} {})""#,
-                it.x, it.y, it.w, it.h, it.fill, it.rotation, cx, cy
-            ));
-            if let Some(c) = it.stroke {
-                s.push_str(&format!(
-                    r#" stroke="{c}" stroke-width="{}""#,
-                    it.stroke_width
-                ));
-            }
-            s.push_str("/>");
+        // Rotation is around the shape CENTER (pivot=center, matches renderer).
+        match it.shape {
+            ShapeKind::Rect => export_rect(&mut s, &it),
+            // T2B.5: an Oval exports as a true <ellipse> inscribed in the same
+            // bounding box the canvas renderer and the hit-test use — the
+            // three geometry sources can never drift apart.
+            ShapeKind::Oval => export_ellipse(&mut s, &it),
         }
     }
     s.push_str("</g></svg>");
     s
+}
+
+/// Stroke attributes shared by every shape element (present only when set).
+fn push_stroke(s: &mut String, it: &RectItem) {
+    if let Some(c) = &it.stroke {
+        s.push_str(&format!(
+            r#" stroke="{c}" stroke-width="{}""#,
+            it.stroke_width
+        ));
+    }
+}
+
+fn export_rect(s: &mut String, it: &RectItem) {
+    if it.rotation == 0.0 {
+        s.push_str(&format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}""#,
+            it.x, it.y, it.w, it.h, it.fill
+        ));
+        push_stroke(s, it);
+        s.push_str("/>");
+    } else {
+        let cx = it.x + it.w / 2.0;
+        let cy = it.y + it.h / 2.0;
+        s.push_str(&format!(
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" transform="rotate({} {} {})""#,
+            it.x, it.y, it.w, it.h, it.fill, it.rotation, cx, cy
+        ));
+        push_stroke(s, it);
+        s.push_str("/>");
+    }
+}
+
+fn export_ellipse(s: &mut String, it: &RectItem) {
+    let cx = it.x + it.w / 2.0;
+    let cy = it.y + it.h / 2.0;
+    let rx = it.w / 2.0;
+    let ry = it.h / 2.0;
+    if it.rotation == 0.0 {
+        s.push_str(&format!(
+            r#"<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{}""#,
+            it.fill
+        ));
+    } else {
+        s.push_str(&format!(
+            r#"<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{}" transform="rotate({} {cx} {cy})""#,
+            it.fill, it.rotation
+        ));
+    }
+    push_stroke(s, it);
+    s.push_str("/>");
 }

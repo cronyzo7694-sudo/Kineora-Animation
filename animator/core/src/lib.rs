@@ -28,7 +28,7 @@ pub use edit_ops::{
 pub use eval::{evaluate, hit_test, RectItem};
 pub use id::{LayerId, NodeId, SceneId, SymbolId};
 pub use model::{
-    ClassicTween, Document, Frame, Layer, LayerKind, LoopMode, Meta, Node, Scene, Settings, Symbol,
-    SymbolType, Transform,
+    ClassicTween, Document, Frame, Layer, LayerKind, LoopMode, Meta, Node, Scene, Settings,
+    ShapeKind, Symbol, SymbolType, Transform,
 };
 pub use session::{NodePropsPatch, Session, SettingsPatch, TransformPatch};

@@ -682,7 +682,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
           ⟳
         </button>
         <span style={{ width: 1, height: 14, background: '#4a4a4a', margin: '0 4px' }} />
-        {!hiddenBtns.has('timeline-onion') && navBtn('timeline-onion', '▣', 'Onion Skin (O)', () => notify(toggleOnion().on ? 'onion skin: on' : 'onion skin: off'), onion.on)}
+        {!hiddenBtns.has('timeline-onion') && navBtn('timeline-onion', '▣', 'Onion Skin (Ctrl+Alt+O)', () => notify(toggleOnion().on ? 'onion skin: on' : 'onion skin: off'), onion.on)}
         {!hiddenBtns.has('timeline-onion-outlines') && navBtn('timeline-onion-outlines', '▢', 'Onion Skin Outlines (Shift+O)', () => notify(toggleOnionOutlines().outlines ? 'onion outlines: on' : 'onion outlines: off'), onion.outlines)}
         <span style={{ position: 'relative' }}>
           {navBtn('timeline-onion-markers', '⚐', 'Modify onion markers', () => setMarkersOpen((v) => !v), markersOpen)}

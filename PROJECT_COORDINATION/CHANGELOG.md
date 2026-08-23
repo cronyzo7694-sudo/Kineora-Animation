@@ -1,6 +1,47 @@
 # KINEORA — CHANGELOG (coordination-level)
 
-## 2026-08-23 — Timeline Adobe chrome + onion P1 + header-all (product code)
+## 2026-08-23 — AI-T · Tools forensic research + Tools-panel layout correction (session rebuild)
+
+- The previous AI-T session's work (Oval tool + tools forensic doc + panel correction)
+  was LOST out-of-band: the arena sandbox re-cloned to the squashed PR-#3 merge with a
+  clean tree. Rebuilt from scratch in this session; nothing pulled from anywhere else.
+- NEW `PROJECT_COORDINATION/TOOLS_FORENSIC_RESEARCH_AI-T.md`: spec-verified 29-row tool
+  matrix (Blueprint Part 02a–d, every T2A/T2B/T2C/T2D id), engine unlock ladder E1–E5,
+  the LOCKED build order (rect group → §1.3.2 tool-interface refactor → PATH model →
+  Pen→Line→Pencil→Brush → Subselection/Width → Lasso → Eraser → Text), and the 10-rule
+  per-tool "done" checklist.
+- Tools panel per Blueprint §1.3.1 + the locked UI rules: 36px icon-only rail (name +
+  shortcut on hover/focus), Tools+View in a scroll region, Colors+Options PINNED bottom,
+  Colors area = Fill/Stroke chips + swap + black&white + no-color (chip click opens the
+  picker popover), stroke width moved OFF the rail into the W-button popover (numerics
+  never loose on the rail).
+- UI 887/887 green · tsc + vite build clean.
+
+## 2026-08-23 — AI-T · Oval tool end-to-end (E1a, Blueprint T2B.5) + stroke-at-draw-time
+
+- ENGINE (Rust — written here, NOT compiled in this sandbox; no cargo/crates.io):
+  `ShapeKind {Rect, Oval}` on `Node::Rect` with `#[serde(default)]` (pre-E1 files load
+  unchanged, serde test included) · `eval.rs` EXACT ellipse inside-test + exact
+  ellipse∩box marquee (an AABB hit on an oval is a bug, not an approximation) ·
+  `export.rs` emits a true `<ellipse>` (rotation around centre) ·
+  `session.draw_shape(shape, x, y, w, h, fill, stroke, stroke_width)` with the same B-5
+  folder/locked/hidden guards + log lines as `draw_rect` (kept as the legacy facade) ·
+  `DrawRect` undo label follows the shape ("Draw oval") · `kineora_draw_shape` facade ·
+  12 engine tests in `animator/core/tests/draw_oval.rs` (guards, undo, exact hit-test,
+  export, legacy-JSON compat).
+- UI: `drawShape` facade (+ honest pre-E1 degrade: rect falls back to `kineora_draw_rect`,
+  oval reports 0 → Stage tells the user to rebuild, never a silent rectangle) · canvas
+  renderer + export rasterizer + rubber-band preview share the inscribed-ellipse geometry
+  (renderer = SVG export = rasterizer) · Rectangle + Oval both honor the Fill AND Stroke
+  swatches at draw time (Part 02b preamble — BUG-TOOL-008 CLOSED) · Oval tool (O) with
+  Shift = circle, Alt = from centre, Esc cancel, sub-threshold guard.
+- D-0009 (register): Blueprint Part 29 binds O twice (Oval tool vs onion toggle) — Oval
+  keeps O; `view.onion` moved to Ctrl+Alt+O, TimelineStrip tooltip updated (AI-B owns
+  that command; flip if ruled otherwise). Outlines (Shift+O) and EMF (Alt+O) untouched.
+- UI 887/887 (+19: oval stage suite, ellipse renderer/rasterizer, panel contract) ·
+  tsc + vite build clean · cargo fmt/clippy/test = NOT RUN (no toolchain in sandbox —
+  flagged for the human: `cd animator/core && cargo fmt && cargo clippy --all-targets
+  -- -D warnings && cargo test`).
 
 - Built on Inc 0+1 (`1321f68`). Adobe Help timeline/layers screenshots + Blueprint 7.1.1/7.1.5. Playhead stays **red** (Blueprint 7.1.3).
 - **Chrome look:** compact hover-title toolbar; type+name+pencil left; eye/lock/outline-color right; hidden = red ✕; locked = padlock; visible/unlocked empty clickable cells; content frames = light bar + black dots.

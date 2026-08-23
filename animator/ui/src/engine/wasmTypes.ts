@@ -16,6 +16,9 @@ export interface RectItemJson {
    *  (F-20-01) — the editor draws stroke-only; export ignores it. Optional for
    *  legacy test fixtures. */
   outline_color?: string | null
+  /** Parametric shape (E1 — Blueprint T2B.4/T2B.5). Optional: pre-E1 engines
+   *  and legacy fixtures omit it, and every such item is a rectangle. */
+  shape?: 'rect' | 'oval'
 }
 
 export interface SelRectJson {
@@ -193,6 +196,9 @@ export interface KineoraWasm {
   /** Mark the active document clean (Save success). */
   kineora_mark_clean?(): boolean
   kineora_draw_rect(x: number, y: number, w: number, h: number, fill: string): bigint
+  /** E1 parametric shapes (T2B.4/T2B.5). Optional: absent on pre-E1 builds —
+   *  client.ts degrades honestly (rect falls back, oval reports 0). */
+  kineora_draw_shape?(shape: string, x: number, y: number, w: number, h: number, fill: string, stroke: string | null, strokeWidth: number): bigint
   kineora_select_at(x: number, y: number): boolean
   kineora_select_toggle_at(x: number, y: number): boolean
   kineora_select_in_rect(x0: number, y0: number, x1: number, y1: number): void

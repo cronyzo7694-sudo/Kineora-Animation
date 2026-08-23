@@ -674,6 +674,141 @@ describe('canvas renderer — onion ghosts (Part 15.2, editor-only)', () => {
   })
 })
 
+describe('canvas renderer — parametric shapes (E1: Oval, Blueprint T2B.5)', () => {
+  function recordingCtx() {
+    const ellipses: Array<Array<number>> = []
+    const translates: Array<Array<number>> = []
+    const fills: string[] = []
+    const strokes: string[] = []
+    let currentFill = ''
+    let currentStroke = ''
+    let begins = 0
+    const ctx = {
+      clearRect: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      setLineDash: () => {},
+      beginPath: () => {
+        begins++
+      },
+      ellipse: (...a: number[]) => ellipses.push(a),
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      fill: () => fills.push(currentFill),
+      stroke: () => strokes.push(currentStroke),
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: (...a: number[]) => translates.push(a),
+      rotate: () => {},
+      set fillStyle(v: string) {
+        currentFill = v
+      },
+      set strokeStyle(v: string) {
+        currentStroke = v
+      },
+      set lineWidth(_v: number) {},
+      get fillStyle() {
+        return currentFill
+      },
+      get strokeStyle() {
+        return currentStroke
+      },
+      get lineWidth() {
+        return 0
+      },
+    } as unknown as CanvasRenderingContext2D
+    return {
+      ctx,
+      ellipses,
+      translates,
+      fills,
+      strokes,
+      get begins() {
+        return begins
+      },
+    }
+  }
+
+  it('an oval item is drawn as a true ellipse inscribed in its bounding box', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, ellipses, translates, fills, strokes } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 2, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [{ id: 1, x: 10, y: 20, w: 100, h: 50, rotation: 0, fill: '#ff0000', stroke: '#0000ff', stroke_width: 2, shape: 'oval' }],
+      },
+      200,
+      200,
+    )
+    // bbox centre in screen coords: doc (60,45) × zoom 2 = (120,90)
+    expect(translates).toContainEqual([120, 90])
+    // one true ellipse path, centred at the translated origin, zoom-scaled radii
+    expect(ellipses).toHaveLength(1)
+    expect(ellipses[0].slice(0, 4)).toEqual([0, 0, 100, 50])
+    expect(fills).toContain('#ff0000')
+    expect(strokes).toContain('#0000ff')
+  })
+
+  it('an item WITHOUT the shape field still renders as a plain rect (pre-E1 compat)', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, ellipses } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 }],
+      },
+      100,
+      100,
+    )
+    expect(ellipses).toHaveLength(0)
+  })
+
+  it('the export rasterizer draws the same ellipse (renderer = SVG export = rasterizer)', async () => {
+    const { renderContent } = await import('./canvasRenderer')
+    const { ctx, ellipses, translates } = recordingCtx()
+    renderContent(ctx, { zoom: 1, panX: 0, panY: 0 }, {
+      background: '#ffffff',
+      stageW: 1920,
+      stageH: 1080,
+      items: [{ id: 1, x: 10, y: 20, w: 100, h: 50, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0, shape: 'oval' }],
+    })
+    expect(translates).toContainEqual([60, 45]) // bbox centre at zoom 1
+    expect(ellipses).toHaveLength(1)
+    expect(ellipses[0].slice(0, 4)).toEqual([0, 0, 50, 25]) // radii = w/2, h/2
+  })
+
+  it('the oval draw preview rubber-bands an ellipse, not a box', async () => {
+    const { render } = await import('./canvasRenderer')
+    const { ctx, ellipses } = recordingCtx()
+    render(
+      ctx,
+      { zoom: 2, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 1920,
+        stageH: 1080,
+        items: [],
+        previewRect: { x: 10, y: 20, w: 100, h: 50, shape: 'oval' },
+      },
+      200,
+      200,
+    )
+    // preview ellipse: screen centre (60,45)×2 = (120,90), radii ×2 = (100,50)
+    expect(ellipses).toHaveLength(1)
+    expect(ellipses[0].slice(0, 4)).toEqual([120, 90, 100, 50])
+  })
+})
+
 describe('canvas renderer — outline mode (F-20-01)', () => {
   /** Minimal ctx that records fill/stroke styles + rect calls in order. */
   function recordingCtx() {

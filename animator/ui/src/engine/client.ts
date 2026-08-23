@@ -1008,44 +1008,70 @@ export function duplicateObjects(): boolean {
 }
 
 export function rotateSelection(degrees: number): boolean {
+  let ok = false
   if (mod?.kineora_rotate_selection) {
-    const ok = mod.kineora_rotate_selection(degrees)
+    ok = mod.kineora_rotate_selection(degrees)
     if (ok) docChanged('transform')
-    return ok
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(details.map((d) => ({ id: d.id, rotation: d.rotation + degrees })))
+      ok = true
+    }
   }
-  // Older wasm: rotate each selected node in place (same visual result for 90°).
-  const details = statusJson()?.selection_details ?? []
-  if (details.length === 0) return false
-  patchTransforms(details.map((d) => ({ id: d.id, rotation: d.rotation + degrees })))
-  return true
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk({ rotate: degrees })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
+  return ok
 }
 
 export function flipSelection(horizontal: boolean): boolean {
+  let ok = false
   if (mod?.kineora_flip_selection) {
-    const ok = mod.kineora_flip_selection(horizontal)
+    ok = mod.kineora_flip_selection(horizontal)
     if (ok) docChanged('transform')
-    return ok
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(
+        details.map((d) =>
+          horizontal ? { id: d.id, scale_x: -d.scale_x } : { id: d.id, scale_y: -d.scale_y },
+        ),
+      )
+      ok = true
+    }
   }
-  const details = statusJson()?.selection_details ?? []
-  if (details.length === 0) return false
-  patchTransforms(
-    details.map((d) =>
-      horizontal ? { id: d.id, scale_x: -d.scale_x } : { id: d.id, scale_y: -d.scale_y },
-    ),
-  )
-  return true
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk(horizontal ? { flipH: true } : { flipV: true })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
+  return ok
 }
 
 export function removeTransform(): boolean {
+  let ok = false
   if (mod?.kineora_remove_transform) {
-    const ok = mod.kineora_remove_transform()
+    ok = mod.kineora_remove_transform()
     if (ok) docChanged('transform')
-    return ok
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(details.map((d) => ({ id: d.id, scale_x: 1, scale_y: 1, rotation: 0 })))
+      ok = true
+    }
   }
-  const details = statusJson()?.selection_details ?? []
-  if (details.length === 0) return false
-  patchTransforms(details.map((d) => ({ id: d.id, scale_x: 1, scale_y: 1, rotation: 0 })))
-  return true
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk({ reset: true })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
+  return ok
 }
 
 export function arrangeSelection(op: 'front' | 'forward' | 'back' | 'backward'): boolean {

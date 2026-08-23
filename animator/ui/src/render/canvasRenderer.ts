@@ -417,8 +417,12 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
       const anchor = it.textAlign === 'center' ? 'middle' : it.textAlign === 'right' ? 'end' : 'start'
       const deco = it.fontUnderline ? ' text-decoration="underline"' : ''
       const ls = it.letterSpacing ? ` letter-spacing="${it.letterSpacing}"` : ''
+      const rot = it.rotation ? ` transform="rotate(${it.rotation} ${p.x} ${p.y})"` : ''
+      const scx = it.scaleX ?? 1
+      const scy = it.scaleY ?? 1
+      const flip = scx !== 1 || scy !== 1 ? ` transform="translate(${p.x} ${p.y}) scale(${scx} ${scy}) translate(${-p.x} ${-p.y})"` : rot
       parts.push(
-        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="${fam}" font-weight="${weight}" font-style="${fstyle}" text-anchor="${anchor}"${deco}${ls}>${esc(it.text || '')}</text>`,
+        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="${fam}" font-weight="${weight}" font-style="${fstyle}" text-anchor="${anchor}"${deco}${ls}${flip}>${esc(it.text || '')}</text>`,
       )
       continue
     }
@@ -650,6 +654,13 @@ function drawInkText(
   const fam = it.fontFamily || 'system-ui, sans-serif'
   const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
   const style = it.fontItalic ? 'italic' : 'normal'
+  ctx.save()
+  ctx.translate(p.x, p.y)
+  const rot = it.rotation ?? 0
+  if (rot) ctx.rotate((rot * Math.PI) / 180)
+  const sx = it.scaleX ?? 1
+  const sy = it.scaleY ?? 1
+  if (sx !== 1 || sy !== 1) ctx.scale(sx, sy)
   ctx.fillStyle = contrastOn(it.fill, background)
   ctx.font = `${style} ${weight} ${Math.max(1, size)}px ${fam}`
   ctx.textAlign = it.textAlign === 'center' || it.textAlign === 'right' ? it.textAlign : 'left'

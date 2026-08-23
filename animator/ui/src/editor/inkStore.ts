@@ -41,6 +41,10 @@ export interface InkItem {
   textAlign?: 'left' | 'center' | 'right'
   letterSpacing?: number
   maxWidth?: number
+  /** Degrees, clockwise. Text / extra ink transform (engine nodes use WASM). */
+  rotation?: number
+  scaleX?: number
+  scaleY?: number
 }
 
 const ID_BASE = 1_000_000
@@ -201,6 +205,57 @@ export type InkArrangeOp = 'front' | 'forward' | 'back' | 'backward'
  * Adobe Arrange (same layer, back → front = array order).
  * Bring to Front / Forward / Backward / Send to Back.
  */
+/** Rotate / flip / reset selected ink (including text). */
+export function transformInk(op: { rotate?: number; flipH?: boolean; flipV?: boolean; reset?: boolean }): boolean {
+  const ids = selected
+  if (ids.length === 0) return false
+  const set = new Set(ids)
+  const targets = items.filter((it) => set.has(it.id))
+  if (targets.length === 0) return false
+  pushUndo()
+  const union = targets.reduce(
+    (acc, it) => {
+      const b = inkBounds(it)
+      return {
+        x0: Math.min(acc.x0, b.x),
+        y0: Math.min(acc.y0, b.y),
+        x1: Math.max(acc.x1, b.x + b.w),
+        y1: Math.max(acc.y1, b.y + b.h),
+      }
+    },
+    { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity },
+  )
+  const cx = (union.x0 + union.x1) / 2
+  const cy = (union.y0 + union.y1) / 2
+  const deg = op.rotate ?? 0
+  items = items.map((it) => {
+    if (!set.has(it.id)) return it
+    if (op.reset) {
+      return { ...it, rotation: 0, scaleX: 1, scaleY: 1 }
+    }
+    if (it.kind === 'text') {
+      let rotation = it.rotation ?? 0
+      let scaleX = it.scaleX ?? 1
+      let scaleY = it.scaleY ?? 1
+      if (deg) rotation += deg
+      if (op.flipH) scaleX *= -1
+      if (op.flipV) scaleY *= -1
+      return { ...it, rotation, scaleX, scaleY }
+    }
+    let sx = 1
+    let sy = 1
+    if (op.flipH) sx = -1
+    if (op.flipV) sy = -1
+    return {
+      ...it,
+      points: it.points.map((p) => mapInkPt(p, { x: cx, y: cy }, sx, sy, deg)),
+    }
+  })
+  emit()
+  bus.emit('document:changed', { type: 'transform', targets: ids })
+  return true
+}
+
 export function arrangeInk(ids: number[], op: InkArrangeOp): boolean {
   if (ids.length === 0 || items.length < 2) return false
   const set = new Set(ids)
@@ -484,8 +539,7 @@ export function hitInk(x: number, y: number): InkItem | null {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]
     if (it.kind === 'text') {
-      const b = inkBounds(it)
-      if (x >= b.x && y >= b.y && x <= b.x + b.w && y <= b.y + b.h) return it
+      if (hitTextBox(it, x, y)) return it
       continue
     }
     const tol = Math.max(4, (it.strokeWidth || 1) / 2 + 3)

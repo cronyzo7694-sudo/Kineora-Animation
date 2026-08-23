@@ -17,6 +17,7 @@ import {
   resetInkForTests,
   selectedInkIds,
   simplifyPolyline,
+  transformInk,
 } from './inkStore'
 
 beforeEach(() => resetInkForTests())
@@ -127,6 +128,26 @@ describe('inkStore', () => {
     selectAnchors([{ id, index: 1 }])
     expect(deleteSelectedAnchors()).toBe(true)
     expect(listInk()[0].points.length).toBe(3)
+  })
+
+  it('rotate / flip / reset text', () => {
+    addInk({
+      kind: 'text',
+      points: [{ x: 40, y: 40 }],
+      closed: false,
+      fill: '#111',
+      stroke: null,
+      strokeWidth: 0,
+      text: 'Hi',
+      fontSize: 24,
+    })
+    expect(transformInk({ rotate: 90 })).toBe(true)
+    expect(listInk()[0].rotation).toBe(90)
+    expect(transformInk({ flipH: true })).toBe(true)
+    expect(listInk()[0].scaleX).toBe(-1)
+    expect(transformInk({ reset: true })).toBe(true)
+    expect(listInk()[0].rotation).toBe(0)
+    expect(listInk()[0].scaleX).toBe(1)
   })
 
   it('point-in-poly and simplify', () => {

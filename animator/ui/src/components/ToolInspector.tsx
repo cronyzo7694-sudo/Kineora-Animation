@@ -68,11 +68,11 @@ function hint(tool: string): string {
     case 'hand':
       return 'Drag the Stage to pan. Hold Space from any tool for a temporary Hand.'
     case 'lasso':
-      return 'Drag a freeform loop to select objects inside it.'
+      return 'Drag a loop around objects (Adobe Lasso). Release to select everything inside the loop — shapes and strokes. Shift-drag is not needed; start a new loop to replace the set.'
     case 'subselect':
       return 'Click a path to show squares. Drag a square to move it (Shift-click several). Alt-drag a corner to pull Bezier handles. Double-click a segment to add a point. Delete removes selected points. Arrows nudge 1px (Shift=10).'
     case 'transform':
-      return 'Select an object, then drag handles to scale or the circle to rotate.'
+      return 'Free Transform (Q): click to select, then drag corner/edge squares to scale (Shift = uniform, Alt = from center). Drag the top circle to rotate (Shift = 15°). Works on shapes and ink. Properties has 90° / flip too.'
     case 'select':
       return 'Click to select. Drag a corner/edge square to resize, the top circle to rotate freely. Drag inside the box to move. Shift/Ctrl-click adds. Properties also has 90° rotate / flip.'
     default:

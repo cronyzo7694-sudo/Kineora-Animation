@@ -560,6 +560,45 @@ export function hasSmooth(p: InkPt): boolean {
   return p.inX != null || p.outX != null
 }
 
+export function mapInkPt(p: InkPt, anchor: { x: number; y: number }, sx: number, sy: number, deg: number): InkPt {
+  const apply = (x0: number, y0: number) => {
+    let x = anchor.x + (x0 - anchor.x) * sx
+    let y = anchor.y + (y0 - anchor.y) * sy
+    if (deg) {
+      const rad = (deg * Math.PI) / 180
+      const dx = x - anchor.x
+      const dy = y - anchor.y
+      x = anchor.x + dx * Math.cos(rad) - dy * Math.sin(rad)
+      y = anchor.y + dx * Math.sin(rad) + dy * Math.cos(rad)
+    }
+    return { x, y }
+  }
+  const a = apply(p.x, p.y)
+  const n: InkPt = { ...p, x: a.x, y: a.y }
+  if (p.inX != null && p.inY != null) {
+    const q = apply(p.inX, p.inY)
+    n.inX = q.x
+    n.inY = q.y
+  }
+  if (p.outX != null && p.outY != null) {
+    const q = apply(p.outX, p.outY)
+    n.outX = q.x
+    n.outY = q.y
+  }
+  return n
+}
+
+/** Write absolute points (Free Transform live preview). One undo via beginInkEdit. */
+export function writeInkPoints(id: number, points: InkPt[]): boolean {
+  const i = items.findIndex((it) => it.id === id)
+  if (i < 0) return false
+  beginInkEdit()
+  items = items.slice()
+  items[i] = { ...items[i], points: points.map((p) => ({ ...p })) }
+  emit()
+  return true
+}
+
 export function inkInPolygon(poly: InkPt[]): number[] {
   if (poly.length < 3) return []
   return items.filter((it) => it.points.some((p) => pointInPoly(p, poly))).map((it) => it.id)

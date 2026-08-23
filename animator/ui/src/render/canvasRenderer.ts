@@ -186,21 +186,22 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
         }
       : base
     const extra = s.objExtras?.[it.id]
+    const vis = visibleOnStage(style, s.background)
     ctx.save()
     if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
     if (extra?.blend && extra.blend !== 'normal') ctx.globalCompositeOperation = extra.blend as GlobalCompositeOperation
-    drawRectItem(ctx, vp, it, off, style, extra?.fillImage ?? null)
+    drawRectItem(ctx, vp, it, off, vis, extra?.fillImage ?? null)
     ctx.restore()
   }
 
-  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview, undefined, s.inkAnchors, s.showInkAnchors)
+  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview, s.background, s.inkAnchors, s.showInkAnchors, s.objExtras)
   if (s.previewStroke && s.previewStroke.length > 0) {
     drawPolyline(
       ctx,
       vp,
       s.previewStroke,
       s.previewStrokeColor ?? '#111111',
-      s.previewStrokeWidth ?? 2,
+      Math.max(1.5, s.previewStrokeWidth ?? 2),
       s.previewFill ?? null,
       !!s.previewClosed,
     )
@@ -240,6 +241,40 @@ interface ItemStyle {
   fill: string
   stroke: string | null
   strokeWidth: number
+}
+
+/** Stage authoring: never draw a fill that vanishes into the document background. */
+function visibleOnStage(style: ItemStyle, bg: string): ItemStyle {
+  let { fill, stroke, strokeWidth } = style
+  if (tooClose(fill, bg)) {
+    if (!stroke || tooClose(stroke, bg)) {
+      stroke = '#111111'
+      strokeWidth = Math.max(strokeWidth || 0, 2)
+    }
+  }
+  return { fill, stroke, strokeWidth }
+}
+
+const imageCache = new Map<string, HTMLImageElement>()
+const imageWaiters = new Set<() => void>()
+
+export function subscribeFillImages(fn: () => void): () => void {
+  imageWaiters.add(fn)
+  return () => imageWaiters.delete(fn)
+}
+
+export function getFillImage(src: string | null | undefined): HTMLImageElement | null {
+  if (!src) return null
+  let im = imageCache.get(src)
+  if (!im) {
+    im = new Image()
+    im.onload = () => {
+      for (const w of [...imageWaiters]) w()
+    }
+    im.src = src
+    imageCache.set(src, im)
+  }
+  return im.complete && im.naturalWidth > 0 ? im : null
 }
 
 function exportItemStyle(it: RectItemJson, bg: string): ItemStyle {
@@ -303,27 +338,33 @@ function drawRectItem(
     ctx.ellipse(0, 0, Math.max(0, w / 2), Math.max(0, h / 2), 0, 0, Math.PI * 2)
     ctx.fillStyle = style.fill
     ctx.fill()
-    if (fillImage) {
-      const im = new Image()
-      im.src = fillImage
-      if (im.complete && im.naturalWidth > 0) {
-        ctx.save()
-        ctx.clip()
-        ctx.drawImage(im, -w / 2, -h / 2, w, h)
-        ctx.restore()
-      }
+    const im = getFillImage(fillImage)
+    if (im) {
+      ctx.save()
+      ctx.clip()
+      ctx.drawImage(im, -w / 2, -h / 2, Math.max(1, w), Math.max(1, h))
+      ctx.restore()
     }
     if (style.stroke) {
       ctx.strokeStyle = style.stroke
-      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.lineWidth = Math.max(1, style.strokeWidth * vp.zoom)
       ctx.stroke()
     }
   } else {
     ctx.fillStyle = style.fill
     ctx.fillRect(-w / 2, -h / 2, w, h)
+    const im = getFillImage(fillImage)
+    if (im) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(-w / 2, -h / 2, w, h)
+      ctx.clip()
+      ctx.drawImage(im, -w / 2, -h / 2, Math.max(1, w), Math.max(1, h))
+      ctx.restore()
+    }
     if (style.stroke) {
       ctx.strokeStyle = style.stroke
-      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.lineWidth = Math.max(1, style.strokeWidth * vp.zoom)
       ctx.strokeRect(-w / 2, -h / 2, w, h)
     }
   }
@@ -514,17 +555,39 @@ function drawInkItems(
       outX: p.outX != null ? p.outX + off.x : undefined,
       outY: p.outY != null ? p.outY + off.y : undefined,
     }))
+    const extra = extras?.[it.id]
+    ctx.save()
+    if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
     if (it.kind === 'text') {
       const p = docToScreen(vp, pts[0]?.x ?? 0, pts[0]?.y ?? 0)
-      ctx.save()
       ctx.fillStyle = contrastOn(it.fill, background ?? '#ffffff')
       ctx.font = `${(it.fontSize ?? 18) * vp.zoom}px system-ui, sans-serif`
       ctx.fillText(it.text || '', p.x, p.y)
-      ctx.restore()
     } else {
       const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
-      drawPolyline(ctx, vp, pts, it.stroke, sw, it.fill, it.closed)
+      const vis = visibleOnStage({ fill: it.fill ?? 'transparent', stroke: it.stroke, strokeWidth: sw }, background ?? '#ffffff')
+      drawPolyline(ctx, vp, pts, vis.stroke, vis.strokeWidth, it.fill, it.closed)
+      const im = getFillImage(extra?.fillImage)
+      if (im && it.closed && pts.length >= 3) {
+        const b = { x: Math.min(...pts.map((p) => p.x)), y: Math.min(...pts.map((p) => p.y)), w: 0, h: 0 }
+        b.w = Math.max(...pts.map((p) => p.x)) - b.x
+        b.h = Math.max(...pts.map((p) => p.y)) - b.y
+        const tl = docToScreen(vp, b.x, b.y)
+        ctx.save()
+        ctx.beginPath()
+        const a0 = docToScreen(vp, pts[0].x, pts[0].y)
+        ctx.moveTo(a0.x, a0.y)
+        for (let i = 1; i < pts.length; i++) {
+          const q = docToScreen(vp, pts[i].x, pts[i].y)
+          ctx.lineTo(q.x, q.y)
+        }
+        ctx.closePath()
+        ctx.clip()
+        ctx.drawImage(im, tl.x, tl.y, Math.max(1, b.w * vp.zoom), Math.max(1, b.h * vp.zoom))
+        ctx.restore()
+      }
     }
+    ctx.restore()
     if (sel.has(it.id) || showAnchors) {
       pts.forEach((p, i) => {
         const hot = picked.has(`${it.id}:${i}`)

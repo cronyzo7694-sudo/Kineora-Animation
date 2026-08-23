@@ -27,6 +27,9 @@ import {
   convertAnchors,
   deleteInkIds,
   endInkEdit,
+  mapInkPt,
+  writeInkPoints,
+  pointInPoly,
   hitInk,
   hitInkAnchor,
   hitInkHandle,
@@ -46,7 +49,7 @@ import {
   subscribeInk,
   type InkPt,
 } from '../editor/inkStore'
-import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
+import { render, subscribeFillImages, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, patchViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { contrastOn } from '../contrast'
@@ -86,7 +89,7 @@ import {
   type SelDetail,
 } from '../editor/transformMath'
 import type { RectItemJson } from '../engine/wasmTypes'
-import { anyLocked, getObjExtra, isObjectLocked } from '../editor/objectProps'
+import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 
 interface Props {
   engine: EngineStatus
@@ -170,10 +173,12 @@ interface RectGesture {
 
 interface TransformGesture {
   handle: HandleKind
-  startDoc: Pt // doc-space pointer at mousedown
-  anchor: Pt // doc-space scale anchor (opposite handle or center)
-  center: Pt // doc-space rotate center (selection center)
+  startDoc: Pt
+  startHandle: Pt
+  anchor: Pt
+  center: Pt
   details: SelDetail[]
+  inkStart: Array<{ id: number; points: InkPt[] }>
 }
 
 export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onToolChange }: Props) {
@@ -278,6 +283,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   useEffect(() => subscribeToolOptions(() => setZoomMode(loadToolOptions().zoomMode)), [])
   useEffect(() => subscribeOnionPrefs(() => scheduleRedraw()), [])
   useEffect(() => subscribeInk(() => scheduleRedraw()), [])
+  useEffect(() => subscribeObjProps(() => scheduleRedraw()), [])
+  useEffect(() => subscribeFillImages(() => scheduleRedraw()), [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -421,14 +428,23 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         // transform gesture (scale/rotate handles)
         if (transformRef.current) {
           const g = transformRef.current
+          let sx = 1
+          let sy = 1
+          let deg = 0
           if (g.handle === 'rotate') {
-            const deg = rotationDelta(g.center, g.startDoc, doc, e.shiftKey)
-            pendingRef.current = new Map(rotateSelection(g.details, g.center, deg).map((t) => [t.id, t]))
+            deg = rotationDelta(g.center, g.startDoc, doc, e.shiftKey)
+            if (g.details.length) pendingRef.current = new Map(rotateSelection(g.details, g.center, deg).map((t) => [t.id, t]))
           } else {
-            const hs = handlePositions(selectionGeometry(g.details))
-            const startHandle = hs[g.handle]
-            const f = scaleFactors(g.handle, startHandle, g.anchor, doc, e.shiftKey)
-            pendingRef.current = new Map(scaleSelection(g.details, g.anchor, f.sx, f.sy).map((t) => [t.id, t]))
+            const f = scaleFactors(g.handle, g.startHandle, g.anchor, doc, e.shiftKey)
+            sx = f.sx
+            sy = f.sy
+            if (g.details.length) pendingRef.current = new Map(scaleSelection(g.details, g.anchor, sx, sy).map((t) => [t.id, t]))
+          }
+          for (const snap of g.inkStart) {
+            writeInkPoints(
+              snap.id,
+              snap.points.map((p) => mapInkPt(p, g.handle === 'rotate' ? g.center : g.anchor, sx, sy, deg)),
+            )
           }
           scheduleRedraw()
           return
@@ -560,11 +576,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       transformRef.current = null
       const pending = pendingRef.current
       pendingRef.current = null
-      if (tg && pending && pending.size > 0) {
-        if (anyLocked([...pending.keys()])) {
-          notify?.('locked object — unlock in Properties to transform')
-        } else {
-          transformSelection([...pending.values()].map((t) => ({ ...t })))
+      if (tg) {
+        endInkEdit()
+        if (pending && pending.size > 0) {
+          if (anyLocked([...pending.keys()])) {
+            notify?.('locked object — unlock in Properties to transform')
+          } else {
+            transformSelection([...pending.values()].map((t) => ({ ...t })))
+          }
         }
       }
 
@@ -650,11 +669,29 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           if (selectAt(last.x, last.y)) deleteSelection()
           notify?.('erased')
         } else if (sg.kind === 'lasso') {
-          const ids = inkInPolygon(sg.pts)
+          const loop = sg.pts.length >= 3 ? [...sg.pts, sg.pts[0]] : sg.pts
+          const ids = inkInPolygon(loop.length >= 3 ? loop : sg.pts)
           selectInk(ids)
-          const xs = sg.pts.map((p) => p.x)
-          const ys = sg.pts.map((p) => p.y)
-          selectInRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))
+          const items = evaluate(statusJson()?.playhead ?? 1)
+          const hits = items.filter((it) => {
+            const corners = [
+              { x: it.x, y: it.y },
+              { x: it.x + it.w, y: it.y },
+              { x: it.x + it.w, y: it.y + it.h },
+              { x: it.x, y: it.y + it.h },
+              { x: it.x + it.w / 2, y: it.y + it.h / 2 },
+            ]
+            return corners.some((p) => pointInPoly(p, sg.pts))
+          })
+          if (hits.length === 0) {
+            clearSelection()
+          } else {
+            selectAt(hits[0].x + hits[0].w / 2, hits[0].y + hits[0].h / 2)
+            for (let i = 1; i < hits.length; i++) {
+              selectToggleAt(hits[i].x + hits[i].w / 2, hits[i].y + hits[i].h / 2)
+            }
+          }
+          notify?.(hits.length + ids.length ? `lasso: ${hits.length + ids.length} selected` : 'lasso: nothing inside')
         } else {
           const pts = sg.kind === 'line' ? sg.pts : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
           const size = loadToolOptions().inkSize
@@ -685,7 +722,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           // fill style. BUG-TOOL-007: no more hard-coded blue — the Colors
           // section decides what new objects look like.
           const colors = loadToolColors()
-          const id = drawShape(rg.shape, rp.x, rp.y, rp.w, rp.h, colors.fill ?? '#ffffff', colors.stroke, colors.strokeWidth)
+          const bg = statusJson()?.background ?? '#ffffff'
+          const fill = contrastOn(colors.fill, bg)
+          let stroke = colors.stroke
+          let sw = colors.strokeWidth
+          if (!stroke || (fill === bg && contrastOn(stroke, bg) === fill)) {
+            stroke = '#111111'
+            sw = Math.max(sw || 0, 2)
+          }
+          const id = drawShape(rg.shape, rp.x, rp.y, rp.w, rp.h, fill, stroke, sw)
           if (id === 0 && engine.kind === 'ok' && notify) {
             notify(
               rg.shape === 'oval' && !hasShapeDrawFacade()
@@ -905,10 +950,12 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       inkItems: listInk(),
       inkSelected: selectedInkIds(),
       inkAnchors: selectedAnchors(),
-      showInkAnchors: tool === 'subselect' || selectedInkIds().length > 0,
+      showInkAnchors: tool === 'subselect',
+      objExtras: serializeObjExtras(),
       previewStroke: previewStrokeRef.current ?? (penPtsRef.current.length ? penPtsRef.current : null),
       previewStrokeWidth: loadToolColors().strokeWidth,
       previewStrokeColor: loadToolColors().stroke,
+      previewClosed: strokeRef.current?.kind === 'lasso',
       colorPreview,
       workArea: view.workArea,
       hideEdges: view.hideEdges,
@@ -1148,20 +1195,34 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const status = statusJson()
       const details = status?.selection_details ?? []
 
-      // 1) Grab a resize / rotate handle on the selected box first.
-      if (showTransformHandles() && details.length > 0) {
-        const geom = selectionGeometry(details)
-        const handles = handlePositions(geom)
-        const screenHandles = {} as Record<HandleKind, Pt>
-        for (const [k, p] of Object.entries(handles) as [HandleKind, Pt][]) {
-          screenHandles[k] = docToScreen(vpRef.current, p.x, p.y)
-        }
-        const hit = pickHandle(screenHandles, sx, sy, HANDLE_HIT_RADIUS)
-        if (hit) {
-          const anchor = hit === 'rotate' ? geom.center : e.altKey ? geom.center : oppositeHandle(geom, hit)
-          transformRef.current = { handle: hit, startDoc: doc, anchor, center: geom.center, details }
-          pendingRef.current = null
-          return
+      if (showTransformHandles()) {
+        const ov = overlayFromStatus()
+        if (ov && ov.handles.length > 0) {
+          const screenHandles = { rotate: docToScreen(vpRef.current, ov.rotateHandle.x, ov.rotateHandle.y) } as Record<HandleKind, Pt>
+          for (const [k, p] of ov.handles as [HandleKind, Pt][]) {
+            screenHandles[k] = docToScreen(vpRef.current, p.x, p.y)
+          }
+          const hit = pickHandle(screenHandles, sx, sy, HANDLE_HIT_RADIUS)
+          if (hit) {
+            const geom = details.length
+              ? selectionGeometry(details)
+              : { box: ov.box, center: ov.center, aabb: { x: ov.box[0]?.x ?? 0, y: ov.box[0]?.y ?? 0, w: 1, h: 1 } }
+            const anchor = hit === 'rotate' ? ov.center : e.altKey ? ov.center : oppositeHandle(geom, hit)
+            const inkIds = selectedInkIds()
+            transformRef.current = {
+              handle: hit,
+              startDoc: doc,
+              startHandle: (ov.handles.find(([k]) => k === hit)?.[1] as Pt | undefined) ?? ov.rotateHandle,
+              anchor,
+              center: ov.center,
+              details,
+              inkStart: listInk()
+                .filter((it) => inkIds.includes(it.id))
+                .map((it) => ({ id: it.id, points: it.points.map((pt) => ({ ...pt })) })),
+            }
+            pendingRef.current = null
+            return
+          }
         }
       }
 

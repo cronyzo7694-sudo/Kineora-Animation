@@ -754,9 +754,22 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       />
       {engine.kind === 'error' && (
         <div data-testid="stage-notice" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <div style={{ color: '#b33', textAlign: 'center', maxWidth: 360, fontSize: 14, background: '#1a1a1a', padding: 12, borderRadius: 6 }}>
+          <div style={{ color: '#b33', textAlign: 'center', maxWidth: 420, fontSize: 14, background: '#1a1a1a', padding: 14, borderRadius: 6 }}>
             <strong>Core not attached</strong>
             <p style={{ marginTop: 8, color: '#666' }}>{engine.detail}</p>
+            {/* The engine is a Rust→WASM bundle that is BUILT per machine and is
+                not committed (`animator/ui/public/wasm/` is git-ignored). Saying
+                only "not attached" left people staring at a blank stage, so the
+                exact command to fix it is shown here. */}
+            <p data-testid="stage-notice-fix" style={{ marginTop: 10, color: '#bbb', fontSize: 12, lineHeight: 1.5 }}>
+              The engine bundle is missing. Build it once, then reload:
+              <br />
+              <code style={{ display: 'inline-block', marginTop: 6, background: '#111', border: '1px solid #333', borderRadius: 4, padding: '3px 7px', color: '#8ec8ff' }}>
+                cd animator/ui &amp;&amp; npm run wasm
+              </code>
+              <br />
+              <span style={{ color: '#777' }}>(needs Rust + wasm-pack · the Tools panel, menus and panels work meanwhile)</span>
+            </p>
           </div>
         </div>
       )}

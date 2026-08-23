@@ -845,3 +845,11 @@ describe('Stage — Zoom tool Enlarge/Reduce modifier (Adobe options area)', () 
     await waitFor(() => expect(screen.getByTestId('stage-canvas').style.cursor).toBe('zoom-out'))
   })
 })
+
+describe('Stage — engine-missing notice is actionable', () => {
+  it('tells the user the exact command that builds the engine bundle', () => {
+    render(<Stage engine={{ kind: 'error', detail: 'wasm not found' }} tool="select" playhead={1} tick={0} />)
+    expect(screen.getByTestId('stage-notice')).toHaveTextContent('Core not attached')
+    expect(screen.getByTestId('stage-notice-fix')).toHaveTextContent('npm run wasm')
+  })
+})

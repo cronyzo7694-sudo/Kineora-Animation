@@ -1071,7 +1071,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
                 stroke: null,
                 strokeWidth: 0,
                 text: d.value.trim(),
-                fontSize: 24,
+                fontSize: loadToolOptions().fontSize,
               })
             }
             scheduleRedraw()

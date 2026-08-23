@@ -4,7 +4,7 @@ import { getCommand } from './commands'
 import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
-import { adoptDocPathForRecovery, docPath, listRecent, openDocument, saveDocument } from './file'
+import { adoptDocPathForRecovery, docPath, isShownDirty, listRecent, openDocument, saveDocument } from './file'
 import {
   acceptRecovery,
   checkRecovery,
@@ -691,7 +691,7 @@ export default function App() {
         {status && (
           <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {status.doc_title}
-            {status.dirty && <span data-testid="header-dirty-dot" aria-label="unsaved changes" style={{ color: 'var(--kineora-danger)' }}> ●</span>}
+            {isShownDirty(status.doc_id ?? 0, !!status.dirty) && <span data-testid="header-dirty-dot" aria-label="unsaved changes" style={{ color: 'var(--kineora-danger)' }}> ●</span>}
           </span>
         )}
         <button

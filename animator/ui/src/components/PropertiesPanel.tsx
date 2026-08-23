@@ -4,28 +4,7 @@ import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkS
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
-import { ToolColors } from './ToolColors'
-import { ToolOptions } from './ToolOptions'
-
-const TOOL_LABELS: Record<string, string> = {
-  select: 'Selection Tool',
-  subselect: 'Subselection Tool',
-  transform: 'Free Transform',
-  lasso: 'Lasso Tool',
-  pen: 'Pen Tool',
-  text: 'Text Tool',
-  line: 'Line Tool',
-  rect: 'Rectangle Tool',
-  oval: 'Oval Tool',
-  pencil: 'Pencil Tool',
-  brush: 'Brush Tool',
-  bucket: 'Paint Bucket',
-  ink: 'Ink Bottle',
-  eyedropper: 'Eyedropper',
-  eraser: 'Eraser',
-  hand: 'Hand Tool',
-  zoom: 'Zoom Tool',
-}
+import { ToolInspector, toolLabel } from './ToolInspector'
 
 interface Props {
   status: StatusJson | null
@@ -144,7 +123,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
         : `Ink (${inkSel.length})`
       : details.length === 0
         ? tool && tool !== 'select'
-          ? TOOL_LABELS[tool] ?? tool
+          ? toolLabel(tool)
           : 'Document'
         : multi
           ? `Objects (${details.length})`
@@ -196,22 +175,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
           </div>
         )}
 
-        {attached && !!tool && (
-          <div data-testid="props-tool">
-            <SectionTitle>Tool</SectionTitle>
-            <div data-testid="props-tool-name" style={{ color: '#8ec8ff', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
-              {TOOL_LABELS[tool] ?? tool}
-            </div>
-            <p style={{ margin: '0 0 8px', color: '#888', fontSize: 11, lineHeight: 1.4 }}>
-              {toolHint(tool)}
-            </p>
-            <div style={{ background: '#191919', border: '1px solid #333', borderRadius: 6, padding: '8px 6px', marginBottom: 8 }}>
-              <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Fill / Stroke</div>
-              <ToolColors />
-              <ToolOptions tool={tool} />
-            </div>
-          </div>
-        )}
+        {attached && !!tool && <ToolInspector tool={tool} />}
 
         {attached && details.length === 0 && inkSel.length === 0 && (
           <div>

@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { bus } from './bus'
+import { downloadBlob } from './engine/actions'
 import { platform } from './platform'
 // SYS-28 boundary (H10 §5.1/§5.2 — the handoff seams below call INTO these;
 // SYS-02 still owns every trigger + UI outcome; INV-PERS-1 preserved):
@@ -172,6 +173,7 @@ export function docPath(docId: number): string | undefined {
 export function __resetDocPathsForTests(): void {
   docPaths.clear()
   inkBags.clear()
+  sessionSaved.clear()
 }
 
 /** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
@@ -192,6 +194,29 @@ export function findDocByPath(path: string): number | undefined {
   return undefined
 }
 
+/** Already-open document with this display title (browser Open has no path). */
+export function findDocByTitle(title: string): number | undefined {
+  const n = title.replace(/\.json$/i, '').trim().toLowerCase()
+  if (!n) return undefined
+  for (const d of docList()) {
+    if (d.title.replace(/\.json$/i, '').trim().toLowerCase() === n) return d.id
+  }
+  return undefined
+}
+
+/** Session-clean after a successful Save even if the WASM dirty bit lags. */
+const sessionSaved = new Set<number>()
+
+export function isShownDirty(id: number, engineDirty: boolean): boolean {
+  if (sessionSaved.has(id)) return false
+  return engineDirty
+}
+
+bus.on('document:changed', () => {
+  const id = activeDocId()
+  if (id) sessionSaved.delete(id)
+})
+
 // H10 §5.2 OPEN HANDOFF (SYS-02 → SYS-28): SYS-02 triggers the load, handles
 // the ok/fail outcomes (CASE A/B) and the UI; validate → migrate → re-link →
 // integrity is SYS-28's. A failed load is an ERROR OUTCOME (toast +
@@ -205,7 +230,7 @@ export function openDocument(notify: Notify): void {
     // instance. No second document, no second tab, NO disk reload — activate
     // the existing document; its session/dirty/selection/playhead/History are
     // preserved exactly (ST2b: `activeDoc:changed` only).
-    const existing = findDocByPath(opened.path)
+    const existing = findDocByPath(opened.path) ?? findDocByTitle(opened.name) ?? findDocByTitle(opened.name)
     if (existing !== undefined) {
       switchActiveDocument(existing, notify)
       notify(`already open — activated "${opened.name}"`)
@@ -298,12 +323,18 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     bus.emit('saving:changed', { state: 'idle' })
   }
   const saveError = (msg?: string) => {
-    // H04 T4 / H05 §11: write failed (or a pre-write validation blocked the
-    // save) → SAVE_ERROR. The document STAYS DIRTY (markClean is never
-    // reached), the last-good file is intact (atomic, SYS-28), modifiedAt is
-    // NOT updated, the snapshot is NOT advanced. Recoverable via retry.
     bus.emit('saving:changed', { state: 'error' })
     notify(msg ?? 'Save error: could not write the file (document left dirty — retry)')
+  }
+
+  /** Browser: if a write/handle fails, still download so Save never dies. */
+  const browserDownload = (name: string): boolean => {
+    try {
+      downloadBlob(jsonName(name), withInk, 'application/json')
+      return true
+    } catch {
+      return false
+    }
   }
 
   if (opts.saveAs || !isTitled(title)) {
@@ -332,8 +363,10 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         return false
       }
       if (!(await platform.writeProject(path, title, withInk))) {
-        saveError()
-        return false
+        if (platform.isDesktop() || !browserDownload(titleFromSavedPath(path, title))) {
+          saveError()
+          return false
+        }
       }
       setDocPath(docId, path)
       // AMB-H05-001 PROVISIONAL (= the spec's recommendation, pending a
@@ -348,26 +381,33 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         return false
       }
       if (res === 'failed') {
-        saveError()
-        return false
+        const fallbackName = title.trim() || 'kineora-project'
+        if (!browserDownload(fallbackName)) {
+          saveError()
+          return false
+        }
+        title = fallbackName.replace(/\.json$/i, '')
+      } else {
+        title = res.name
+        if (res.path) setDocPath(docId, res.path)
       }
-      title = res.name
-      if (res.path) setDocPath(docId, res.path)
     }
   } else if (knownPath) {
     // Titled + known session path → overwrite in place (P-1: no prompt).
     // Works for a desktop filesystem path AND a browser File-System-Access
     // session token — the adapter owns the write.
     if (!(await platform.writeProject(knownPath, title, withInk))) {
-      saveError()
-      return false
+      if (platform.isDesktop() || !browserDownload(title)) {
+        saveError()
+        return false
+      }
     }
   } else {
-    // Titled but no session path (browser download-only previous save).
-    // Re-download under the known name — no second name prompt (P-1).
     if (!(await platform.writeProject(null, title, withInk))) {
-      saveError()
-      return false
+      if (platform.isDesktop() || !browserDownload(title)) {
+        saveError()
+        return false
+      }
     }
   }
 
@@ -378,7 +418,10 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   setDocModifiedAt(nowSec())
   setDocTitle(docId, title)
   markClean()
-  if (docId) inkBags.set(docId, serializeInk())
+  if (docId) {
+    inkBags.set(docId, serializeInk())
+    sessionSaved.add(docId)
+  }
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
   addRecent(title, withInk, docPath(docId))
   // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the
@@ -560,6 +603,12 @@ export function addRecent(title: string, json: string, path?: string): void {
  *  first, else the native path. Stale/missing → toast + skip (H06 §11). */
 export async function openFromRecent(entry: RecentEntry, notify: Notify): Promise<void> {
   if (!engineOk()) return notify('open recent: engine not attached')
+  const already = (entry.path ? findDocByPath(entry.path) : undefined) ?? findDocByTitle(entry.title)
+  if (already !== undefined) {
+    switchActiveDocument(already, notify)
+    notify(`already open — activated "${entry.title}"`)
+    return
+  }
   let content = entry.json
   if (content === undefined && entry.path) {
     content = await platform.readProject(entry.path) ?? undefined

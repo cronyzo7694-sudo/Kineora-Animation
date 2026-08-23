@@ -14,12 +14,14 @@ export type ZoomMode = 'in' | 'out'
 
 export interface ToolOptions {
   zoomMode: ZoomMode
-  /** Pencil / Brush diameter in document px (Adobe options area). */
+  /** Pencil / Brush / Eraser diameter in document px. */
   inkSize: number
+  /** Text tool size in document px. */
+  fontSize: number
 }
 
 export function defaultToolOptions(): ToolOptions {
-  return { zoomMode: 'in', inkSize: 4 }
+  return { zoomMode: 'in', inkSize: 4, fontSize: 24 }
 }
 
 let state: ToolOptions = defaultToolOptions()

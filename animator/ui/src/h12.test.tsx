@@ -177,10 +177,11 @@ describe('H12 §3.3 — handoff controls (SYS-27): no engine call, no dirty, hon
     getCommand('file.export')!.run(ctx({ openExport: openSeq }), 'sequence')
     expect(openSeq).toHaveBeenCalledTimes(1)
     const notify = vi.fn()
-    for (const f of ['video', 'gif', 'movie']) {
-      getCommand('file.export')!.run(ctx({ openExport: vi.fn(), notify }), f)
-    }
-    expect(notify).toHaveBeenCalledTimes(3)
+    const openVid = vi.fn()
+    getCommand('file.export')!.run(ctx({ openExport: openVid, notify }), 'video')
+    expect(openVid).toHaveBeenCalledTimes(1)
+    getCommand('file.export')!.run(ctx({ openExport: vi.fn(), notify }), 'gif')
+    expect(notify).toHaveBeenCalledTimes(1)
     expect(fake.state.docs[0].dirty).toBe(true) // export is NON-mUTATING (T-export-no-dirty)
   })
 

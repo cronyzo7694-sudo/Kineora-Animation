@@ -3,7 +3,7 @@ import { getCommand } from '../commands'
 import type { CommandContext } from '../commands'
 import { bus } from '../bus'
 import { activeDocId, docList } from '../engine/client'
-import { reorderDocument } from '../file'
+import { isShownDirty, reorderDocument } from '../file'
 import type { DocJson } from '../engine/wasmTypes'
 
 interface Props {
@@ -197,7 +197,7 @@ export function DocumentTabs({ ctx }: Props) {
             data-active={active ? 'true' : 'false'}
             role="tab"
             aria-selected={active}
-            aria-label={`${d.title}${d.dirty ? ' — unsaved' : ''}`}
+            aria-label={`${d.title}${isShownDirty(d.id, d.dirty) ? ' — unsaved' : ''}`}
             title={d.title}
             tabIndex={0}
             draggable
@@ -265,7 +265,7 @@ export function DocumentTabs({ ctx }: Props) {
                 must exist before the change to be announced); the ● glyph
                 mounts when the document becomes dirty. */}
             <span aria-live="polite">
-              {d.dirty && (
+              {isShownDirty(d.id, d.dirty) && (
                 <span
                   data-testid={`doc-tab-dirty-${d.id}`}
                   aria-label="unsaved changes"

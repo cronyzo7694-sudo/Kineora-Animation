@@ -1,16 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { evaluate, exportSvgScaled, statusJson } from '../engine/client'
 import { downloadBlob, downloadCanvasBlob } from '../engine/actions'
-import { rasterizeContent } from '../render/canvasRenderer'
+import { inkToSvg, rasterizeContent } from '../render/canvasRenderer'
+import { listInk } from '../editor/inkStore'
 import { bus } from '../bus'
 // SYS-27 MOD-EXPORT engines (sequence slice — INT-AID-003)
-import { buildSvgSequence, deliverExport } from '../export27'
+import { buildSvgSequence, deliverExport, exportWebmVideo } from '../export27'
 import type { EngineStatus } from '../controlRegistry'
 
-export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq'
+export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq' | 'webm'
+export type ExportIntent = 'image' | 'video' | 'sequence'
 
 interface Props {
   open: boolean
+  intent?: ExportIntent
   engine: EngineStatus
   onClose: () => void
   notify: (msg: string) => void
@@ -23,6 +26,7 @@ const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; mime: strin
   { id: 'webp', label: 'WebP (raster)', ext: 'webp', mime: 'image/webp' },
   // SYS-27 slice 1: real sequence engine (eng 14 "Sequence: range + sidecar fps")
   { id: 'svgseq', label: 'SVG sequence (frame range)', ext: 'svg', mime: 'image/svg+xml' },
+  { id: 'webm', label: 'Video (AVI / Motion-JPEG)', ext: 'avi', mime: 'video/x-msvideo' },
 ]
 const SCALES = [1, 2, 4]
 
@@ -34,12 +38,27 @@ const SCALES = [1, 2, 4]
  * and overlays/pasteboard/zoom/pan/selection never leak (REQ-EXP-002). Export
  * is non-mutating (no undo). Engine-not-attached = honest disabled state.
  */
-export function ExportDialog({ open, engine, onClose, notify }: Props) {
-  const [format, setFormat] = useState<ExportFormat>('svg')
+function formatForIntent(intent?: ExportIntent): ExportFormat {
+  if (intent === 'video') return 'webm'
+  if (intent === 'sequence') return 'svgseq'
+  return 'svg'
+}
+
+export function ExportDialog({ open, intent = 'image', engine, onClose, notify }: Props) {
+  const [format, setFormat] = useState<ExportFormat>(() => formatForIntent(intent))
   const [scale, setScale] = useState(1)
   // sequence range (SYS-27 slice 1): defaults = full timeline
   const [seqFirst, setSeqFirst] = useState(1)
   const [seqLast, setSeqLast] = useState(0) // 0 = "use duration" until touched
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setFormat(formatForIntent(intent))
+    setResult(null)
+    setBusy(false)
+  }, [open, intent])
 
   if (!open) return null
   const attached = engine.kind === 'ok'
@@ -48,9 +67,22 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
   const duration = Math.max(1, status?.duration ?? 1)
   const effLast = seqLast === 0 ? duration : seqLast
 
+  const report = (msg: string) => {
+    setResult(msg)
+    notify(msg)
+  }
+
   const doExport = () => {
     if (!attached) {
       notify('export: engine not attached')
+      return
+    }
+    if (format === 'webm') {
+      setBusy(true)
+      void exportWebmVideo({ first: seqFirst, last: effLast, scale, fps: status?.fps }, notify).then((ok) => {
+        setBusy(false)
+        if (ok) report('Video exported — check your Downloads folder for the .webm file.')
+      })
       return
     }
     if (format === 'svgseq') {
@@ -62,21 +94,21 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
         buildSvgSequence({ first: seqFirst, last: effLast, scale, baseName: base }),
         notify,
       )
-      if (ok) onClose()
+      if (ok) report(`SVG sequence exported (${seqFirst}–${effLast}) — check Downloads.`)
       return
     }
     const f = FORMATS.find((x) => x.id === format)!
     if (format === 'svg') {
-      const svg = exportSvgScaled(frame, scale)
+      let svg = exportSvgScaled(frame, scale)
       if (!svg) {
         notify('export: engine returned no SVG')
         return
       }
+      const ink = inkToSvg(listInk(), status?.background ?? '#ffffff')
+      if (ink) svg = svg.replace(/<\/svg>\s*$/i, `${ink}</svg>`)
       downloadBlob(`kineora.${f.ext}`, svg, f.mime)
-      // SYS-27 contract §D: export:done{format, path} on every successful
-      // export (browser dev mode: path = the download file name).
       bus.emit('export:done', { format: 'svg', path: `kineora.${f.ext}` })
-      notify(`export: downloaded kineora.${f.ext} (${scale}×)`)
+      report(`Exported kineora.${f.ext} (${scale}×) — check your Downloads folder.`)
     } else {
       const items = evaluate(frame)
       const st = statusJson()
@@ -86,6 +118,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           stageW: st?.doc_width ?? 1920,
           stageH: st?.doc_height ?? 1080,
           items,
+          inkItems: listInk(),
         },
         scale,
       )
@@ -96,9 +129,8 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
       const quality = format === 'jpeg' ? 0.92 : undefined
       downloadCanvasBlob(canvas, `kineora.${f.ext}`, f.mime, quality)
       bus.emit('export:done', { format, path: `kineora.${f.ext}` })
-      notify(`export: downloaded kineora.${f.ext} (${canvas.width}×${canvas.height})`)
+      report(`Exported kineora.${f.ext} (${canvas.width}×${canvas.height}) — check your Downloads folder.`)
     }
-    onClose()
   }
 
   return (
@@ -124,7 +156,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           </select>
         </label>
 
-        {format === 'svgseq' && (
+        {(format === 'svgseq' || format === 'webm') && (
           <div data-testid="export-seq-range" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <label style={{ flex: 1 }}>
               <span style={{ color: '#999', display: 'block', marginBottom: 3 }}>First frame</span>
@@ -143,9 +175,15 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           </div>
         )}
 
+        {result && (
+          <div data-testid="export-result" style={{ color: '#8fd18f', marginBottom: 10, fontSize: 12, lineHeight: 1.4 }}>
+            {result}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button data-testid="export-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer' }}>Cancel</button>
-          <button data-testid="export-confirm" disabled={!attached} onClick={doExport} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: attached ? 'pointer' : 'not-allowed' }}>Export</button>
+          <button data-testid="export-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer' }}>{result ? 'Close' : 'Cancel'}</button>
+          <button data-testid="export-confirm" disabled={!attached || busy} onClick={doExport} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: attached && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Exporting…' : 'Export'}</button>
         </div>
       </div>
     </div>

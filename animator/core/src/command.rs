@@ -1696,6 +1696,37 @@ impl Command for ConvertToSymbol {
     }
 }
 
+/// CMD-IMPORT-LIBRARY — copy symbols + their nodes from another document
+/// (Part 12 §12.2.14 Open external library). One undo step.
+pub struct ImportLibrary {
+    pub symbols: Vec<Symbol>,
+    pub nodes: BTreeMap<NodeId, Node>,
+}
+
+impl Command for ImportLibrary {
+    fn label(&self) -> String {
+        "Import from library".into()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        for (id, n) in &self.nodes {
+            doc.nodes.insert(*id, n.clone());
+        }
+        for s in &self.symbols {
+            if !doc.library.iter().any(|x| x.id == s.id) {
+                doc.library.push(s.clone());
+            }
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        for s in &self.symbols {
+            doc.library.retain(|x| x.id != s.id);
+        }
+        for id in self.nodes.keys() {
+            doc.nodes.remove(id);
+        }
+    }
+}
+
 /// CMD-CREATE-SYMBOL — Ctrl+F8: add an empty symbol to the Library.
 pub struct CreateSymbol {
     pub symbol: Symbol,

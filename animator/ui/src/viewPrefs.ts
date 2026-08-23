@@ -19,6 +19,8 @@ export interface ViewPrefs {
   hideEdges: boolean
   /** Pasteboard / work area. Default ON (the stage is already drawn with it). */
   workArea: boolean
+  /** Stage corner zoom slider. Default ON; hide from View menu or the × on the gear. */
+  zoomGear: boolean
   preview: PreviewMode
   gridSize: number
 }
@@ -29,6 +31,7 @@ export function defaultViewPrefs(): ViewPrefs {
     grid: false,
     hideEdges: false,
     workArea: true,
+    zoomGear: true,
     preview: 'full',
     gridSize: DEFAULT_GRID_SIZE,
   }
@@ -59,6 +62,7 @@ function sanitize(raw: unknown): ViewPrefs {
     grid: typeof raw.grid === 'boolean' ? raw.grid : d.grid,
     hideEdges: typeof raw.hideEdges === 'boolean' ? raw.hideEdges : d.hideEdges,
     workArea: typeof raw.workArea === 'boolean' ? raw.workArea : d.workArea,
+    zoomGear: typeof raw.zoomGear === 'boolean' ? raw.zoomGear : d.zoomGear,
     preview: raw.preview === 'outline' ? 'outline' : 'full',
     gridSize:
       typeof raw.gridSize === 'number' && Number.isFinite(raw.gridSize) && raw.gridSize > 0
@@ -96,7 +100,7 @@ export function patchViewPrefs(patch: Partial<ViewPrefs>): ViewPrefs {
   return next
 }
 
-export function toggleViewFlag(key: 'rulers' | 'grid' | 'hideEdges' | 'workArea'): ViewPrefs {
+export function toggleViewFlag(key: 'rulers' | 'grid' | 'hideEdges' | 'workArea' | 'zoomGear'): ViewPrefs {
   const cur = loadViewPrefs()
   return patchViewPrefs({ [key]: !cur[key] })
 }

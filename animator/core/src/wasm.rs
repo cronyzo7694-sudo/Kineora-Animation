@@ -651,6 +651,26 @@ pub fn kineora_convert_to_symbol(name: String, symbol_type: String, reg_grid: u3
     with_session(|s| s.convert_selection_to_symbol(&name, ty, reg_grid as u8).0).unwrap_or(0)
 }
 
+/// Import symbols from another project's JSON (Open from Libraries).
+/// `source_json` = full project; `ids_json` = `[u64,…]` source symbol ids.
+/// Returns JSON array of new destination ids (`[]` on failure).
+#[wasm_bindgen]
+pub fn kineora_import_symbols(source_json: String, ids_json: String) -> String {
+    let Ok(source) = serde_json::from_str::<Document>(&source_json) else {
+        return "[]".into();
+    };
+    let Ok(raw_ids) = serde_json::from_str::<Vec<u64>>(&ids_json) else {
+        return "[]".into();
+    };
+    let wanted: Vec<SymbolId> = raw_ids.into_iter().map(SymbolId).collect();
+    with_session(|s| {
+        let ids = s.import_symbols_from(&source, &wanted);
+        let out: Vec<u64> = ids.into_iter().map(|id| id.0).collect();
+        serde_json::to_string(&out).unwrap_or_else(|_| "[]".into())
+    })
+    .unwrap_or_else(|_| "[]".into())
+}
+
 /// Ctrl+F8 — create an empty symbol. Returns its id (0 on failure).
 #[wasm_bindgen]
 pub fn kineora_new_symbol(name: String, symbol_type: String) -> u64 {
@@ -1039,6 +1059,21 @@ pub fn kineora_paste_objects(mode: String) -> bool {
 #[wasm_bindgen]
 pub fn kineora_duplicate_objects() -> bool {
     with_session(|s| s.duplicate_objects()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_rotate_selection(degrees: f64) -> bool {
+    with_session(|s| s.rotate_selection(degrees)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_flip_selection(horizontal: bool) -> bool {
+    with_session(|s| s.flip_selection(horizontal)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_remove_transform() -> bool {
+    with_session(|s| s.remove_transform()).unwrap_or(false)
 }
 
 /// `op` = front|forward|backward|back (Blueprint 1.2.5 Arrange).

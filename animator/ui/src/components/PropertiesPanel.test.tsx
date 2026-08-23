@@ -7,6 +7,10 @@ vi.mock('../engine/client', () => ({
   setDocumentSettings: vi.fn(() => true),
   setInstanceLoop: vi.fn(() => true),
   swapInstance: vi.fn(() => true),
+  rotateSelection: vi.fn(() => true),
+  flipSelection: vi.fn(() => true),
+  removeTransform: vi.fn(() => true),
+  statusJson: vi.fn(() => ({ selection: [1] })),
   library: vi.fn(() => [
     { id: 7, name: 'arm', type: 'graphic', use_count: 1, duration: 3 },
     { id: 9, name: 'head', type: 'graphic', use_count: 0, duration: 1 },
@@ -73,6 +77,21 @@ beforeEach(() => {
 })
 
 describe('PropertiesPanel', () => {
+  it('Selection tool shows rotate / flip actions', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} tool="select" notify={notify} />)
+    expect(screen.getByTestId('select-actions')).toBeInTheDocument()
+    expect(screen.getByTestId('sel-rot-cw')).toBeInTheDocument()
+    expect(screen.getByTestId('sel-flip-h')).toBeInTheDocument()
+  })
+
+  it('active drawing tool shows the tool inspector (Adobe Properties)', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} tool="rect" notify={notify} />)
+    expect(screen.getByTestId('props-tool')).toBeInTheDocument()
+    expect(screen.getByTestId('props-tool-name')).toHaveTextContent('Rectangle Tool')
+    expect(screen.getByTestId('tool-colors')).toBeInTheDocument()
+    expect(screen.getByTestId('props-context')).toHaveTextContent('Rectangle Tool')
+  })
+
   it('nothing selected → document schema (size/fps/background)', () => {
     render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
     expect(screen.getByTestId('props-context')).toHaveTextContent('Document')

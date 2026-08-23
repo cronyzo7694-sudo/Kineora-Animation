@@ -72,7 +72,7 @@ describe('ToolsPanel — Adobe-style vertical icon strip', () => {
   })
 
   it('the options area is empty for a tool without modifiers', () => {
-    render(<ToolsPanel tool="select" onPick={vi.fn()} />)
+    render(<ToolsPanel tool="hand" onPick={vi.fn()} />)
     expect(screen.queryByTestId('tool-options')).not.toBeInTheDocument()
   })
 
@@ -92,6 +92,8 @@ describe('ToolsPanel — rail layout contract (Blueprint §1.3.1)', () => {
     renderPanel()
     const scroll = screen.getByTestId('tools-scroll')
     expect(scroll.style.overflowY).toBe('auto')
+    expect(scroll.style.overflowX).toBe('hidden')
+    expect(scroll.style.scrollbarWidth).toBe('none')
     expect(scroll.style.flex).toContain('1')
     // the sections that scroll: tools area, divider, view area
     expect(scroll.contains(screen.getByTestId('tool-select'))).toBe(true)

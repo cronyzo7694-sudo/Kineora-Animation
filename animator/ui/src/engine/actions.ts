@@ -6,6 +6,7 @@ import {
   clearKeyframe,
   clearSelection,
   deleteFrame,
+  deleteSelection,
   getEngine,
   getEngineStatus,
   insertBlankKeyframe,
@@ -19,6 +20,7 @@ import {
   undo,
 } from './client'
 import { bus } from '../bus'
+import { clearInkSelection, deleteInkIds, inkCanRedo, inkCanUndo, inkRedo, inkUndo, selectedInkIds } from '../editor/inkStore'
 
 export type Notify = (msg: string) => void
 
@@ -55,10 +57,18 @@ export function downloadCanvasBlob(canvas: HTMLCanvasElement, name: string, mime
 export function performAction(id: string, notify: Notify): void {
   switch (id) {
     case 'edit.undo':
+      if (inkCanUndo()) {
+        notify(inkUndo() ? 'undo: done' : 'undo: nothing to undo')
+        break
+      }
       if (!engineAttached()) return void notify(notAttached('undo'))
       notify(undo() ? 'undo: done' : 'undo: nothing to undo')
       break
     case 'edit.redo':
+      if (inkCanRedo()) {
+        notify(inkRedo() ? 'redo: done' : 'redo: nothing to redo')
+        break
+      }
       if (!engineAttached()) return void notify(notAttached('redo'))
       notify(redo() ? 'redo: done' : 'redo: nothing to redo')
       break
@@ -113,12 +123,7 @@ export function performAction(id: string, notify: Notify): void {
       }
       break
     case 'file.save':
-      if (!engineAttached()) return void notify(notAttached('save'))
-      {
-        downloadBlob('kineora-project.json', projectJson(), 'application/json')
-        bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-        notify('save: downloaded kineora-project.json')
-      }
+      void import('../file').then((m) => m.saveDocument(notify))
       break
     case 'edit.selectAll':
       if (!engineAttached()) return void notify(notAttached('select all'))

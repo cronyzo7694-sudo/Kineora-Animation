@@ -10,6 +10,8 @@
 import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
 import { docRectToScreen, docToScreen } from './viewport'
+import { textLocalBox, type InkItem, type InkPt } from '../editor/inkStore'
+import { contrastOn, tooClose } from '../contrast'
 
 export interface Pt {
   x: number
@@ -72,6 +74,43 @@ export interface RenderState {
   preview?: 'full' | 'outline'
   /** Editor-only onion ghosts (Blueprint 15.2). Never passed to renderContent. */
   onionGhosts?: Array<{ items: RectItemJson[]; tint: string; alpha: number; outlines: boolean }>
+  /** Path / text objects authored by the remaining tools (UI ink store). */
+  inkItems?: InkItem[]
+  inkSelected?: number[]
+  /** Subselection (A): highlight these anchors + draw Bezier handles. */
+  inkAnchors?: Array<{ id: number; index: number }>
+  showInkAnchors?: boolean
+  objExtras?: Record<number, { opacity?: number; blend?: string; fillImage?: string | null; locked?: boolean }>
+  previewStroke?: InkPt[] | null
+  previewStrokeWidth?: number
+  previewStrokeColor?: string | null
+  previewStrokeDash?: number[]
+  previewLineCap?: CanvasLineCap
+  previewFill?: string | null
+  previewClosed?: boolean
+  previewText?: { x: number; y: number; text: string; size: number; fill: string } | null
+}
+
+export function pathD(pts: InkPt[], closed: boolean): string {
+  if (pts.length === 0) return ''
+  const parts = [`M${pts[0].x} ${pts[0].y}`]
+  const n = pts.length
+  const last = closed ? n : n - 1
+  for (let i = 0; i < last; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % n]
+    if (a.outX != null || b.inX != null) {
+      const c1x = a.outX ?? a.x
+      const c1y = a.outY ?? a.y
+      const c2x = b.inX ?? b.x
+      const c2y = b.inY ?? b.y
+      parts.push(`C${c1x} ${c1y} ${c2x} ${c2y} ${b.x} ${b.y}`)
+    } else {
+      parts.push(`L${b.x} ${b.y}`)
+    }
+  }
+  if (closed) parts.push('Z')
+  return parts.join(' ')
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -148,7 +187,35 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
           strokeWidth: pv.strokeWidth ?? base.strokeWidth,
         }
       : base
-    drawRectItem(ctx, vp, it, off, style)
+    const extra = s.objExtras?.[it.id]
+    const vis = visibleOnStage(style, s.background)
+    ctx.save()
+    if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
+    if (extra?.blend && extra.blend !== 'normal') ctx.globalCompositeOperation = extra.blend as GlobalCompositeOperation
+    drawRectItem(ctx, vp, it, off, vis, extra?.fillImage ?? null)
+    ctx.restore()
+  }
+
+  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview, s.background, s.inkAnchors, s.showInkAnchors, s.objExtras)
+  if (s.previewStroke && s.previewStroke.length > 0) {
+    drawPolyline(
+      ctx,
+      vp,
+      s.previewStroke,
+      s.previewStrokeColor ?? '#111111',
+      Math.max(1.5, s.previewStrokeWidth ?? 2),
+      s.previewFill ?? null,
+      !!s.previewClosed,
+      { dash: s.previewStrokeDash, cap: s.previewLineCap },
+    )
+  }
+  if (s.previewText) {
+    const p = docToScreen(vp, s.previewText.x, s.previewText.y)
+    ctx.save()
+    ctx.fillStyle = s.previewText.fill
+    ctx.font = `${s.previewText.size * vp.zoom}px system-ui, sans-serif`
+    ctx.fillText(s.previewText.text, p.x, p.y)
+    ctx.restore()
   }
 
   // marquee (editor-only)
@@ -179,6 +246,51 @@ interface ItemStyle {
   strokeWidth: number
 }
 
+/** Stage authoring: never draw a fill that vanishes into the document background. */
+function visibleOnStage(style: ItemStyle, bg: string): ItemStyle {
+  let { fill, stroke, strokeWidth } = style
+  if (tooClose(fill, bg)) {
+    if (!stroke || tooClose(stroke, bg)) {
+      stroke = '#111111'
+      strokeWidth = Math.max(strokeWidth || 0, 2)
+    }
+  }
+  return { fill, stroke, strokeWidth }
+}
+
+const imageCache = new Map<string, HTMLImageElement>()
+const imageWaiters = new Set<() => void>()
+
+export function subscribeFillImages(fn: () => void): () => void {
+  imageWaiters.add(fn)
+  return () => imageWaiters.delete(fn)
+}
+
+export function getFillImage(src: string | null | undefined): HTMLImageElement | null {
+  if (!src) return null
+  let im = imageCache.get(src)
+  if (!im) {
+    im = new Image()
+    im.onload = () => {
+      for (const w of [...imageWaiters]) w()
+    }
+    im.src = src
+    imageCache.set(src, im)
+  }
+  return im.complete && im.naturalWidth > 0 ? im : null
+}
+
+function exportItemStyle(it: RectItemJson, bg: string): ItemStyle {
+  const fill = it.fill || '#ffffff'
+  let stroke = it.stroke
+  let sw = it.stroke_width
+  if ((!stroke || tooClose(stroke, bg)) && tooClose(fill, bg)) {
+    stroke = '#111111'
+    sw = Math.max(sw || 0, 1.5)
+  }
+  return { fill, stroke, strokeWidth: sw }
+}
+
 /** Mix a fill toward `tint` and bake `alpha` into rgba (no ctx.globalAlpha). */
 export function tintFill(src: string, tint: string, alpha: number): string {
   const [sr, sg, sb] = parseColor(src)
@@ -206,7 +318,14 @@ function parseColor(c: string): [number, number, number] {
   return [180, 180, 180]
 }
 
-function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt, style: ItemStyle): void {
+function drawRectItem(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  it: RectItemJson,
+  off: Pt,
+  style: ItemStyle,
+  fillImage?: string | null,
+): void {
   const cx = it.x + it.w / 2 + off.x
   const cy = it.y + it.h / 2 + off.y
   const p = docToScreen(vp, cx, cy)
@@ -222,17 +341,33 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
     ctx.ellipse(0, 0, Math.max(0, w / 2), Math.max(0, h / 2), 0, 0, Math.PI * 2)
     ctx.fillStyle = style.fill
     ctx.fill()
+    const im = getFillImage(fillImage)
+    if (im) {
+      ctx.save()
+      ctx.clip()
+      ctx.drawImage(im, -w / 2, -h / 2, Math.max(1, w), Math.max(1, h))
+      ctx.restore()
+    }
     if (style.stroke) {
       ctx.strokeStyle = style.stroke
-      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.lineWidth = Math.max(1, style.strokeWidth * vp.zoom)
       ctx.stroke()
     }
   } else {
     ctx.fillStyle = style.fill
     ctx.fillRect(-w / 2, -h / 2, w, h)
+    const im = getFillImage(fillImage)
+    if (im) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(-w / 2, -h / 2, w, h)
+      ctx.clip()
+      ctx.drawImage(im, -w / 2, -h / 2, Math.max(1, w), Math.max(1, h))
+      ctx.restore()
+    }
     if (style.stroke) {
       ctx.strokeStyle = style.stroke
-      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.lineWidth = Math.max(1, style.strokeWidth * vp.zoom)
       ctx.strokeRect(-w / 2, -h / 2, w, h)
     }
   }
@@ -247,6 +382,8 @@ export interface ContentState {
   stageW: number
   stageH: number
   items: RectItemJson[]
+  /** Optional ink overlay (Pen/Pencil/Brush/Text) — omitted in legacy tests. */
+  inkItems?: InkItem[]
 }
 
 /**
@@ -262,8 +399,49 @@ export function renderContent(ctx: CanvasRenderingContext2D, vp: Viewport, s: Co
   ctx.fillStyle = s.background
   ctx.fillRect(r.x, r.y, r.w, r.h)
   for (const it of s.items) {
-    drawRectItem(ctx, vp, it, { x: 0, y: 0 }, { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width })
+    drawRectItem(ctx, vp, it, { x: 0, y: 0 }, exportItemStyle(it, s.background))
   }
+  if (s.inkItems && s.inkItems.length > 0) {
+    drawInkItems(ctx, vp, s.inkItems, [], null, s.background)
+  }
+}
+
+/** Serialize ink objects as SVG fragments (no chrome) so File ▸ Export includes
+ *  Pen/Pencil/Brush/Text — the Rust exporter still only knows rect/oval. */
+export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+  const parts: string[] = []
+  for (const it of items) {
+    if (it.kind === 'text') {
+      const p = it.points[0] ?? { x: 0, y: 0 }
+      const fam = esc(it.fontFamily || 'system-ui,sans-serif')
+      const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
+      const fstyle = it.fontItalic ? 'italic' : 'normal'
+      const anchor = it.textAlign === 'center' ? 'middle' : it.textAlign === 'right' ? 'end' : 'start'
+      const deco = it.fontUnderline ? ' text-decoration="underline"' : ''
+      const ls = it.letterSpacing ? ` letter-spacing="${it.letterSpacing}"` : ''
+      const rot = it.rotation ? ` transform="rotate(${it.rotation} ${p.x} ${p.y})"` : ''
+      const scx = it.scaleX ?? 1
+      const scy = it.scaleY ?? 1
+      const flip = scx !== 1 || scy !== 1 ? ` transform="translate(${p.x} ${p.y}) scale(${scx} ${scy}) translate(${-p.x} ${-p.y})"` : rot
+      parts.push(
+        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="${fam}" font-weight="${weight}" font-style="${fstyle}" text-anchor="${anchor}"${deco}${ls}${flip}>${esc(it.text || '')}</text>`,
+      )
+      continue
+    }
+    if (it.points.length < 2) continue
+    const d = pathD(it.points, it.closed)
+    const sw = it.kind === 'brush' && it.fill && it.closed ? it.strokeWidth : it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+    const fill = it.fill && it.closed ? it.fill : 'none'
+    const stroke = it.stroke ?? 'none'
+    const cap = it.lineCap || 'round'
+    const join = it.lineJoin || 'round'
+    const dash = it.strokeDash && it.strokeDash.length ? ` stroke-dasharray="${it.strokeDash.join(' ')}"` : ''
+    parts.push(
+      `<path d="${d}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}" stroke-linecap="${cap}" stroke-linejoin="${join}"${dash}/>`,
+    )
+  }
+  return parts.join('')
 }
 
 /**
@@ -337,6 +515,203 @@ function drawRulers(ctx: CanvasRenderingContext2D, vp: Viewport, stageW: number,
   ctx.restore()
 }
 
+function drawPolyline(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  pts: InkPt[],
+  stroke: string | null,
+  strokeWidth: number,
+  fill: string | null,
+  closed: boolean,
+  style?: { dash?: number[]; cap?: CanvasLineCap; join?: CanvasLineJoin },
+): void {
+  if (pts.length === 0) return
+  ctx.save()
+  ctx.beginPath()
+  const a = docToScreen(vp, pts[0].x, pts[0].y)
+  ctx.moveTo(a.x, a.y)
+  const last = closed ? pts.length : pts.length - 1
+  for (let i = 0; i < last; i++) {
+    const A = pts[i]
+    const B = pts[(i + 1) % pts.length]
+    if (A.outX != null || B.inX != null) {
+      const c1 = docToScreen(vp, A.outX ?? A.x, A.outY ?? A.y)
+      const c2 = docToScreen(vp, B.inX ?? B.x, B.inY ?? B.y)
+      const b = docToScreen(vp, B.x, B.y)
+      ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, b.x, b.y)
+    } else {
+      const b = docToScreen(vp, B.x, B.y)
+      ctx.lineTo(b.x, b.y)
+    }
+  }
+  if (closed) ctx.closePath()
+  if (fill) {
+    ctx.fillStyle = fill
+    ctx.fill()
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke
+    ctx.lineWidth = Math.max(1, strokeWidth * vp.zoom)
+    ctx.lineCap = style?.cap ?? 'round'
+    ctx.lineJoin = style?.join ?? 'round'
+    if (style?.dash && style.dash.length) ctx.setLineDash(style.dash.map((n) => n * vp.zoom))
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+  ctx.restore()
+}
+
+function drawInkItems(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  items: InkItem[],
+  selectedIds: number[],
+  preview: { x: number; y: number } | null,
+  background?: string,
+  inkAnchors?: Array<{ id: number; index: number }>,
+  showAnchors?: boolean,
+  extras?: RenderState['objExtras'],
+): void {
+  const sel = new Set(selectedIds)
+  const picked = new Set((inkAnchors ?? []).map((a) => `${a.id}:${a.index}`))
+  for (const it of items) {
+    const off = preview && sel.has(it.id) ? preview : { x: 0, y: 0 }
+    const pts = it.points.map((p) => ({
+      ...p,
+      x: p.x + off.x,
+      y: p.y + off.y,
+      inX: p.inX != null ? p.inX + off.x : undefined,
+      inY: p.inY != null ? p.inY + off.y : undefined,
+      outX: p.outX != null ? p.outX + off.x : undefined,
+      outY: p.outY != null ? p.outY + off.y : undefined,
+    }))
+    const extra = extras?.[it.id]
+    ctx.save()
+    if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
+    if (it.kind === 'text') {
+      drawInkText(ctx, vp, it, pts[0] ?? { x: 0, y: 0 }, background ?? '#ffffff')
+    } else {
+      const sw = it.kind === 'brush' && it.fill && it.closed ? it.strokeWidth : it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+      const vis = visibleOnStage({ fill: it.fill ?? 'transparent', stroke: it.stroke, strokeWidth: sw }, background ?? '#ffffff')
+      drawPolyline(ctx, vp, pts, vis.stroke, vis.strokeWidth, it.fill, it.closed, {
+        dash: it.strokeDash,
+        cap: it.lineCap,
+        join: it.lineJoin,
+      })
+      const im = getFillImage(extra?.fillImage)
+      if (im && it.closed && pts.length >= 3) {
+        const b = { x: Math.min(...pts.map((p) => p.x)), y: Math.min(...pts.map((p) => p.y)), w: 0, h: 0 }
+        b.w = Math.max(...pts.map((p) => p.x)) - b.x
+        b.h = Math.max(...pts.map((p) => p.y)) - b.y
+        const tl = docToScreen(vp, b.x, b.y)
+        ctx.save()
+        ctx.beginPath()
+        const a0 = docToScreen(vp, pts[0].x, pts[0].y)
+        ctx.moveTo(a0.x, a0.y)
+        for (let i = 1; i < pts.length; i++) {
+          const q = docToScreen(vp, pts[i].x, pts[i].y)
+          ctx.lineTo(q.x, q.y)
+        }
+        ctx.closePath()
+        ctx.clip()
+        ctx.drawImage(im, tl.x, tl.y, Math.max(1, b.w * vp.zoom), Math.max(1, b.h * vp.zoom))
+        ctx.restore()
+      }
+    }
+    ctx.restore()
+    if (it.kind !== 'text' && (sel.has(it.id) || showAnchors)) {
+      pts.forEach((p, i) => {
+        const hot = picked.has(`${it.id}:${i}`)
+        const s = docToScreen(vp, p.x, p.y)
+        if (hot && (p.inX != null || p.outX != null)) {
+          ctx.strokeStyle = '#c9a227'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (p.inX != null && p.inY != null) {
+            const h = docToScreen(vp, p.inX, p.inY)
+            ctx.moveTo(s.x, s.y)
+            ctx.lineTo(h.x, h.y)
+            ctx.fillStyle = '#c9a227'
+            ctx.fillRect(h.x - 3, h.y - 3, 6, 6)
+          }
+          if (p.outX != null && p.outY != null) {
+            const h = docToScreen(vp, p.outX, p.outY)
+            ctx.moveTo(s.x, s.y)
+            ctx.lineTo(h.x, h.y)
+            ctx.fillStyle = '#c9a227'
+            ctx.fillRect(h.x - 3, h.y - 3, 6, 6)
+          }
+          ctx.stroke()
+        }
+        ctx.fillStyle = hot ? '#0a7cff' : '#ffffff'
+        ctx.strokeStyle = SELECTION_STROKE
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.rect(s.x - 3.5, s.y - 3.5, 7, 7)
+        ctx.fill()
+        ctx.stroke()
+      })
+    }
+  }
+}
+
+function drawInkText(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  it: InkItem,
+  origin: InkPt,
+  background: string,
+): void {
+  const z = vp.zoom
+  const size = Math.max(1, (it.fontSize ?? 18) * z)
+  const local = textLocalBox({ ...it, points: [origin], rotation: 0, scaleX: 1, scaleY: 1 })
+  const ox = (local.x + local.w / 2 - origin.x) * z
+  const oy = (local.y + local.h / 2 - origin.y) * z
+  const p = docToScreen(vp, origin.x, origin.y)
+  ctx.save()
+  ctx.translate(p.x, p.y)
+  ctx.translate(ox, oy)
+  const rot = it.rotation ?? 0
+  if (rot) ctx.rotate((rot * Math.PI) / 180)
+  const sx = it.scaleX ?? 1
+  const sy = it.scaleY ?? 1
+  if (sx !== 1 || sy !== 1) ctx.scale(sx, sy)
+  ctx.translate(-ox, -oy)
+  ctx.fillStyle = contrastOn(it.fill, background)
+  const fam = it.fontFamily || 'system-ui, sans-serif'
+  const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
+  const italic = it.fontItalic ? 'italic' : 'normal'
+  ctx.font = `${italic} ${weight} ${size}px ${fam}`
+  ctx.textAlign = it.textAlign === 'center' || it.textAlign === 'right' ? it.textAlign : 'left'
+  ctx.textBaseline = 'alphabetic'
+  if (it.letterSpacing) {
+    try {
+      ;(ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${(it.letterSpacing ?? 0) * z}px`
+    } catch {
+      /* ignore */
+    }
+  }
+  const lines = (it.text || '').split('\n')
+  const lh = size * 1.25
+  lines.forEach((line, i) => {
+    const y = i * lh
+    ctx.fillText(line, 0, y)
+    if (it.fontUnderline) {
+      const w = ctx.measureText(line).width
+      let x0 = 0
+      if (it.textAlign === 'center') x0 = -w / 2
+      if (it.textAlign === 'right') x0 = -w
+      ctx.strokeStyle = ctx.fillStyle as string
+      ctx.lineWidth = Math.max(1, size / 16)
+      ctx.beginPath()
+      ctx.moveTo(x0, y + 2)
+      ctx.lineTo(x0 + w, y + 2)
+      ctx.stroke()
+    }
+  })
+  ctx.restore()
+}
+
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {
   const p = docToScreen(vp, m.x, m.y)
   ctx.strokeStyle = SELECTION_STROKE
@@ -386,6 +761,9 @@ function drawOverlay(ctx: CanvasRenderingContext2D, vp: Viewport, o: NonNullable
     ctx.stroke()
     ctx.setLineDash([])
   }
+
+  // Selection tool: dashed box only (Adobe black arrow). Handles are Free Transform.
+  if (o.handles.length === 0) return
 
   // rotate connector line
   const center = docToScreen(vp, o.center.x, o.center.y)

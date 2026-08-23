@@ -285,7 +285,16 @@ export function __resetFsaHandlesForTests(): void {
   fsaSeq = 1
 }
 
-function browserName(current: string): string | null {
+type NamePicker = (suggested: string) => Promise<string | null>
+let saveNamePicker: NamePicker | null = null
+
+/** App registers a Save As dialog so browser Save never uses window.prompt. */
+export function registerSaveNamePicker(fn: NamePicker | null): void {
+  saveNamePicker = fn
+}
+
+async function browserName(current: string): Promise<string | null> {
+  if (saveNamePicker) return saveNamePicker(current || 'kineora-project')
   const name = window.prompt('Save as (filename):', current || 'kineora-project')
   return name ? nameWithoutExt(name) : null
 }
@@ -315,17 +324,28 @@ const browserAdapter: PlatformAdapter = {
       const input = document.createElement('input')
       input.type = 'file'
       input.accept = '.json,application/json'
+      let settled = false
+      const finish = (v: OpenResult | null) => {
+        if (settled) return
+        settled = true
+        window.removeEventListener('focus', onFocus)
+        resolve(v)
+      }
+      const onFocus = () => {
+        window.setTimeout(() => {
+          if (!input.files || input.files.length === 0) finish(null)
+        }, 400)
+      }
       input.onchange = () => {
         const file = input.files?.[0]
-        if (!file) return resolve(null)
+        if (!file) return finish(null)
         const reader = new FileReader()
         reader.onload = () =>
-          resolve({ path: '', name: nameWithoutExt(file.name || 'project'), content: String(reader.result) })
-        reader.onerror = () => resolve(null)
+          finish({ path: '', name: nameWithoutExt(file.name || 'project'), content: String(reader.result) })
+        reader.onerror = () => finish(null)
         reader.readAsText(file)
       }
-      // Note: cancelling the native picker leaves the promise pending — the
-      // caller simply never proceeds (equivalent to "cancel → no change").
+      window.addEventListener('focus', onFocus)
       input.click()
     })
   },
@@ -342,10 +362,12 @@ const browserAdapter: PlatformAdapter = {
         const token = await rememberFsaHandle(handle)
         return { path: token, name: nameWithoutExt(handle.name) }
       } catch (e) {
-        return (e as DOMException)?.name === 'AbortError' ? 'cancelled' : 'failed'
+        if ((e as DOMException)?.name !== 'AbortError') return 'failed'
+        // Picker blocked (iframe) or user dismissed — fall through to the
+        // in-app name dialog so Save never silently does nothing.
       }
     }
-    const name = browserName(suggestedName)
+    const name = await browserName(suggestedName)
     if (name === null) return 'cancelled'
     try {
       downloadBlob(`${name}.json`, content, 'application/json')

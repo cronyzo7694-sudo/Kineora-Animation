@@ -41,6 +41,7 @@ export const menus: MenuDef[] = [
       sep,
       { type: 'command', id: 'file.save' },
       { type: 'command', id: 'file.saveAs' },
+      { type: 'command', id: 'file.autoSave' },
       { type: 'command', id: 'file.saveAsTemplate' },
       sep,
       {
@@ -135,6 +136,7 @@ export const menus: MenuDef[] = [
       { type: 'command', id: 'view.zoomOut' },
       { type: 'command', id: 'view.zoom100' },
       { type: 'command', id: 'view.zoomFit' },
+      { type: 'command', id: 'view.zoomGear' },
       sep,
       {
         type: 'submenu',

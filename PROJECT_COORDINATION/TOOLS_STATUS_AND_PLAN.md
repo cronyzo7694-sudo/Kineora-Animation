@@ -20,6 +20,14 @@
 | Zoom | Z | **WORKING** | click = in, Alt+click = out, **drag a rectangle = that area fills the window**, Esc cancels, Enlarge/Reduce modifier in the options area, 8 %–2000 % like Animate | Stage.test.tsx, viewport.test.ts |
 | Tools-panel colors area | — | **WORKING** | Fill + Stroke swatches, No-colour, swap, reset-to-default, stroke width — app state, never undoable | toolColors.test.ts, ToolColors.test.tsx |
 | Tools-panel options area | — | **WORKING** (Zoom only) | shows only real modifiers; empty for tools that have none | ToolOptions.test.tsx |
+| Line | N | **WORKING** (ink store) | two-point stroke, Shift constrains axis; select/move/delete/undo | Stage.test.tsx, inkStore.test.ts |
+| Pencil | Y | **WORKING** (ink store) | freehand polyline, simplified on commit | Stage.test.tsx |
+| Brush | B | **WORKING** (ink store) | freehand thick stroke | Stage.test.tsx |
+| Pen | P | **WORKING** (ink store) | click anchors, Enter/double-click finish, click-first closes, Esc cancel | Stage.test.tsx |
+| Text | T | **WORKING** (ink store) | click → prompt → place fill-colored text | inkStore |
+| Eraser | E | **WORKING** (object erase) | drag deletes ink strokes + engine objects under the stroke | inkStore |
+| Lasso | L | **WORKING** | freeform polygon selects ink + AABB-selects engine objects | inkStore |
+| Subselection | A | **WORKING** (ink) | click a path then drag its anchors | inkStore |
 
 **Adobe sources:** *Use the Stage and Tools panel for Animate* (Hand/Zoom/tool
 panel areas, 8 %–2000 %, Spacebar override, zoom-marquee) and *Strokes, fills,

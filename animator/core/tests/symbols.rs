@@ -187,6 +187,29 @@ fn convert_empty_selection_is_a_noop() {
 // ——— New / Place / Rename / Delete / Swap ———
 
 #[test]
+fn import_symbols_from_copies_content_and_is_undoable() {
+    let mut src = session();
+    let a = src.draw_rect(0.0, 0.0, 40.0, 40.0, "#abcdef");
+    src.selection = vec![a];
+    src.convert_selection_to_symbol("hero", SymbolType::Graphic, 4);
+    assert_eq!(src.doc.library.len(), 1);
+
+    let mut dest = session();
+    dest.new_symbol("hero", SymbolType::Graphic); // name collision
+    let ids = dest.import_symbols_from(&src.doc, &[src.doc.library[0].id]);
+    assert_eq!(ids.len(), 1);
+    assert_eq!(dest.doc.library.len(), 2);
+    let imported = dest.doc.library.iter().find(|s| s.id == ids[0]).unwrap();
+    assert_eq!(imported.name, "hero copy");
+    assert_eq!(imported.timeline[0].content_at(1).len(), 1);
+    dest.place_symbol(ids[0], 10.0, 10.0);
+    assert!(dest.evaluate(1).iter().any(|it| it.fill == "#abcdef"));
+    dest.undo(); // place
+    dest.undo(); // import
+    assert_eq!(dest.doc.library.len(), 1);
+}
+
+#[test]
 fn new_symbol_creates_empty_symbol_and_place_instantiates() {
     let mut s = session();
     let sid = s.new_symbol("empty", SymbolType::Graphic);

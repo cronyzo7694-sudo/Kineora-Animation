@@ -30,6 +30,7 @@ vi.mock('./engine/client', () => clientMock)
 vi.mock('./engine/actions', () => ({ downloadBlob: vi.fn() }))
 
 import { bus } from './bus'
+import { registerSaveNamePicker } from './platform'
 import {
   addRecent,
   createDocument,
@@ -41,10 +42,13 @@ import {
   openFromRecent,
   saveDocument,
   saveTemplate,
+  __resetDocPathsForTests,
 } from './file'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  registerSaveNamePicker(null)
+  __resetDocPathsForTests()
   try {
     localStorage.removeItem('kineora.recentFiles')
     localStorage.removeItem('kineora.templates')
@@ -56,6 +60,8 @@ beforeEach(() => {
 describe('SYS-02 file — identity + New', () => {
   it('isTitled distinguishes Untitled-N from a real name', () => {
     expect(isTitled('Untitled-1')).toBe(false)
+    expect(isTitled('Untitled')).toBe(false)
+    expect(isTitled('')).toBe(false)
     expect(isTitled('my-project')).toBe(true)
   })
 

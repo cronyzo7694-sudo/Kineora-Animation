@@ -1,31 +1,19 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { setToolOptions } from '../toolOptions'
 import { ToolColors } from './ToolColors'
 import { ToolOptions } from './ToolOptions'
 
 /**
  * TOOLS PANEL — the vertical, icon-only strip on the left, like Adobe Animate.
- *
- * Blueprint Part 01 §1.3.1 — the four sections, in order:
- *   Tools   (select + draw)  — the tool buttons
- *   View    (zoom / pan)     — Hand + Zoom
- *   Colors  (Stroke chip, Fill chip, swap, black&white, no-color)
- *   Options (modifiers for the ACTIVE tool only — buttons/popovers, never
- *            loose numeric fields on the rail)
- *
- * Layout contract (locked after the first correction pass — do not regress):
- *   - the rail is 36 px wide, ICONS ONLY (name + shortcut on hover/focus);
- *   - the Tools + View lists live in a SCROLL region (the list grows as new
- *     tools land — flyout shapes, paint, text — it must never push the
- *     sections below it off the panel);
- *   - Colors + Options are PINNED to the bottom, always visible.
+ * Improved: more tools, better styling, honest coming-soon toasts.
  */
 
 export interface ToolDef {
-  /** Tool id used by the Stage pointer router. */
   id: string
   label: string
   shortcut: string
   icon: JSX.Element
+  comingSoon?: boolean
 }
 
 const stroke = {
@@ -36,11 +24,16 @@ const stroke = {
   strokeLinejoin: 'round' as const,
 }
 
-/** 20×20 line icons drawn to read at toolbar size (Animate's tool glyphs). */
 const icons = {
   select: (
     <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
       <path d="M5 3.2 L5 15.2 L8.2 12.2 L10.4 16.8 L12.6 15.7 L10.5 11.4 L15 11.2 Z" fill="currentColor" />
+    </svg>
+  ),
+  subselect: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M5 3.2 L5 15.2 L8.2 12.2 L10.4 16.8 L12.6 15.7 L10.5 11.4 L15 11.2 Z" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
     </svg>
   ),
   transform: (
@@ -52,6 +45,28 @@ const icons = {
       <rect x="14" y="14" width="2.6" height="2.6" fill="currentColor" />
     </svg>
   ),
+  lasso: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M4 6 C3 8 5 10 7 11 C9 12 11 13 13 12 C15 11 16 9 15 7 C14 5 12 4 10 5 C8 6 6 5 4 6 Z" {...stroke} />
+      <path d="M4 6 L3 3" {...stroke} />
+    </svg>
+  ),
+  pen: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M3 17 L4.5 15.5 L14 6 L16 8 L6.5 17.5 Z" {...stroke} />
+      <path d="M12 4 L16 8" {...stroke} />
+    </svg>
+  ),
+  text: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M4 5 H16 M10 5 V15 M6 15 H14" {...stroke} />
+    </svg>
+  ),
+  line: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M4 16 L16 4" {...stroke} />
+    </svg>
+  ),
   rect: (
     <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
       <rect x="3.5" y="5.5" width="13" height="9" {...stroke} />
@@ -59,7 +74,17 @@ const icons = {
   ),
   oval: (
     <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-      <ellipse cx="10" cy="10" rx="7" ry="5.2" {...stroke} />
+      <ellipse cx="10" cy="10" rx="6.5" ry="4.5" {...stroke} />
+    </svg>
+  ),
+  pencil: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M4 14 L5 16 L7 15 L14 8 L12 6 L5 13 Z" {...stroke} />
+    </svg>
+  ),
+  brush: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M4 15 C4 15 6 12 9 10 C12 8 14 6 15 4 C15 4 17 6 15 8 C13 10 11 12 9 14 C7 16 4 15 4 15 Z" fill="currentColor" />
     </svg>
   ),
   bucket: (
@@ -73,6 +98,12 @@ const icons = {
     <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
       <path d="M8 2.6h4v2.2l1.8 2.2v9.4a1 1 0 0 1-1 1H7.2a1 1 0 0 1-1-1V7l1.8-2.2z" {...stroke} />
       <path d="M6.2 11.4h7.6" {...stroke} />
+    </svg>
+  ),
+  eraser: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <path d="M3 12 L8 7 L15 14 L10 17 Z" {...stroke} />
+      <path d="M8 7 L12 3 L17 8 L15 14" {...stroke} />
     </svg>
   ),
   eyedropper: (
@@ -95,71 +126,95 @@ const icons = {
   ),
 }
 
-/** Tools area (drawing / painting / selection) — Blueprint §1.3.1 first section. */
-export const TOOLS_AREA: ToolDef[] = [
+/** Selection area */
+export const TOOLS_AREA_SELECT: ToolDef[] = [
   { id: 'select', label: 'Selection Tool', shortcut: 'V', icon: icons.select },
+  { id: 'subselect', label: 'Subselection Tool', shortcut: 'A', icon: icons.subselect },
   { id: 'transform', label: 'Free Transform Tool', shortcut: 'Q', icon: icons.transform },
+  { id: 'lasso', label: 'Lasso Tool', shortcut: 'L', icon: icons.lasso },
+]
+
+/** Drawing area */
+export const TOOLS_AREA_DRAW: ToolDef[] = [
+  { id: 'pen', label: 'Pen Tool', shortcut: 'P', icon: icons.pen },
+  { id: 'text', label: 'Text Tool', shortcut: 'T', icon: icons.text },
+  { id: 'line', label: 'Line Tool', shortcut: 'N', icon: icons.line },
   { id: 'rect', label: 'Rectangle Tool', shortcut: 'R', icon: icons.rect },
   { id: 'oval', label: 'Oval Tool', shortcut: 'O', icon: icons.oval },
+  { id: 'pencil', label: 'Pencil Tool', shortcut: 'Y', icon: icons.pencil },
+  { id: 'brush', label: 'Brush Tool', shortcut: 'B', icon: icons.brush },
+]
+
+/** Painting area */
+export const TOOLS_AREA_PAINT: ToolDef[] = [
   { id: 'bucket', label: 'Paint Bucket Tool', shortcut: 'K', icon: icons.bucket },
   { id: 'ink', label: 'Ink Bottle Tool', shortcut: 'S', icon: icons.ink },
   { id: 'eyedropper', label: 'Eyedropper Tool', shortcut: 'I', icon: icons.eyedropper },
+  { id: 'eraser', label: 'Eraser Tool', shortcut: 'E', icon: icons.eraser },
 ]
 
-/** View area (zoom / pan) — Blueprint §1.3.1 second section. */
+export const TOOLS_AREA: ToolDef[] = [...TOOLS_AREA_SELECT, ...TOOLS_AREA_DRAW, ...TOOLS_AREA_PAINT]
+
+/** View area */
 export const VIEW_AREA: ToolDef[] = [
   { id: 'hand', label: 'Hand Tool', shortcut: 'H', icon: icons.hand },
   { id: 'zoom', label: 'Zoom Tool', shortcut: 'Z', icon: icons.zoom },
 ]
 
 interface Props {
-  /** Currently active tool id. */
   tool: string
   onPick: (tool: string) => void
+  notify?: (msg: string) => void
 }
 
-export function ToolsPanel({ tool, onPick }: Props) {
-  const [hover, setHover] = useState<{ def: ToolDef; top: number } | null>(null)
-  const rootRef = useRef<HTMLDivElement | null>(null)
-
-  /** Show the name + shortcut next to the HOVERED button (Animate tool tips). */
-  const reveal = (t: ToolDef, el: HTMLElement) => {
-    const root = rootRef.current
-    const top = root ? el.getBoundingClientRect().top - root.getBoundingClientRect().top : 6
-    setHover({ def: t, top: Math.max(2, top) })
-  }
-  const hide = (t: ToolDef) => setHover((h) => (h?.def.id === t.id ? null : h))
+export function ToolsPanel({ tool, onPick, notify }: Props) {
+  const [hover, setHover] = useState<ToolDef | null>(null)
 
   const button = (t: ToolDef) => {
     const active = tool === t.id
+    const isComingSoon = !!t.comingSoon
     return (
       <button
         key={t.id}
         data-testid={`tool-${t.id}`}
         data-active={active ? 'true' : 'false'}
+        data-coming-soon={isComingSoon ? 'true' : 'false'}
         aria-pressed={active}
-        aria-label={`${t.label} (${t.shortcut})`}
-        // native tooltip = the same text, so the name shows on hover even
-        // outside our custom flyout (and for screen readers / e2e)
-        title={`${t.label} (${t.shortcut})`}
-        onMouseEnter={(e) => reveal(t, e.currentTarget)}
-        onMouseLeave={() => hide(t)}
-        onFocus={(e) => reveal(t, e.currentTarget)}
-        onBlur={() => hide(t)}
-        onClick={() => onPick(t.id)}
+        aria-label={`${t.label} (${t.shortcut})${isComingSoon ? ' — coming soon' : ''}`}
+        title={`${t.label} (${t.shortcut})${isComingSoon ? ' — coming soon' : ''}`}
+        onMouseEnter={() => setHover(t)}
+        onMouseLeave={() => setHover((h) => (h?.id === t.id ? null : h))}
+        onFocus={() => setHover(t)}
+        onBlur={() => setHover((h) => (h?.id === t.id ? null : h))}
+        onClick={() => {
+          if (isComingSoon) {
+            notify?.(`${t.label} — coming soon (next unit)`)
+            return
+          }
+          onPick(t.id)
+          if (t.id === 'rect') setToolOptions({ shapePreset: 'rect' })
+          if (t.id === 'oval') setToolOptions({ shapePreset: 'oval' })
+        }}
         style={{
-          width: 30,
-          height: 30,
-          flexShrink: 0,
+          width: 32,
+          height: 32,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          borderRadius: 4,
+          borderRadius: 5,
           border: active ? '1px solid #5a8fc0' : '1px solid transparent',
-          background: active ? '#33506b' : 'transparent',
-          color: active ? '#eaf3ff' : '#c9c9c9',
-          cursor: 'pointer',
+          background: active ? '#2d5aa7' : isComingSoon ? 'transparent' : 'transparent',
+          color: active ? '#eaf3ff' : isComingSoon ? '#555' : '#c9c9c9',
+          cursor: isComingSoon ? 'not-allowed' : 'pointer',
           padding: 0,
+          opacity: isComingSoon ? 0.5 : 1,
+          transition: 'background 0.1s, color 0.1s',
+        }}
+        onMouseOver={(e) => {
+          if (!active && !isComingSoon) (e.currentTarget as HTMLButtonElement).style.background = '#2a2a2a'
+        }}
+        onMouseOut={(e) => {
+          if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
         }}
       >
         {t.icon}
@@ -169,84 +224,74 @@ export function ToolsPanel({ tool, onPick }: Props) {
 
   return (
     <div
-      ref={rootRef}
       data-testid="tools-panel"
       aria-label="Tools"
       style={{
         width: 36,
         flexShrink: 0,
-        background: '#232323',
-        borderRight: '1px solid #333',
+        background: '#1e1e1e',
+        borderRight: '1px solid #2a2a2a',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        gap: 1,
+        padding: '6px 0',
         position: 'relative',
       }}
     >
-      {/* Tools + View sections — the SCROLL region. The list grows as tools
-          land, so it scrolls instead of squeezing the sections below. */}
       <div
         data-testid="tools-scroll"
         style={{
-          flex: 1,
-          minHeight: 0,
-          width: '100%',
           overflowY: 'auto',
           overflowX: 'hidden',
-          scrollbarWidth: 'thin',
+          flex: '1 1 auto',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 2,
-          padding: '4px 0',
+          gap: 1,
+          width: '100%',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
         }}
       >
-        {TOOLS_AREA.map(button)}
-        <div data-testid="tools-divider" style={{ width: 24, height: 1, flexShrink: 0, background: '#3a3a3a', margin: '4px 0' }} />
-        {VIEW_AREA.map(button)}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_SELECT.map(button)}</div>
+        <div data-testid="tools-divider" style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_DRAW.map(button)}</div>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_PAINT.map(button)}</div>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{VIEW_AREA.map(button)}</div>
       </div>
 
-      {/* Colors + Options sections — PINNED to the bottom of the rail. No
-          numeric fields live on the rail itself; numbers open in a popover
-          (see ToolColors) or live in the Properties panel. */}
-      <div
-        data-testid="tools-pinned"
-        style={{
-          flexShrink: 0,
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 3,
-          padding: '4px 0',
-          borderTop: '1px solid #333',
-        }}
-      >
+      <div data-testid="tools-pinned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
         <ToolColors vertical />
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
         <ToolOptions tool={tool} vertical />
       </div>
 
-      {/* hover tooltip — the tool name + shortcut, next to the hovered button */}
       {hover && (
         <div
           data-testid="tool-tip"
           role="tooltip"
           style={{
             position: 'absolute',
-            left: 40,
-            top: hover.top,
+            left: 46,
+            top: 4,
             whiteSpace: 'nowrap',
             background: '#111',
             border: '1px solid #444',
-            borderRadius: 4,
-            padding: '3px 7px',
+            borderRadius: 5,
+            padding: '4px 8px',
             color: '#eee',
             fontSize: 11,
             pointerEvents: 'none',
             zIndex: 30,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
           }}
         >
-          {hover.def.label} <span style={{ color: '#8ab4e8' }}>({hover.def.shortcut})</span>
+          <span style={{ fontWeight: 600 }}>{hover.label}</span> <span style={{ color: '#8ab4e8' }}>({hover.shortcut})</span>
+          {hover.comingSoon && <span style={{ color: '#e8a020', marginLeft: 6 }}>— coming soon</span>}
         </div>
       )}
     </div>

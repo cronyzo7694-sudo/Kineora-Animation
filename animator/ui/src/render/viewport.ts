@@ -20,6 +20,20 @@ export function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
 }
 
+/** One click / one wheel tick — ~10%, not a 2× jump. */
+export const ZOOM_STEP_FINE = 1.1
+
+/** Log-scale slider 0..100 ↔ zoom (8% … 2000%). */
+export function zoomToSlider(z: number): number {
+  const t = Math.log(clampZoom(z) / MIN_ZOOM) / Math.log(MAX_ZOOM / MIN_ZOOM)
+  return Math.round(Math.max(0, Math.min(100, t * 100)))
+}
+
+export function sliderToZoom(s: number): number {
+  const t = Math.max(0, Math.min(100, s)) / 100
+  return clampZoom(MIN_ZOOM * (MAX_ZOOM / MIN_ZOOM) ** t)
+}
+
 export function createViewport(): Viewport {
   return { zoom: 1, panX: 0, panY: 0 }
 }
@@ -73,9 +87,13 @@ export function fitViewport(docW: number, docH: number, viewW: number, viewH: nu
 
 /** Zoom around a screen-space anchor point (keeps that point fixed on screen). */
 export function zoomAt(vp: Viewport, anchorX: number, anchorY: number, factor: number): Viewport {
-  const z = clampZoom(vp.zoom * factor)
+  return setZoomAt(vp, anchorX, anchorY, vp.zoom * factor)
+}
+
+/** Set an absolute zoom, keeping a screen-space anchor fixed. */
+export function setZoomAt(vp: Viewport, anchorX: number, anchorY: number, nextZoom: number): Viewport {
+  const z = clampZoom(nextZoom)
   const doc = screenToDoc(vp, anchorX, anchorY)
-  // keep anchor fixed: screen = doc*newZ + newPan  ⇒  newPan = screen - doc*newZ
   return { zoom: z, panX: anchorX - doc.x * z, panY: anchorY - doc.y * z }
 }
 

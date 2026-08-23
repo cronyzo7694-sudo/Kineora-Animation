@@ -4,7 +4,7 @@ import { getCommand } from './commands'
 import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
-import { adoptDocPathForRecovery, docPath, listRecent, openDocument, saveDocument } from './file'
+import { adoptDocPathForRecovery, docPath, findDocByPath, isShownDirty, listRecent, openDocument, saveDocument } from './file'
 import {
   acceptRecovery,
   checkRecovery,
@@ -15,6 +15,8 @@ import {
 } from './autosave'
 import { RecoveryDialog } from './components/RecoveryDialog'
 import { platform, type Identity, type ShellStatus } from './platform'
+import * as platformApi from './platform'
+import { SaveAsDialog } from './components/SaveAsDialog'
 import { bus } from './bus'
 import { outputInfo, outputWarn, outputError } from './outputLog'
 import {
@@ -61,6 +63,7 @@ import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { AboutDialog } from './components/AboutDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { DocumentSettingsDialog } from './components/DocumentSettingsDialog'
+import { PreferencesDialog } from './components/PreferencesDialog'
 import { GoToFrameDialog } from './components/GoToFrameDialog'
 import { EditBar } from './components/EditBar'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
@@ -84,6 +87,7 @@ const AUTOSAVE_DEPS: AutosaveDeps = {
       .filter((r): r is typeof r & { path: string } => typeof r.path === 'string' && r.path !== '')
       .map((r) => ({ title: r.title, path: r.path })),
   adoptDocPath: (docId, path) => adoptDocPathForRecovery(docId, path),
+  findOpenByPath: (path) => findDocByPath(path),
 }
 
 export default function App() {
@@ -101,11 +105,13 @@ export default function App() {
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [exportIntent, setExportIntent] = useState<'image' | 'video' | 'sequence'>('image')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [help, setHelp] = useState<{ open: boolean; section: 'docs' | 'troubleshoot' }>({ open: false, section: 'docs' })
   const [docSettingsOpen, setDocSettingsOpen] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const [gotoOpen, setGotoOpen] = useState(false)
   const [findReplaceOpen, setFindReplaceOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
@@ -117,6 +123,7 @@ export default function App() {
   const [newOpen, setNewOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
+  const [saveAsDlg, setSaveAsDlg] = useState<{ suggested: string; resolve: (n: string | null) => void } | null>(null)
   const [closeReq, setCloseReq] = useState<(CloseConfirmationRequest & { proceed: () => void; dirtyIds: number[] }) | null>(null)
   // H07 §6 — SEQUENTIAL Close All: the per-document guard (one dirty doc at a
   // time). Resolves the in-flight closeAllDocuments() promise.
@@ -140,6 +147,29 @@ export default function App() {
   useEffect(() => {
     layoutRef.current = layout
   }, [layout])
+
+  // Browser Save / Save As: in-app dialog (window.prompt is blocked in iframes).
+  useEffect(() => {
+    try {
+      const register = platformApi.registerSaveNamePicker
+      if (typeof register !== 'function') return
+      register(
+        (suggested) =>
+          new Promise((resolve) => {
+            setSaveAsDlg({ suggested, resolve })
+          }),
+      )
+      return () => {
+        try {
+          register(null)
+        } catch {
+          /* mock platform */
+        }
+      }
+    } catch {
+      /* tests mock platform without this export */
+    }
+  }, [])
 
   // route bus failures to a user-facing toast AND the output console (SYS-10)
   useEffect(() => {
@@ -273,6 +303,18 @@ export default function App() {
   const setTool = (t: string) => {
     setToolState(t)
     bus.emit('tool:changed', { toolId: t })
+    // Adobe: picking a tool always reveals Properties so fill/stroke/size
+    // can be edited immediately.
+    if (!panels.properties) {
+      const next = { ...panels, properties: true }
+      setPanels(next)
+      bus.emit('panel:changed', { id: 'properties', change: 'visibility', visible: true })
+    }
+    if (collapsed.properties) {
+      const next = { ...collapsed, properties: false }
+      setCollapsed(next)
+      bus.emit('panel:changed', { id: 'properties', change: 'collapse', collapsed: false })
+    }
   }
 
   const togglePanel = (id: string) => {
@@ -373,7 +415,7 @@ export default function App() {
   // non-active document — the guard targets THAT document, never the
   // active-by-inference). Guard internals (Save/Discard/Cancel) = H07's.
   const confirmClose = (proceed: () => void, scope: 'active' | 'all' | number = 'active') => {
-    const allDirty = docList().filter((d) => d.dirty).map((d) => d.id)
+    const allDirty = docList().filter((d) => isShownDirty(d.id, d.dirty)).map((d) => d.id)
     let dirtyIds: number[]
     if (typeof scope === 'number') {
       dirtyIds = allDirty.filter((id) => id === scope)
@@ -474,7 +516,7 @@ export default function App() {
   useEffect(() => {
     if (platform.isDesktop()) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      const dirty = docList().some((d) => d.dirty)
+      const dirty = docList().some((d) => isShownDirty(d.id, d.dirty))
       if (dirty) {
         e.preventDefault()
         e.returnValue = ''
@@ -497,8 +539,14 @@ export default function App() {
     setTool,
     togglePanel,
     panels,
-    openExport: () => setExportOpen(true),
+    openExport: (format) => {
+      if (format === 'video' || format === 'movie') setExportIntent('video')
+      else if (format === 'sequence') setExportIntent('sequence')
+      else setExportIntent('image')
+      setExportOpen(true)
+    },
     openDocumentSettings: () => setDocSettingsOpen(true),
+    openPreferences: () => setPrefsOpen(true),
     openShortcuts: () => setShortcutsOpen(true),
     openAbout: () => setAboutOpen(true),
     openSymbolDialog: (mode) => setSymbolDialog({ open: true, mode }),
@@ -533,12 +581,21 @@ export default function App() {
     new Set([
       'tool.select',
       'tool.rect',
+      'tool.oval',
       'tool.transform',
       'tool.hand',
       'tool.zoom',
       'tool.paintBucket',
       'tool.inkBottle',
       'tool.eyedropper',
+      'tool.pen',
+      'tool.pencil',
+      'tool.brush',
+      'tool.eraser',
+      'tool.line',
+      'tool.text',
+      'tool.lasso',
+      'tool.subselect',
       'edit.undo',
       'edit.redo',
       'file.new',
@@ -548,6 +605,8 @@ export default function App() {
       'edit.selectAll',
       'edit.deselectAll',
       'modify.document',
+      'edit.preferences',
+      'file.autoSave',
       'modify.convertSymbol',
       'insert.newSymbol',
       'panel.show',
@@ -663,12 +722,12 @@ export default function App() {
           onSaveNew={() => saveWorkspace('')}
           onReset={resetWorkspace}
         />
-        <span style={{ color: '#8ef', fontSize: 14, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
-        <span style={{ color: '#666', fontSize: 11, margin: '0 12px' }}>v{VERSION}</span>
+        <span style={{ color: '#7eb8ff', fontSize: 12, fontWeight: 700, letterSpacing: 0.8, marginLeft: 10 }}>Kineora</span>
+        <span style={{ color: '#555', fontSize: 10, margin: '0 10px' }}>{VERSION}</span>
         {status && (
           <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {status.doc_title}
-            {status.dirty && <span data-testid="header-dirty-dot" aria-label="unsaved changes" style={{ color: 'var(--kineora-danger)' }}> ●</span>}
+            {isShownDirty(status.doc_id ?? 0, !!status.dirty) && <span data-testid="header-dirty-dot" aria-label="unsaved changes" style={{ color: 'var(--kineora-danger)' }}> ●</span>}
           </span>
         )}
         <button
@@ -676,9 +735,9 @@ export default function App() {
           aria-label="Reset workspace layout"
           title="Reset workspace layout to defaults (Window ▸ Reset Workspace)"
           onClick={resetWorkspace}
-          style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}
+          style={{ padding: 0, width: 22, height: 20, borderRadius: 3, border: '1px solid #3a3a3a', background: '#1e1e1e', color: '#888', cursor: 'pointer', fontSize: 12 }}
         >
-          ⟲ Reset Workspace
+          ⟲
         </button>
       </div>
       {/* Document tabs (SYS-02 multi-document) */}
@@ -730,6 +789,7 @@ export default function App() {
                 <PropertiesPanel
                   width={layout.propsW}
                   status={status}
+                  tool={tool}
                   notify={notify}
                   onPreview={setColorPreview}
                   collapsed={collapsed.properties}
@@ -792,7 +852,13 @@ export default function App() {
       )}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
       <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
-      <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
+      <ExportDialog
+        open={exportOpen}
+        intent={exportIntent}
+        engine={engine}
+        onClose={() => setExportOpen(false)}
+        notify={notify}
+      />
       <SymbolDialog
         open={symbolDialog.open}
         mode={symbolDialog.mode}
@@ -805,6 +871,7 @@ export default function App() {
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} engine={engine} />
       <HelpDialog open={help.open} section={help.section} onClose={() => setHelp((h) => ({ ...h, open: false }))} />
       <DocumentSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} notify={notify} />
+      <PreferencesDialog open={prefsOpen} onClose={() => setPrefsOpen(false)} notify={notify} />
       <GoToFrameDialog
         open={gotoOpen}
         onClose={() => setGotoOpen(false)}
@@ -818,6 +885,18 @@ export default function App() {
       <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} onCreate={(s) => getCommand('file.new')?.run(ctx, s)} />
       <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
       <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
+      <SaveAsDialog
+        open={!!saveAsDlg}
+        suggested={saveAsDlg?.suggested ?? 'kineora-project'}
+        onCancel={() => {
+          saveAsDlg?.resolve(null)
+          setSaveAsDlg(null)
+        }}
+        onConfirm={(name) => {
+          saveAsDlg?.resolve(name)
+          setSaveAsDlg(null)
+        }}
+      />
       <CloseConfirmationDialog request={closeReq} busy={guardBusy} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
       {/* SYS-28 T12–T14 — launch recovery prompt (Accept → T13, Discard → T14) */}
       <RecoveryDialog
@@ -838,9 +917,9 @@ export default function App() {
         }}
         onDiscard={() => {
           if (!recovery) return
-          void discardRecovery(recovery)
+          const c = recovery
           setRecovery(null)
-          notify('autosaved changes discarded')
+          void discardRecovery(c).then(() => notify('autosaved changes discarded'))
         }}
       />
       {/* H07 §6 — sequential Close All guard (one dirty document at a time) */}
@@ -855,7 +934,7 @@ export default function App() {
       {engine.kind === 'ok' && !status && !exited && (
         <div data-testid="no-doc-state" style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
           <div style={{ background: '#1a1a1a', border: '1px solid #3a3a3a', borderRadius: 8, padding: '24px 32px', textAlign: 'center', pointerEvents: 'auto' }}>
-            <div style={{ color: '#8ef', fontSize: 18, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>KINEORA ANIMATION</div>
+            <div style={{ color: '#7eb8ff', fontSize: 16, fontWeight: 700, letterSpacing: 0.6, marginBottom: 4 }}>Kineora</div>
             <div style={{ color: '#777', fontSize: 13, marginBottom: 16 }}>No document open</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: 'var(--kineora-accent-text)', cursor: 'pointer', fontSize: 13 }}>

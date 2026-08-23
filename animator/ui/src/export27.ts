@@ -25,8 +25,8 @@
 // download target is pathless — same honesty rule as SYS-02 Save).
 //
 // Honest scope (recorded, not hidden — see AI-D_REPORT):
-//   • GIF / video (MP4/WebM) / movie stay HANDOFF TOASTS — they need an
-//     encoder pipeline (worker pool, muxing) that this slice does not fake.
+//   • Video / movie = Motion-JPEG AVI (real file, VLC/Chrome/Windows).
+//   • GIF stays a handoff until a dedicated GIF encoder ships.
 //   • Cancellable long-running export jobs (STM-EXPORT) = later increment;
 //     this slice's exports are synchronous over the rect-model and complete
 //     or fail atomically.
@@ -37,7 +37,10 @@
 
 import { bus } from './bus'
 import { downloadBlob } from './engine/actions'
-import { exportSvgScaled, getEngine, getEngineStatus, statusJson } from './engine/client'
+import { evaluate, exportSvgScaled, getEngine, getEngineStatus, statusJson } from './engine/client'
+import { listInk } from './editor/inkStore'
+import { canvasToJpeg, encodeMjpegAvi } from './encodeAvi'
+import { inkToSvg, rasterizeContent } from './render/canvasRenderer'
 
 export interface ExportFile {
   name: string
@@ -92,8 +95,10 @@ export function buildSvgSequence(opts: SequenceOptions): BuildResult {
   const base = opts.baseName.trim() || 'kineora'
   const files: ExportFile[] = []
   for (let f = first; f <= last; f++) {
-    const svg = exportSvgScaled(f, scale)
+    let svg = exportSvgScaled(f, scale)
     if (!svg) return { ok: false, error: `export: engine returned no SVG for frame ${f}` }
+    const ink = inkToSvg(listInk(), st.background ?? '#ffffff')
+    if (ink) svg = svg.replace(/<\/svg>\s*$/i, `${ink}</svg>`)
     files.push({ name: sequenceFrameName(base, f), content: svg, mime: 'image/svg+xml' })
   }
   // eng 14: "Sequence: range (#First/#Last) + sidecar fps"
@@ -194,7 +199,80 @@ export function deliverExport(format: string, result: BuildResult, notify: Notif
   return true
 }
 
-/** `file.publish` engine entry (P-8 default platform = HTML5 Canvas). */
+/** Encode the timeline as a playable Motion-JPEG AVI. */
+export async function exportWebmVideo(
+  opts: { first: number; last: number; scale: number; fps?: number },
+  notify: Notify,
+): Promise<boolean> {
+  if (!engineOk()) {
+    notify('export video: engine not attached')
+    return false
+  }
+  const st = statusJson()
+  if (!st) {
+    notify('export video: no document open')
+    return false
+  }
+  const duration = Math.max(1, st.duration ?? 1)
+  const first = Math.max(1, Math.trunc(opts.first))
+  const last = Math.min(duration, Math.max(first, Math.trunc(opts.last)))
+  if (first > duration) {
+    notify(`export video: first frame ${first} exceeds the timeline (${duration})`)
+    return false
+  }
+  const fps = Math.max(1, Math.min(60, opts.fps ?? st.fps ?? 24))
+  const scale = opts.scale > 0 ? opts.scale : 1
+  const ink = listInk()
+  const jpegs: Uint8Array[] = []
+  let w = 0
+  let h = 0
+  for (let f = first; f <= last; f++) {
+    const canvas = rasterizeContent(
+      {
+        background: st.background ?? '#ffffff',
+        stageW: st.doc_width ?? 1920,
+        stageH: st.doc_height ?? 1080,
+        items: evaluate(f),
+        inkItems: ink,
+      },
+      scale,
+    )
+    if (!canvas) {
+      notify('export video: rasterizer unavailable')
+      return false
+    }
+    w = canvas.width
+    h = canvas.height
+    try {
+      jpegs.push(await canvasToJpeg(canvas, 0.92))
+    } catch {
+      notify('export video: could not encode a frame as JPEG')
+      return false
+    }
+  }
+  let avi: Uint8Array
+  try {
+    avi = encodeMjpegAvi(jpegs, w, h, fps)
+  } catch (e) {
+    notify(`export video: ${e instanceof Error ? e.message : 'mux failed'}`)
+    return false
+  }
+  const name = `${(st.doc_title ?? 'kineora').trim() || 'kineora'}.avi`
+  const blob = new Blob([avi], { type: 'video/x-msvideo' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 2_000)
+  bus.emit('export:done', { format: 'video', path: name })
+  notify(`Exported video "${name}" (${last - first + 1} frames @ ${fps} fps) — check Downloads`)
+  return true
+}
+
 export function publishHtml5(notify: Notify): boolean {
   const st = statusJson()
   const base = (st as { doc_title?: string } | null)?.doc_title?.trim() || 'kineora'

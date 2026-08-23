@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { library, patchTransforms, setDocumentSettings, setInstanceLoop, setNodeProps, swapInstance } from '../engine/client'
+import { SelectionActions } from './SelectionActions'
+import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkStore'
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
+import { SubselectFields, TextFields, ToolInspector, toolLabel } from './ToolInspector'
+import { getObjExtra, setObjExtra, setObjectsLocked, subscribeObjProps, type BlendMode } from '../editor/objectProps'
 
 interface Props {
   status: StatusJson | null
+  /** Active tool — Properties shows its inspector (Adobe-style). */
+  tool?: string
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize); the panel fills the dock column. */
   width?: number
@@ -31,8 +37,12 @@ interface Props {
  * release (blur / picker-close / Enter); Esc cancels. Numeric fields commit on
  * Enter/blur with validation (Part 26.12).
  */
-export function PropertiesPanel({ status, notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
+export function PropertiesPanel({ status, tool = '', notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
   const attached = status !== null
+  const [, setInkTick] = useState(0)
+  useEffect(() => subscribeInk(() => setInkTick((n) => n + 1)), [])
+  useEffect(() => subscribeObjProps(() => setInkTick((n) => n + 1)), [])
+  const inkSel = listInk().filter((it) => selectedInkIds().includes(it.id))
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
   const multi = details.length > 1
@@ -108,12 +118,24 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
   const previewStrokeColor = (c: string | null) => onPreview?.(c === null ? null : single ? { item: { id: single.id, stroke: c } } : null)
   const previewStrokeWidth = (n: number | null) => onPreview?.(n === null ? null : single ? { item: { id: single.id, strokeWidth: n } } : null)
 
-  const contextChip = !attached ? '—' : details.length === 0 ? 'Document' : multi ? `Objects (${details.length})` : 'Object'
+  const contextChip = !attached
+    ? '—'
+    : inkSel.length > 0
+      ? inkSel.length === 1
+        ? `Ink (${inkSel[0].kind})`
+        : `Ink (${inkSel.length})`
+      : details.length === 0
+        ? tool && tool !== 'select'
+          ? toolLabel(tool)
+          : 'Document'
+        : multi
+          ? `Objects (${details.length})`
+          : 'Object'
 
   return (
     <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
       <PanelHeader id="properties" title="Properties" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
-        <span data-testid="props-context" style={{ color: '#8ef', fontSize: 11, background: '#2a2a2a', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
+        <span data-testid="props-context" style={{ color: '#8ab4e8', fontSize: 11, background: '#252525', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
       </PanelHeader>
 
       {!collapsed && (
@@ -122,7 +144,67 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
           <div data-testid="props-empty" style={{ color: '#e66' }}>Properties unavailable — engine not attached.</div>
         )}
 
-        {attached && details.length === 0 && (
+        {attached && inkSel.length > 0 && (
+          <div>
+            <SectionTitle>Ink object</SectionTitle>
+            <div style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 8 }}>{inkSel.length} selected · {inkSel[0].kind}</div>
+            {inkSel.length === 1 && inkSel[0].kind === 'text' && (
+              <>
+                <Field label="Text">
+                  <textarea
+                    data-testid="prop-ink-text"
+                    value={inkSel[0].text ?? ''}
+                    onChange={(e) => updateInk(inkSel[0].id, { text: e.target.value })}
+                    rows={3}
+                    style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+                  />
+                </Field>
+                <ColorField
+                  testId="prop-ink-fill"
+                  label="Color"
+                  value={inkSel[0].fill ?? '#111111'}
+                  onCommit={(c) => updateInk(inkSel[0].id, { fill: c })}
+                />
+                <TextFields
+                  value={{
+                    fontSize: inkSel[0].fontSize,
+                    fontFamily: inkSel[0].fontFamily,
+                    fontWeight: inkSel[0].fontWeight,
+                    fontItalic: inkSel[0].fontItalic,
+                    fontUnderline: inkSel[0].fontUnderline,
+                    textAlign: inkSel[0].textAlign,
+                    letterSpacing: inkSel[0].letterSpacing,
+                  }}
+                  onPatch={(patch) => updateInk(inkSel[0].id, patch)}
+                />
+              </>
+            )}
+            {inkSel.length === 1 && inkSel[0].kind !== 'text' && (
+              <>
+                <ColorField
+                  testId="prop-ink-stroke"
+                  label="Stroke"
+                  value={inkSel[0].stroke ?? '#000000'}
+                  onCommit={(c) => updateInk(inkSel[0].id, { stroke: c })}
+                />
+                <NumberField
+                  testId="prop-ink-width"
+                  label="Width"
+                  value={fmt(inkSel[0].strokeWidth)}
+                  min={0}
+                  onCommit={(n) => updateInk(inkSel[0].id, { strokeWidth: n })}
+                />
+              </>
+            )}
+            <ObjectProtect ids={inkSel.map((it) => it.id)} notify={notify} />
+            <SelectionActions notify={notify} />
+            {tool === 'subselect' && <SubselectFields notify={notify} />}
+          </div>
+        )}
+
+        {attached && !!tool && <ToolInspector tool={tool} notify={notify} />}
+
+        {attached && details.length === 0 && inkSel.length === 0 && (
           <div>
             <SectionTitle>Document</SectionTitle>
             <NumberField testId="doc-width" label="Width" value={status ? fmt(status.doc_width) : ''} min={2} onCommit={(n) => commitDoc({ width: n })} />
@@ -139,9 +221,12 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
                 Mixed selection — common fields only.
               </div>
             )}
+            <ObjectProtect ids={details.map((d) => d.id)} notify={notify} />
             <SectionTitle>Position &amp; Size</SectionTitle>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 8px' }}>
             <NumberField testId="prop-x" label="X" value={sharedX === null ? '' : fmt(sharedX)} onCommit={(n) => commitTransform('x', n)} />
             <NumberField testId="prop-y" label="Y" value={sharedY === null ? '' : fmt(sharedY)} onCommit={(n) => commitTransform('y', n)} />
+            </div>
             {!anyInstance && (
               <>
                 <NumberField testId="prop-w" label="W" value={sharedW === null ? '' : fmt(sharedW)} min={0} onCommit={(n) => commitBase('width', n)} />
@@ -204,6 +289,10 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
               </div>
             )}
 
+            {details.length > 0 && tool !== 'select' && tool !== 'transform' && (
+              <SelectionActions notify={notify} />
+            )}
+
             {single && (
               <>
                 <SectionTitle>Transform</SectionTitle>
@@ -240,6 +329,109 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
       </div>
       )}
     </aside>
+  )
+}
+
+
+function ObjectProtect({ ids, notify }: { ids: number[]; notify: (m: string) => void }) {
+  if (ids.length === 0) return null
+  const first = getObjExtra(ids[0])
+  const locked = ids.every((id) => !!getObjExtra(id).locked)
+  const opacity = first.opacity ?? 100
+  const blend = first.blend ?? 'normal'
+  const name = ids.length === 1 ? (first.name ?? '') : ''
+  return (
+    <div data-testid="obj-protect" style={{ marginBottom: 8 }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, margin: '4px 0 4px', borderBottom: '1px solid #333', paddingBottom: 2 }}>
+        Object
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Lock</span>
+        <input
+          type="checkbox"
+          data-testid="prop-lock"
+          checked={locked}
+          onChange={(e) => {
+            setObjectsLocked(ids, e.target.checked)
+            notify(e.target.checked ? 'object locked — cannot move or edit' : 'object unlocked')
+          }}
+        />
+      </label>
+      {ids.length === 1 && (
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+          <span style={{ color: '#999' }}>Name</span>
+          <input
+            data-testid="prop-obj-name"
+            value={name}
+            onChange={(e) => setObjExtra(ids[0], { name: e.target.value })}
+            style={{ width: 120, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+          />
+        </label>
+      )}
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Opacity %</span>
+        <input
+          data-testid="prop-opacity"
+          type="number"
+          min={0}
+          max={100}
+          value={opacity}
+          onChange={(e) => {
+            const n = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+            for (const id of ids) setObjExtra(id, { opacity: n })
+          }}
+          style={{ width: 64, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+        />
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Blend</span>
+        <select
+          data-testid="prop-blend"
+          value={blend}
+          onChange={(e) => {
+            const b = e.target.value as BlendMode
+            for (const id of ids) setObjExtra(id, { blend: b })
+          }}
+          style={{ width: 120, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+        >
+          <option value="normal">Normal</option>
+          <option value="multiply">Multiply</option>
+          <option value="screen">Screen</option>
+          <option value="overlay">Overlay</option>
+        </select>
+      </label>
+      {ids.length === 1 && (
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+          <span style={{ color: '#999' }}>Image fill</span>
+          <input
+            data-testid="prop-fill-image"
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (!f) return
+              const r = new FileReader()
+              r.onload = () => {
+                setObjExtra(ids[0], { fillImage: String(r.result) })
+                notify('bitmap fill applied')
+              }
+              r.readAsDataURL(f)
+            }}
+            style={{ width: 130, fontSize: 10, color: '#aaa' }}
+          />
+        </label>
+      )}
+      {ids.length === 1 && first.fillImage ? (
+        <button
+          type="button"
+          data-testid="prop-clear-image"
+          onClick={() => setObjExtra(ids[0], { fillImage: null })}
+          style={{ fontSize: 11, background: '#2a2a2a', color: '#ddd', border: '1px solid #555', borderRadius: 3, padding: '2px 6px' }}
+        >
+          Clear image
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -424,6 +616,33 @@ function NumberField({ label, value, onCommit, onPreview, min, max, step, testId
       {error && <div data-testid={`${testId}-error`} style={{ color: '#e66', fontSize: 10, marginLeft: 2 }}>{error}</div>}
     </div>
   )
+}
+
+function toolHint(tool: string): string {
+  switch (tool) {
+    case 'rect':
+    case 'oval':
+      return 'Drag on the Stage to draw. Shift constrains. Fill and stroke below apply to the next shape.'
+    case 'line':
+    case 'pen':
+    case 'pencil':
+    case 'brush':
+      return 'Stroke color and width apply to the next stroke. Pencil/Brush size is in the options below.'
+    case 'text':
+      return 'Click the Stage to place text. Fill color is the text color (never white-on-white).'
+    case 'bucket':
+      return 'Click a fill to paint it with the current Fill color.'
+    case 'ink':
+      return 'Click a stroke to apply the current Stroke color and width.'
+    case 'zoom':
+      return 'Click to zoom, Alt-click to zoom out, or drag a region. Use Enlarge/Reduce below.'
+    case 'hand':
+      return 'Drag the Stage to pan. Spacebar temporarily activates Hand from any tool.'
+    case 'eraser':
+      return 'Drag over objects to erase them. Size cycles in the options below.'
+    default:
+      return 'Select an object on the Stage to edit its position, size, and colors here.'
+  }
 }
 
 function fmt(n: number): string {

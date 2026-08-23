@@ -31,8 +31,8 @@ export function AboutDialog({ open, onClose, engine }: Props) {
   return (
     <div data-testid="about-dialog" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 90 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-label="About Kineora Animation" style={{ width: 380, background: '#1d1d1d', border: '1px solid #3a3a3a', borderRadius: 8, padding: 20, boxShadow: '0 16px 48px rgba(0,0,0,0.6)', textAlign: 'center' }}>
-        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 1, color: '#8ef' }}>KINEORA</div>
-        <div style={{ color: '#bbb', marginTop: 2 }}>Animation</div>
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 0.6, color: '#7eb8ff' }}>Kineora</div>
+        <div style={{ color: '#999', marginTop: 2, fontSize: 13 }}>Animation</div>
         <div style={{ color: '#666', fontSize: 12, marginTop: 8 }}>v{VERSION} — a local-first, 2D vector animation editor</div>
         <div style={{ marginTop: 16, fontSize: 12, color: '#aaa', textAlign: 'left', lineHeight: 1.7 }}>
           <div>Rust + WASM core (animator-core), React/TypeScript UI.</div>

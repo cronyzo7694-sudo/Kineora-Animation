@@ -473,6 +473,23 @@ export function convertToSymbol(name: string, symbolType: string, regGrid: numbe
   return id
 }
 
+/** Copy symbols from another project's JSON into the ACTIVE document. */
+export function importSymbolsFromProject(sourceJson: string, sourceIds: number[]): number[] {
+  if (!mod?.kineora_import_symbols) return []
+  try {
+    const raw = mod.kineora_import_symbols(sourceJson, JSON.stringify(sourceIds))
+    const ids = JSON.parse(raw) as number[]
+    if (Array.isArray(ids) && ids.length > 0) docChanged('symbol')
+    return Array.isArray(ids) ? ids.map((n) => Number(n)).filter((n) => n > 0) : []
+  } catch {
+    return []
+  }
+}
+
+export function hasImportSymbolsFacade(): boolean {
+  return !!mod && typeof mod.kineora_import_symbols === 'function'
+}
+
 export function newSymbol(name: string, symbolType: string): number {
   const id = asNum(mod?.kineora_new_symbol(name, symbolType))
   if (id > 0) docChanged('symbol')
@@ -913,7 +930,7 @@ export function duplicateLayer(index: number): number {
 
 // ——— Object / document properties (Part 26) ———
 
-/** Edit transform fields at the current playhead (one undoable command). */
+/** Edit transform fields at the current playhead (one undoable /** Edit transform fields at the current playhead (one undoable command). */
 export function patchTransforms(patches: TransformPatchJson[]): void {
   if (!mod) return
   mod.kineora_patch_transforms(JSON.stringify(patches))
@@ -991,26 +1008,84 @@ export function duplicateObjects(): boolean {
 }
 
 export function rotateSelection(degrees: number): boolean {
-  const ok = mod?.kineora_rotate_selection?.(degrees) ?? false
-  if (ok) docChanged('transform')
+  let ok = false
+  if (mod?.kineora_rotate_selection) {
+    ok = mod.kineora_rotate_selection(degrees)
+    if (ok) docChanged('transform')
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(details.map((d) => ({ id: d.id, rotation: d.rotation + degrees })))
+      ok = true
+    }
+  }
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk({ rotate: degrees })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
   return ok
 }
 
 export function flipSelection(horizontal: boolean): boolean {
-  const ok = mod?.kineora_flip_selection?.(horizontal) ?? false
-  if (ok) docChanged('transform')
+  let ok = false
+  if (mod?.kineora_flip_selection) {
+    ok = mod.kineora_flip_selection(horizontal)
+    if (ok) docChanged('transform')
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(
+        details.map((d) =>
+          horizontal ? { id: d.id, scale_x: -d.scale_x } : { id: d.id, scale_y: -d.scale_y },
+        ),
+      )
+      ok = true
+    }
+  }
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk(horizontal ? { flipH: true } : { flipV: true })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
   return ok
 }
 
 export function removeTransform(): boolean {
-  const ok = mod?.kineora_remove_transform?.() ?? false
-  if (ok) docChanged('transform')
+  let ok = false
+  if (mod?.kineora_remove_transform) {
+    ok = mod.kineora_remove_transform()
+    if (ok) docChanged('transform')
+  } else {
+    const details = statusJson()?.selection_details ?? []
+    if (details.length > 0) {
+      patchTransforms(details.map((d) => ({ id: d.id, scale_x: 1, scale_y: 1, rotation: 0 })))
+      ok = true
+    }
+  }
+  try {
+    const { selectedInkIds, transformInk } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && transformInk({ reset: true })) ok = true
+  } catch {
+    /* isolated tests may omit ink store */
+  }
   return ok
 }
 
 export function arrangeSelection(op: 'front' | 'forward' | 'back' | 'backward'): boolean {
-  const ok = mod?.kineora_arrange_selection?.(op) ?? false
-  if (ok) docChanged('transform')
+  let ok = false
+  if (mod?.kineora_arrange_selection) {
+    ok = mod.kineora_arrange_selection(op) ?? false
+    if (ok) docChanged('transform')
+  }
+  try {
+    const { arrangeInk, selectedInkIds } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && arrangeInk(selectedInkIds(), op)) ok = true
+  } catch {
+    /* ink store optional in isolated tests */
+  }
   return ok
 }
 

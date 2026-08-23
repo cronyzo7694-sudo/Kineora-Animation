@@ -43,6 +43,9 @@ import {
   statusJson,
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
+import { formatAutosaveInterval, loadAutosavePrefs, toggleAutosaveEnabled } from './autosavePrefs'
+import { deleteInkIds, deleteSelectedAnchors, inkCanRedo, inkCanUndo, selectedAnchors, selectedInkIds } from './editor/inkStore'
+import { anyLocked } from './editor/objectProps'
 import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
   closeActiveDocument,
@@ -53,9 +56,10 @@ import {
   exportHandoff,
   importHandoff,
   openDocument,
-  openExternalLibraryHandoff,
+  openExternalLibrary,
   openFromRecent,
   findDocByPath,
+  findDocByTitle,
   type RecentEntry,
   publishHandoff,
   saveDocument,
@@ -98,8 +102,9 @@ export interface CommandContext {
   setTool: (tool: string) => void
   togglePanel: (id: string) => void
   panels: Record<string, boolean>
-  openExport: () => void
+  openExport: (format?: string) => void
   openDocumentSettings: () => void
+  openPreferences: () => void
   openShortcuts: () => void
   openAbout: () => void
   openSymbolDialog: (mode: 'convert' | 'new') => void
@@ -215,6 +220,10 @@ export const debugViewController: { current: DebugViewController | null } = { cu
 // ---------------------------------------------------------------------------
 function engineOk(ctx: CommandContext): boolean {
   return ctx.engine.kind === 'ok'
+}
+
+function hasStageSelection(c: CommandContext): boolean {
+  return (c.getStatus()?.selection?.length ?? 0) > 0 || selectedInkIds().length > 0
 }
 const NOT_ATTACHED = 'engine not attached — build with `npm run wasm`'
 
@@ -375,6 +384,86 @@ export const commands: Command[] = [
     run: (c) => c.setTool('zoom'),
     toolbar: true,
   },
+  {
+    id: 'tool.pen',
+    label: 'Pen Tool',
+    category: 'tools',
+    shortcut: 'P',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — click anchors, Enter/double-click finish, Esc cancel',
+    run: (c) => c.setTool('pen'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.pencil',
+    label: 'Pencil Tool',
+    category: 'tools',
+    shortcut: 'Y',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — freehand stroke',
+    run: (c) => c.setTool('pencil'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.brush',
+    label: 'Brush Tool',
+    category: 'tools',
+    shortcut: 'B',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — freehand thick stroke',
+    run: (c) => c.setTool('brush'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.eraser',
+    label: 'Eraser Tool',
+    category: 'tools',
+    shortcut: 'E',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — erase objects under the stroke',
+    run: (c) => c.setTool('eraser'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.line',
+    label: 'Line Tool',
+    category: 'tools',
+    shortcut: 'N',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — two-point stroke, Shift constrains',
+    run: (c) => c.setTool('line'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.text',
+    label: 'Text Tool',
+    category: 'tools',
+    shortcut: 'T',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 22 / 29 — click to place text',
+    run: (c) => c.setTool('text'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.lasso',
+    label: 'Lasso Tool',
+    category: 'tools',
+    shortcut: 'L',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 03 — freeform selection',
+    run: (c) => c.setTool('lasso'),
+    toolbar: true,
+  },
+  {
+    id: 'tool.subselect',
+    label: 'Subselection Tool',
+    category: 'tools',
+    shortcut: 'A',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 29 §29.1 — drag path anchors',
+    run: (c) => c.setTool('subselect'),
+    toolbar: true,
+  },
 
   // ——— File (SYS-02 §6.1/§7: 10 REQUIRED + 8 HANDOFF; AIR/Print/Page-Setup = HIDDEN) ———
   {
@@ -432,7 +521,8 @@ export const commands: Command[] = [
         // H06 §6 step 1 — BEFORE the guard: an already-open path activates
         // the existing document (D-AMB-001) — NO guard, NO load, NO open-set
         // change, `activeDoc:changed` only.
-        const existing = entry.path ? findDocByPath(entry.path) : undefined
+        const existing =
+          (entry.path ? findDocByPath(entry.path) : undefined) ?? findDocByTitle(entry.title)
         if (existing !== undefined) {
           switchActiveDocument(existing, c.notify)
           c.notify(`already open — activated "${entry.title}"`)
@@ -455,10 +545,13 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Ctrl+Shift+O',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 → handoff SYS-18',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 / Part 12 §12.2.14 — read-only external library',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => openExternalLibraryHandoff(c.notify),
+    run: (c) => {
+      if (!c.panels.library) c.togglePanel('library')
+      openExternalLibrary(c.notify)
+    },
   },
   {
     id: 'file.close',
@@ -545,6 +638,18 @@ export const commands: Command[] = [
     run: (c) => void saveDocument(c.notify, { saveAs: true }),
   },
   {
+    id: 'file.autoSave',
+    label: 'Auto-Save',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT + ADOBE] Auto-save interval / crash recovery slot (W11) — never overwrites last manual save',
+    checked: () => loadAutosavePrefs().enabled,
+    run: (c) => {
+      const next = toggleAutosaveEnabled()
+      c.notify(next.enabled ? `auto-save: on (${formatAutosaveInterval(next.intervalSec)})` : 'auto-save: off')
+    },
+  },
+  {
     id: 'file.saveAsTemplate',
     label: 'Save as Template…',
     category: 'file',
@@ -593,15 +698,8 @@ export const commands: Command[] = [
     // input: 'image' | 'video' | 'gif' | 'movie' | 'sequence'
     run: (c, input) => {
       const format = typeof input === 'string' ? input : 'image'
-      if (format === 'image') c.openExport()
-      else if (format === 'video') exportHandoff('Video', c.notify)
-      else if (format === 'gif') exportHandoff('Animated GIF', c.notify)
-      else if (format === 'movie') exportHandoff('Movie', c.notify)
-      // SYS-27 slice 1 (INT-AID-003): sequence is now a REAL engine — the
-      // export dialog hosts the range UI (SVG sequence + fps sidecar,
-      // eng 14). Video/GIF/movie remain honest handoff toasts (no fake
-      // encoders).
-      else c.openExport()
+      if (format === 'gif') exportHandoff('Animated GIF', c.notify)
+      else c.openExport(format)
     },
   },
   {
@@ -659,8 +757,8 @@ export const commands: Command[] = [
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
     // C-03: greyed when the undo stack is empty (state-aware).
-    enabled: (c) => engineOk(c) && (c.getStatus()?.undo_len ?? 0) > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'nothing to undo' : NOT_ATTACHED),
+    enabled: (c) => inkCanUndo() || (engineOk(c) && (c.getStatus()?.undo_len ?? 0) > 0),
+    whyDisabled: (c) => (engineOk(c) || inkCanUndo() ? 'nothing to undo' : NOT_ATTACHED),
     run: (c) => performAction('edit.undo', c.notify),
     toolbar: true,
   },
@@ -671,8 +769,8 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+Z',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 29 §29.2',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.redo_len ?? 0) > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'nothing to redo' : NOT_ATTACHED),
+    enabled: (c) => inkCanRedo() || (engineOk(c) && (c.getStatus()?.redo_len ?? 0) > 0),
+    whyDisabled: (c) => (engineOk(c) || inkCanRedo() ? 'nothing to redo' : NOT_ATTACHED),
     run: (c) => performAction('edit.redo', c.notify),
     toolbar: true,
   },
@@ -732,9 +830,26 @@ export const commands: Command[] = [
     shortcut: 'Delete',
     status: 'FUNCTIONAL',
     source: '[SYS-03 H02 §6.5 / AMB-S03-004] edit.delete() — Delete/Backspace; not Clear Frames',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    enabled: (c) =>
+      selectedAnchors().length > 0 ||
+      selectedInkIds().length > 0 ||
+      (engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0),
+    whyDisabled: (c) =>
+      engineOk(c) || selectedInkIds().length || selectedAnchors().length ? 'nothing selected' : NOT_ATTACHED,
     run: (c) => {
+      const ids = [...(c.getStatus()?.selection ?? []), ...selectedInkIds()]
+      if (anyLocked(ids)) {
+        c.notify('locked object — unlock in Properties first')
+        return
+      }
+      if (selectedAnchors().length > 0) {
+        c.notify(deleteSelectedAnchors() ? 'anchor deleted' : 'need at least 2 points on a path')
+        return
+      }
+      if (selectedInkIds().length > 0) {
+        c.notify(deleteInkIds(selectedInkIds()) ? 'delete: done' : 'delete: nothing selected')
+        return
+      }
       if (!engineOk(c)) return c.notify(`delete: ${NOT_ATTACHED}`)
       c.notify(deleteSelection() ? 'delete: done' : 'delete: nothing selected')
     },
@@ -915,10 +1030,9 @@ export const commands: Command[] = [
     label: 'Preferences…',
     category: 'edit',
     shortcut: 'Ctrl+U',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2',
-    reason: 'preferences editor is a future feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2 — Auto-Save prefs (app, not document)',
+    run: (c) => c.openPreferences(),
   },
   {
     id: 'help.shortcuts',
@@ -1082,6 +1196,18 @@ export const commands: Command[] = [
     source: '[BLUEPRINT] Part 20.5 WISH W2 — parent_id is folder nest only',
     reason: 'transform parenting would reuse folder parent_id and corrupt the layer tree',
     run: () => {},
+  },
+  {
+    id: 'view.zoomGear',
+    label: 'Show Zoom Controls',
+    category: 'view',
+    status: 'FUNCTIONAL',
+    source: '[OUR DESIGN DECISION] Stage zoom gear can be hidden',
+    checked: () => loadViewPrefs().zoomGear,
+    run: (c) => {
+      const next = toggleViewFlag('zoomGear')
+      c.notify(next.zoomGear ? 'zoom controls: on' : 'zoom controls: off')
+    },
   },
   {
     id: 'view.workArea',
@@ -1428,7 +1554,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+↑',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('front') ? 'bring to front' : 'arrange: nothing selected'),
   },
@@ -1439,7 +1565,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+↑',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('forward') ? 'bring forward' : 'arrange: nothing selected'),
   },
@@ -1450,7 +1576,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+↓',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('backward') ? 'send backward' : 'arrange: nothing selected'),
   },
@@ -1461,7 +1587,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+↓',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('back') ? 'send to back' : 'arrange: nothing selected'),
   },
@@ -2226,6 +2352,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     panels: {},
     openExport: () => {},
     openDocumentSettings: () => {},
+    openPreferences: () => {},
     openShortcuts: () => {},
     openAbout: () => {},
     openSymbolDialog: () => {},

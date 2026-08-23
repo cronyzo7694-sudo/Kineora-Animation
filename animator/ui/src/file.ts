@@ -10,11 +10,15 @@
 // ============================================================================
 
 import { bus } from './bus'
+import { downloadBlob } from './engine/actions'
 import { platform } from './platform'
 // SYS-28 boundary (H10 §5.1/§5.2 — the handoff seams below call INTO these;
 // SYS-02 still owns every trigger + UI outcome; INV-PERS-1 preserved):
 import { onManualSaveSuccess } from './autosave'
-import { prepareForLoad, stampFormatVersion } from './persist'
+import { openExternalLibraryFromContent } from './externalLibrary'
+import { embedInk, extractInk, prepareForLoad, stampFormatVersion } from './persist'
+import { restoreInk, serializeInk } from './editor/inkStore'
+import { restoreObjExtras, serializeObjExtras } from './editor/objectProps'
 import {
   activeDocId,
   closeDoc,
@@ -73,7 +77,9 @@ function jsonName(title: string): string {
 
 /** Title is "titled" (has a persisted name) iff it isn't an Untitled-N doc. */
 export function isTitled(title: string): boolean {
-  return !title.startsWith('Untitled')
+  const t = title.trim()
+  if (!t) return false
+  return !/^Untitled(-\d+)?$/i.test(t)
 }
 
 /** Display title from a saved path or a browser File-System-Access session token. */
@@ -107,6 +113,8 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
   if (!Number.isFinite(w) || w < 2) return notify('new: width must be ≥ 2')
   if (!Number.isFinite(h) || h < 2) return notify('new: height must be ≥ 2')
   if (!Number.isFinite(f)) return notify('new: frame rate must be 1–120')
+  const prev = activeDocId()
+  if (prev) inkBags.set(prev, serializeInk())
   const id = newDocFull({
     ...settings,
     fps: Math.min(120, Math.max(1, Math.round(f))),
@@ -115,6 +123,11 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
     createdAt: nowSec(),
   })
   if (id === 0) return notify('new: failed to create document')
+  inkBags.set(id, [])
+  objBags.set(id, {})
+  restoreInk([])
+  restoreObjExtras({})
+  rememberInkClean(id)
   // H02 §14 (ST1): open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
@@ -127,6 +140,45 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
 // that path without re-prompting (SYS-02 P-1). Paths are SESSION state (the
 // browser has no path; recent files remain the durable record).
 const docPaths = new Map<number, string>()
+/** Saved display name (Adobe “the file has a name”) — independent of WASM title. */
+const sessionNames = new Map<number, string>()
+const inkBags = new Map<number, ReturnType<typeof serializeInk>>()
+const objBags = new Map<number, ReturnType<typeof serializeObjExtras>>()
+
+function parkActiveInk(): void {
+  const id = activeDocId()
+  if (id) {
+    inkBags.set(id, serializeInk())
+    objBags.set(id, serializeObjExtras())
+  }
+}
+
+function applyDocInk(id: number): void {
+  restoreInk(inkBags.get(id) ?? [])
+  restoreObjExtras(objBags.get(id) ?? {})
+}
+
+function rememberInk(id: number, payload: unknown): void {
+  const items = parseInkPayload(payload)
+  inkBags.set(id, items)
+  restoreInk(items)
+  const obj = payload && typeof payload === 'object' ? (payload as { obj?: unknown }).obj : null
+  restoreObjExtras(obj)
+  objBags.set(id, serializeObjExtras())
+}
+
+function parseInkPayload(payload: unknown): ReturnType<typeof serializeInk> {
+  if (!payload || typeof payload !== 'object') return []
+  const items = (payload as { items?: unknown }).items
+  if (!Array.isArray(items)) return []
+  return items.filter((it) => it && typeof it === 'object' && Array.isArray((it as { points?: unknown }).points)) as ReturnType<
+    typeof serializeInk
+  >
+}
+
+function normalizePath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/\/+/g, '/')
+}
 
 function setDocPath(docId: number, path: string): void {
   if (path) docPaths.set(docId, path)
@@ -139,6 +191,11 @@ export function docPath(docId: number): string | undefined {
 /** Test-only: clear the session path map (jsdom has no session boundary). */
 export function __resetDocPathsForTests(): void {
   docPaths.clear()
+  sessionNames.clear()
+  inkBags.clear()
+  sessionSaved.clear()
+  inkSaved.clear()
+  saveInFlight = false
 }
 
 /** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
@@ -147,6 +204,8 @@ export function __resetDocPathsForTests(): void {
  *  unchanged. Called only by the recovery accept flow. */
 export function adoptDocPathForRecovery(docId: number, path: string): void {
   setDocPath(docId, path)
+  const name = titleFromSavedPath(path, '')
+  if (name && isTitled(name)) sessionNames.set(docId, name)
 }
 
 /** The open document that already holds `path`, if any (H02 D-AMB-001:
@@ -157,6 +216,68 @@ export function findDocByPath(path: string): number | undefined {
     if (p === path) return id
   }
   return undefined
+}
+
+/** Already-open document with this display title (browser Open has no path). */
+export function findDocByTitle(title: string): number | undefined {
+  const n = title.replace(/\.json$/i, '').trim().toLowerCase()
+  if (!n) return undefined
+  for (const d of docList()) {
+    if (d.title.replace(/\.json$/i, '').trim().toLowerCase() === n) return d.id
+  }
+  return undefined
+}
+
+/** Session-clean after a successful Save even if the WASM dirty bit lags. */
+const sessionSaved = new Set<number>()
+/** Last-saved ink snapshot (JSON) per doc — ink lives outside WASM dirty. */
+const inkSaved = new Map<number, string>()
+
+function inkSnap(items: ReturnType<typeof serializeInk>): string {
+  return JSON.stringify(items)
+}
+
+function inkNow(id: number): string {
+  if (id && id === activeDocId()) return inkSnap(serializeInk())
+  return inkSnap(inkBags.get(id) ?? [])
+}
+
+function isInkDirty(id: number): boolean {
+  if (!id) return false
+  const saved = inkSaved.get(id)
+  const now = inkNow(id)
+  if (saved === undefined) return now !== '[]'
+  return now !== saved
+}
+
+export function isShownDirty(id: number, engineDirty: boolean): boolean {
+  if (isInkDirty(id)) return true
+  if (sessionSaved.has(id)) return false
+  return engineDirty
+}
+
+function rememberInkClean(id: number): void {
+  if (!id) return
+  inkSaved.set(id, inkNow(id))
+}
+
+function markSessionClean(id: number): void {
+  if (!id) return
+  sessionSaved.add(id)
+  rememberInkClean(id)
+}
+
+/** True while Save is finishing — ignore leftover document:changed so ● stays off. */
+let saveInFlight = false
+
+bus.on('document:changed', () => {
+  if (saveInFlight) return
+  const id = activeDocId()
+  if (id) sessionSaved.delete(id)
+})
+
+function namedTitle(id: number, engineTitle: string): string {
+  return sessionNames.get(id) || engineTitle || ''
 }
 
 // H10 §5.2 OPEN HANDOFF (SYS-02 → SYS-28): SYS-02 triggers the load, handles
@@ -172,7 +293,10 @@ export function openDocument(notify: Notify): void {
     // instance. No second document, no second tab, NO disk reload — activate
     // the existing document; its session/dirty/selection/playhead/History are
     // preserved exactly (ST2b: `activeDoc:changed` only).
-    const existing = findDocByPath(opened.path)
+    const existing =
+      findDocByPath(opened.path) ??
+      findDocByTitle(opened.name) ??
+      findDocByTitle(titleFromSavedPath(opened.path, opened.name))
     if (existing !== undefined) {
       switchActiveDocument(existing, notify)
       notify(`already open — activated "${opened.name}"`)
@@ -183,6 +307,7 @@ export function openDocument(notify: Notify): void {
     // SYS-28 READ BOUNDARY (H10 §5.2: validate → migrate BEFORE the engine
     // parse). A newer-version file is REFUSED (H10 §6 unmigratable → refuse);
     // corrupt = the same H06 error outcome as before (CASE A/B unchanged).
+    parkActiveInk()
     const prepared = prepareForLoad(opened.content)
     if (!prepared.ok) {
       notify(
@@ -192,11 +317,15 @@ export function openDocument(notify: Notify): void {
       )
       return
     }
-    const id = openDocJson(prepared.content, opened.name)
+    const peeled = extractInk(prepared.content)
+    const id = openDocJson(peeled.content, opened.name)
     if (id === 0) {
       notify('open failed: invalid or corrupt project file')
       return
     }
+    rememberInk(id, peeled.ink)
+    rememberInkClean(id)
+    if (opened.name) sessionNames.set(id, opened.name.replace(/\.json$/i, ''))
     setDocPath(id, opened.path)
     addRecent(opened.name, prepared.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
@@ -247,35 +376,51 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     notify('save: serialization failed')
     return false
   }
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk(), obj: serializeObjExtras() }) ?? stamped
 
   const docId = activeDocId()
-  let title = st.doc_title ?? ''
+  let title = namedTitle(docId, st.doc_title ?? '')
   const knownPath = docPath(docId)
+  saveInFlight = true
 
   // H04 T2: save start → SAVING (transient sub-state of DIRTY — the document
   // stays unsaved until the write succeeds).
   bus.emit('saving:changed', { state: 'saving' })
 
   const saveCancelled = () => {
-    // cancelled picker → save state returns to idle; document unchanged.
+    saveInFlight = false
     bus.emit('saving:changed', { state: 'idle' })
   }
   const saveError = (msg?: string) => {
-    // H04 T4 / H05 §11: write failed (or a pre-write validation blocked the
-    // save) → SAVE_ERROR. The document STAYS DIRTY (markClean is never
-    // reached), the last-good file is intact (atomic, SYS-28), modifiedAt is
-    // NOT updated, the snapshot is NOT advanced. Recoverable via retry.
+    saveInFlight = false
     bus.emit('saving:changed', { state: 'error' })
     notify(msg ?? 'Save error: could not write the file (document left dirty — retry)')
   }
 
-  if (opts.saveAs || !isTitled(title)) {
+  /** Browser: if a write/handle fails, still download so Save never dies. */
+  const browserDownload = (name: string): boolean => {
+    try {
+      downloadBlob(jsonName(name), withInk, 'application/json')
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // Adobe/Blender: Save As always picks. First Save of a never-named doc
+  // picks. A recovered/opened doc that already has a disk path overwrites
+  // that path even if the tab still says Untitled-N.
+  const needsPicker = opts.saveAs || (!isTitled(title) && !knownPath)
+  if (needsPicker) {
     // New path: Save As, or a first save of an untitled document.
     // A real picker (desktop native, or browser File System Access) is
     // pick-THEN-write so INV-IDENT-4 can block before any bytes land.
     // Cancel of a shown picker is silent (H05 §11). Absence of a picker
     // (browser without File System Access) falls back to prompt+download.
-    const canPick = platform.hasSavePicker?.() ?? platform.isDesktop()
+    // Desktop always has a native picker. Browser File System Access is
+    // often blocked (iframe / preview) and reports cancel — fall through
+    // to the in-app Save As dialog + download instead of a silent no-op.
+    const canPick = platform.isDesktop()
     if (canPick) {
       const path = await platform.pickSavePath(title)
       if (!path) {
@@ -291,9 +436,11 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         saveError('Save blocked: that file is already open as another document — choose a different path')
         return false
       }
-      if (!(await platform.writeProject(path, title, stamped))) {
-        saveError()
-        return false
+      if (!(await platform.writeProject(path, title, withInk))) {
+        if (platform.isDesktop() || !browserDownload(titleFromSavedPath(path, title))) {
+          saveError()
+          return false
+        }
       }
       setDocPath(docId, path)
       // AMB-H05-001 PROVISIONAL (= the spec's recommendation, pending a
@@ -302,33 +449,55 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       title = titleFromSavedPath(path, title)
     } else {
       // Pathless fallback (H05 F3: downloadBlob = dev-only gap).
-      const res = await platform.saveProjectAs(title, stamped)
+      const res = await platform.saveProjectAs(title, withInk)
       if (res === 'cancelled') {
         saveCancelled()
         return false
       }
       if (res === 'failed') {
-        saveError()
-        return false
+        const fallbackName = title.trim() || 'kineora-project'
+        if (!browserDownload(fallbackName)) {
+          saveError()
+          return false
+        }
+        title = fallbackName.replace(/\.json$/i, '')
+      } else {
+        title = res.name
+        if (res.path) setDocPath(docId, res.path)
       }
-      title = res.name
-      if (res.path) setDocPath(docId, res.path)
     }
   } else if (knownPath) {
     // Titled + known session path → overwrite in place (P-1: no prompt).
     // Works for a desktop filesystem path AND a browser File-System-Access
     // session token — the adapter owns the write.
-    if (!(await platform.writeProject(knownPath, title, stamped))) {
+    if (!(await platform.writeProject(knownPath, title, withInk))) {
+      if (platform.isDesktop() || !browserDownload(title)) {
+        saveError()
+        return false
+      }
+    }
+  } else if (platform.isDesktop()) {
+    // Titled but the session lost the disk path — pick once, then overwrite.
+    const path = await platform.pickSavePath(title)
+    if (!path) {
+      saveCancelled()
+      return false
+    }
+    const owner = findDocByPath(path)
+    if (owner !== undefined && owner !== docId) {
+      saveError('Save blocked: that file is already open as another document — choose a different path')
+      return false
+    }
+    if (!(await platform.writeProject(path, title, withInk))) {
       saveError()
       return false
     }
+    setDocPath(docId, path)
+    title = titleFromSavedPath(path, title)
   } else {
-    // Titled but no session path (browser download-only previous save, or
-    // the session map was dropped on reload) — honest pathless re-download.
-    if (!(await platform.writeProject(null, title, stamped))) {
-      saveError()
-      return false
-    }
+    // Browser + already named (Adobe Save): keep the current file identity.
+    // Do NOT download again — that pops the OS “Replace file?” dialog every
+    // Ctrl+S. Snapshot lives in Open Recent; Save As is how you export a copy.
   }
 
   // H05 §7.1 BINDING order: (3) modifiedAt ← now (H05 owns the stamp) →
@@ -336,10 +505,16 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   // modifiedAt is stamped BEFORE markClean so the snapshot includes it
   // (a later content-equality comparison is unaffected).
   setDocModifiedAt(nowSec())
+  if (docId) sessionNames.set(docId, title)
   setDocTitle(docId, title)
   markClean()
+  if (docId) {
+    inkBags.set(docId, serializeInk())
+    markSessionClean(docId)
+  }
+  saveInFlight = false
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-  addRecent(title, stamped, docPath(docId))
+  addRecent(title, withInk, docPath(docId))
   // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the
   // `.autosave` slot — MOD-AUTOSAVE clears it (the slot only ever holds
   // changes NEWER than the last manual save). Fire-and-forget: slot upkeep
@@ -359,7 +534,9 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
 export function switchActiveDocument(id: number, notify: Notify): void {
   if (id === 0) return
   if (id === activeDocId()) return
+  parkActiveInk()
   if (setActiveDoc(id)) {
+    applyDocInk(id)
     bus.emit('activeDoc:changed', { docId: id })
     notify(`switched to "${statusJson()?.doc_title ?? id}"`)
   } else {
@@ -385,8 +562,14 @@ export function closeDocumentById(id: number, notify: Notify): void {
     return
   }
   docPaths.delete(id)
+  sessionNames.delete(id)
+  inkBags.delete(id)
+  objBags.delete(id)
+  sessionSaved.delete(id)
+  inkSaved.delete(id)
   bus.emit('openSet:changed', { change: 'removed', docId: id })
   if (wasActive) {
+    applyDocInk(activeDocId())
     // The engine already selected the successor (or the no-document state).
     bus.emit('activeDoc:changed', { docId: activeDocId() })
   }
@@ -426,7 +609,7 @@ export async function closeAllDocuments(
   for (const d of docList().slice()) {
     const current = docList().find((x) => x.id === d.id)
     if (!current) continue // already closed (defensive — the set is being mutated)
-    if (current.dirty) {
+    if (isShownDirty(current.id, current.dirty)) {
       const decision = await guardDirtyDoc(current.id)
       if (decision === 'cancel') return // STOP — remaining docs stay open
       // 'save-ok' (H05 write succeeded → CLEAN) or 'discard' → close, continue
@@ -515,6 +698,12 @@ export function addRecent(title: string, json: string, path?: string): void {
  *  first, else the native path. Stale/missing → toast + skip (H06 §11). */
 export async function openFromRecent(entry: RecentEntry, notify: Notify): Promise<void> {
   if (!engineOk()) return notify('open recent: engine not attached')
+  const already = (entry.path ? findDocByPath(entry.path) : undefined) ?? findDocByTitle(entry.title)
+  if (already !== undefined) {
+    switchActiveDocument(already, notify)
+    notify(`already open — activated "${entry.title}"`)
+    return
+  }
   let content = entry.json
   if (content === undefined && entry.path) {
     content = await platform.readProject(entry.path) ?? undefined
@@ -537,11 +726,15 @@ export async function openFromRecent(entry: RecentEntry, notify: Notify): Promis
     )
     return
   }
-  const id = openDocJson(prepared.content, entry.title)
+  const peeled = extractInk(prepared.content)
+  parkActiveInk()
+  const id = openDocJson(peeled.content, entry.title)
   if (id === 0) {
     notify(`recent "${entry.title}": invalid project data`)
     return
   }
+  rememberInk(id, peeled.ink)
+  rememberInkClean(id)
   if (entry.path) setDocPath(id, entry.path)
   addRecent(entry.title, prepared.content, entry.path)
   // H02 §14: open-set change FIRST, then the active pointer.
@@ -576,9 +769,11 @@ export function saveTemplate(name: string, notify: Notify): void {
   if (!clean) return notify('save template: a name is required')
   const json = projectJson()
   if (!json) return notify('save template: no document to save')
+  const stamped = stampFormatVersion(json) ?? json
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk(), obj: serializeObjExtras() }) ?? stamped
   const tpls: Record<string, TemplateRecord> = {}
   for (const t of listTemplates()) tpls[t.name] = t
-  tpls[clean] = { name: clean, savedAt: Date.now(), json }
+  tpls[clean] = { name: clean, savedAt: Date.now(), json: withInk }
   try {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(tpls))
     notify(`template "${clean}" saved`)
@@ -607,10 +802,14 @@ export function createFromTemplate(name: string, notify: Notify): void {
   } catch {
     // fall through — the engine parse below reports invalid data honestly
   }
+  const peeled = extractInk(json)
+  parkActiveInk()
   // AMB-H01-003 (provisional = UNTITLED): empty title → the engine assigns
   // the doc its OWN Untitled-N display title, never the template's name.
-  const id = openDocJson(json, '')
+  const id = openDocJson(peeled.content, '')
   if (id === 0) return notify(`template "${name}": invalid template data`)
+  rememberInk(id, peeled.ink)
+  rememberInkClean(id)
   // H02 §14 (ST1 family — New-from-Template = New): open-set FIRST, then active.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
@@ -653,6 +852,21 @@ export function publishHandoff(what: string, notify: Notify): void {
   notify(`Publish ${what}: integration gap — owned by SYS-27 (publish engine), not implemented yet`.trim())
 }
 
-export function openExternalLibraryHandoff(notify: Notify): void {
-  notify('Open from Libraries: integration gap — owned by SYS-18 (external library), not implemented yet')
+/** File ▸ Open from Libraries — pick a project and show it read-only. */
+export function openExternalLibrary(notify: Notify): void {
+  if (!engineOk()) return notify('open from libraries: engine not attached')
+  void (async () => {
+    const opened = await platform.openProject()
+    if (!opened) return
+    const lib = openExternalLibraryFromContent(opened.content, opened.name, opened.path)
+    if (!lib) {
+      notify('open from libraries: invalid or corrupt project file')
+      return
+    }
+    notify(
+      lib.items.length === 0
+        ? `opened library "${lib.title}" — no symbols to reuse`
+        : `opened library "${lib.title}" — ${lib.items.length} symbol(s), Copy to add them here`,
+    )
+  })()
 }

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const clientMock = vi.hoisted(() => ({
   activeDocId: vi.fn(() => 1),
   openDocJson: vi.fn(() => 9),
+  markClean: vi.fn(() => true),
   projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
   statusJson: vi.fn(() => ({
     doc_id: 1,
@@ -30,6 +31,7 @@ import {
   AUTOSAVE_DEBOUNCE_MS,
   AUTOSAVE_MAX_INTERVAL_MS,
   BROWSER_DEV_SLOT_KEY,
+  HANDLED_SLOT_KEY,
   __resetAutosaveForTests,
   acceptRecovery,
   autosaveSlotPath,
@@ -42,6 +44,7 @@ import {
 } from './autosave'
 import { bus } from './bus'
 import { checksumHex, stampFormatVersion } from './persist'
+import { patchAutosavePrefs, resetAutosavePrefsForTests } from './autosavePrefs'
 
 const deps = (over: Partial<AutosaveDeps> = {}): AutosaveDeps => ({
   getDocPath: () => undefined,
@@ -69,6 +72,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
   localStorage.removeItem(BROWSER_DEV_SLOT_KEY)
+  localStorage.removeItem(HANDLED_SLOT_KEY)
+  resetAutosavePrefsForTests()
   platformMock.platform.isDesktop.mockReturnValue(false)
   clientMock.statusJson.mockReturnValue({ doc_id: 1, doc_title: 'My Project', dirty: true, doc_count: 1, playhead: 1 })
   clientMock.activeDocId.mockReturnValue(1)
@@ -131,6 +136,15 @@ describe('SYS-28 autosave — debounced slot writes (eng 13, H10 §5.3)', () => 
     }
     expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).not.toBeNull()
     expect(elapsed).toBeLessThanOrEqual(AUTOSAVE_MAX_INTERVAL_MS + 1000)
+  })
+
+  it('does not write when Auto-Save is turned off', async () => {
+    patchAutosavePrefs({ enabled: false })
+    dispose = initAutosave(deps())
+    bus.emit('document:changed', { type: 'draw', targets: [] })
+    vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS + 10)
+    await flushAsync()
+    expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).toBeNull()
   })
 
   it('never autosaves a CLEAN document', async () => {
@@ -310,5 +324,13 @@ describe('SYS-28 recovery — launch scan (T12) + accept (T13) + discard (T14)',
     expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).toBeNull()
     expect(events).toEqual([])
     off()
+  })
+
+  it('does not re-prompt the same snapshot after Discard (even if the slot reappears)', async () => {
+    const env = makeEnvelope(VALID_CONTENT)
+    localStorage.setItem(BROWSER_DEV_SLOT_KEY, env)
+    await discardRecovery({ source: 'browser-dev', title: 'X', content: VALID_CONTENT, savedAt: 1700000000000, projectPath: null })
+    localStorage.setItem(BROWSER_DEV_SLOT_KEY, env)
+    expect((await checkRecovery(deps())).candidate).toBeNull()
   })
 })

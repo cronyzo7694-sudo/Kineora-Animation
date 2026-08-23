@@ -36,12 +36,16 @@ vi.mock('../engine/client', () => ({
   placeSymbol: vi.fn((_s: number, _x: number, _y: number) => 3),
   swapInstance: vi.fn((_i: number, _s: number) => true),
   setNodeProps: vi.fn(),
+  clearSelection: vi.fn(),
+  deleteSelection: vi.fn(() => true),
 }))
 
 import { drawShape, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, setNodeProps, statusJson, swapInstance, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
+import { listInk, resetInkForTests } from '../editor/inkStore'
 import { defaultToolColors, loadToolColors, resetToolColorsCacheForTests, setToolColors } from '../toolColors'
 import { resetToolOptionsForTests, setToolOptions } from '../toolOptions'
+import { resetViewPrefsForTests } from '../viewPrefs'
 
 /** Adobe: new objects are drawn with the Tools-panel Fill Color (default white). */
 const DEFAULT_FILL = defaultToolColors().fill as string
@@ -53,6 +57,8 @@ beforeEach(() => {
   window.localStorage.clear()
   resetToolColorsCacheForTests()
   resetToolOptionsForTests()
+  resetInkForTests()
+  resetViewPrefsForTests()
 })
 
 const selectAtMock = vi.mocked(selectAt)
@@ -116,8 +122,8 @@ describe('Stage viewport interaction wiring (regression)', () => {
     await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('30,0'))
   })
 
-  it('double-click fits the viewport immediately', async () => {
-    renderStage()
+  it('double-click on Hand tool fits the viewport immediately', async () => {
+    renderStage('hand')
     const canvas = screen.getByTestId('stage-canvas')
 
     fireEvent.wheel(canvas, { deltaY: -100 })
@@ -130,6 +136,24 @@ describe('Stage viewport interaction wiring (regression)', () => {
   it('shows the document stage dimensions (the published frame)', () => {
     renderStage()
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('1920×1080')
+  })
+
+  it('stage zoom gear can be hidden and restored', () => {
+    renderStage()
+    fireEvent.click(screen.getByTestId('stage-zoom-hide'))
+    expect(screen.getByTestId('stage-zoom-gear-collapsed')).toBeInTheDocument()
+    expect(screen.queryByTestId('stage-zoom-slider')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('zoom-readout'))
+    expect(screen.getByTestId('stage-zoom-slider')).toBeInTheDocument()
+  })
+
+  it('stage zoom gear nudges ~10% per click, not 2×', async () => {
+    renderStage()
+    expect(screen.getByTestId('stage-zoom-gear')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('stage-zoom-in'))
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('110%'))
+    fireEvent.click(screen.getByTestId('stage-zoom-out'))
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
   })
 })
 
@@ -180,15 +204,40 @@ describe('Stage select + move gestures', () => {
     selectAtMock.mockClear()
     moveSelectionMock.mockClear()
     selectAtMock.mockReturnValue(true)
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [1],
+      selection_rects: [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0 }],
+      selection_details: [
+        { id: 1, x: 0, y: 0, w: 100, h: 100, base_w: 100, base_h: 100, scale_x: 1, scale_y: 1, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 },
+      ],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1',
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', event_log: [],
+    } as never)
   })
 
-  it('click hits the engine at DOCUMENT coordinates (screen→doc via viewport)', async () => {
+  it('click on an unselected object hits the engine at DOCUMENT coordinates', async () => {
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [],
+      selection_rects: [],
+      selection_details: [],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1',
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', event_log: [],
+    } as never)
     renderStage()
     const canvas = screen.getByTestId('stage-canvas')
-    // zoom is 1 after fit in jsdom → screen == doc
     fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 60 })
     fireEvent.mouseUp(window)
     await waitFor(() => expect(selectAtMock).toHaveBeenCalledWith(40, 60))
+  })
+
+  it('click on an already-selected object does NOT replace the set (Adobe group move)', async () => {
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 60 })
+    fireEvent.mouseUp(window)
+    expect(selectAtMock).not.toHaveBeenCalled()
   })
 
   it('sub-threshold drag does NOT commit a move (no accidental click-to-move)', async () => {
@@ -305,8 +354,18 @@ describe('Stage transform + multi-selection gestures', () => {
     selectAtMock.mockReturnValue(true)
   })
 
+  it('Selection tool: drag a corner handle resizes (transformSelection)', async () => {
+    renderStage('select')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 20, clientY: 20 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(transformSelectionMock).toHaveBeenCalledTimes(1))
+    expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+
   it('drag on a corner handle commits exactly ONE transformSelection command', async () => {
-    renderStage()
+    renderStage('transform')
     const canvas = screen.getByTestId('stage-canvas')
     // tl handle is at (0,0); drag it to (20,20) → scale
     fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })

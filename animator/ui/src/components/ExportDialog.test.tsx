@@ -58,7 +58,7 @@ describe('ExportDialog (C-31 exp.image)', () => {
     fireEvent.click(screen.getByTestId('export-confirm'))
     expect(exportSvgScaledMock).toHaveBeenCalledWith(7, 1)
     expect(downloadBlobMock).toHaveBeenCalledWith('kineora.svg', '<svg>mock</svg>', 'image/svg+xml')
-    expect(onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('export-result')).toBeInTheDocument()
   })
 
   it('SVG at 2× passes the scale through to the engine', () => {
@@ -154,7 +154,7 @@ describe('ExportDialog — SVG sequence (eng 14 range + sidecar)', () => {
     expect(downloadBlobMock.mock.calls[0][0]).toBe('My Movie_0002.svg')
     expect(downloadBlobMock.mock.calls[3][0]).toBe('My Movie_sequence.json')
     expect(events).toEqual([{ format: 'sequence', path: 'My Movie_0002.svg' }])
-    expect(onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('export-result')).toBeInTheDocument()
     off()
   })
 

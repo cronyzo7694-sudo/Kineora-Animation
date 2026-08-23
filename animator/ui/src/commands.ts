@@ -101,7 +101,7 @@ export interface CommandContext {
   setTool: (tool: string) => void
   togglePanel: (id: string) => void
   panels: Record<string, boolean>
-  openExport: () => void
+  openExport: (format?: string) => void
   openDocumentSettings: () => void
   openPreferences: () => void
   openShortcuts: () => void
@@ -693,13 +693,8 @@ export const commands: Command[] = [
     // input: 'image' | 'video' | 'gif' | 'movie' | 'sequence'
     run: (c, input) => {
       const format = typeof input === 'string' ? input : 'image'
-      if (format === 'image' || format === 'video' || format === 'movie' || format === 'sequence') c.openExport()
-      else if (format === 'gif') exportHandoff('Animated GIF', c.notify)
-      // SYS-27 slice 1 (INT-AID-003): sequence is now a REAL engine — the
-      // export dialog hosts the range UI (SVG sequence + fps sidecar,
-      // eng 14). Video/GIF/movie remain honest handoff toasts (no fake
-      // encoders).
-      else c.openExport()
+      if (format === 'gif') exportHandoff('Animated GIF', c.notify)
+      else c.openExport(format)
     },
   },
   {

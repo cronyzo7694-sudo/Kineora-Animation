@@ -105,6 +105,7 @@ export default function App() {
   // live color/stroke preview (renderer-only; engine written only on commit)
   const [colorPreview, setColorPreview] = useState<ColorPreview | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [exportIntent, setExportIntent] = useState<'image' | 'video' | 'sequence'>('image')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -538,7 +539,12 @@ export default function App() {
     setTool,
     togglePanel,
     panels,
-    openExport: () => setExportOpen(true),
+    openExport: (format) => {
+      if (format === 'video' || format === 'movie') setExportIntent('video')
+      else if (format === 'sequence') setExportIntent('sequence')
+      else setExportIntent('image')
+      setExportOpen(true)
+    },
     openDocumentSettings: () => setDocSettingsOpen(true),
     openPreferences: () => setPrefsOpen(true),
     openShortcuts: () => setShortcutsOpen(true),
@@ -846,7 +852,13 @@ export default function App() {
       )}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
       <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
-      <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
+      <ExportDialog
+        open={exportOpen}
+        intent={exportIntent}
+        engine={engine}
+        onClose={() => setExportOpen(false)}
+        notify={notify}
+      />
       <SymbolDialog
         open={symbolDialog.open}
         mode={symbolDialog.mode}

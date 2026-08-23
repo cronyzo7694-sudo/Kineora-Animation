@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { evaluate, exportSvgScaled, statusJson } from '../engine/client'
 import { downloadBlob, downloadCanvasBlob } from '../engine/actions'
 import { inkToSvg, rasterizeContent } from '../render/canvasRenderer'
@@ -9,9 +9,11 @@ import { buildSvgSequence, deliverExport, exportWebmVideo } from '../export27'
 import type { EngineStatus } from '../controlRegistry'
 
 export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq' | 'webm'
+export type ExportIntent = 'image' | 'video' | 'sequence'
 
 interface Props {
   open: boolean
+  intent?: ExportIntent
   engine: EngineStatus
   onClose: () => void
   notify: (msg: string) => void
@@ -24,7 +26,7 @@ const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; mime: strin
   { id: 'webp', label: 'WebP (raster)', ext: 'webp', mime: 'image/webp' },
   // SYS-27 slice 1: real sequence engine (eng 14 "Sequence: range + sidecar fps")
   { id: 'svgseq', label: 'SVG sequence (frame range)', ext: 'svg', mime: 'image/svg+xml' },
-  { id: 'webm', label: 'Video (WebM)', ext: 'webm', mime: 'video/webm' },
+  { id: 'webm', label: 'Video (AVI / Motion-JPEG)', ext: 'avi', mime: 'video/x-msvideo' },
 ]
 const SCALES = [1, 2, 4]
 
@@ -36,14 +38,27 @@ const SCALES = [1, 2, 4]
  * and overlays/pasteboard/zoom/pan/selection never leak (REQ-EXP-002). Export
  * is non-mutating (no undo). Engine-not-attached = honest disabled state.
  */
-export function ExportDialog({ open, engine, onClose, notify }: Props) {
-  const [format, setFormat] = useState<ExportFormat>('svg')
+function formatForIntent(intent?: ExportIntent): ExportFormat {
+  if (intent === 'video') return 'webm'
+  if (intent === 'sequence') return 'svgseq'
+  return 'svg'
+}
+
+export function ExportDialog({ open, intent = 'image', engine, onClose, notify }: Props) {
+  const [format, setFormat] = useState<ExportFormat>(() => formatForIntent(intent))
   const [scale, setScale] = useState(1)
   // sequence range (SYS-27 slice 1): defaults = full timeline
   const [seqFirst, setSeqFirst] = useState(1)
   const [seqLast, setSeqLast] = useState(0) // 0 = "use duration" until touched
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setFormat(formatForIntent(intent))
+    setResult(null)
+    setBusy(false)
+  }, [open, intent])
 
   if (!open) return null
   const attached = engine.kind === 'ok'
@@ -160,9 +175,15 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           </div>
         )}
 
+        {result && (
+          <div data-testid="export-result" style={{ color: '#8fd18f', marginBottom: 10, fontSize: 12, lineHeight: 1.4 }}>
+            {result}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button data-testid="export-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer' }}>Cancel</button>
-          <button data-testid="export-confirm" disabled={!attached} onClick={doExport} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: attached ? 'pointer' : 'not-allowed' }}>Export</button>
+          <button data-testid="export-cancel" onClick={onClose} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer' }}>{result ? 'Close' : 'Cancel'}</button>
+          <button data-testid="export-confirm" disabled={!attached || busy} onClick={doExport} style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid #0a7cff', background: '#0a3f7f', color: '#fff', cursor: attached && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Exporting…' : 'Export'}</button>
         </div>
       </div>
     </div>

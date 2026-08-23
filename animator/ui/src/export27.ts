@@ -25,8 +25,8 @@
 // download target is pathless — same honesty rule as SYS-02 Save).
 //
 // Honest scope (recorded, not hidden — see AI-D_REPORT):
-//   • GIF / video (MP4/WebM) / movie stay HANDOFF TOASTS — they need an
-//     encoder pipeline (worker pool, muxing) that this slice does not fake.
+//   • Video / movie = Motion-JPEG AVI (real file, VLC/Chrome/Windows).
+//   • GIF stays a handoff until a dedicated GIF encoder ships.
 //   • Cancellable long-running export jobs (STM-EXPORT) = later increment;
 //     this slice's exports are synchronous over the rect-model and complete
 //     or fail atomically.
@@ -39,6 +39,7 @@ import { bus } from './bus'
 import { downloadBlob } from './engine/actions'
 import { evaluate, exportSvgScaled, getEngine, getEngineStatus, statusJson } from './engine/client'
 import { listInk } from './editor/inkStore'
+import { canvasToJpeg, encodeMjpegAvi } from './encodeAvi'
 import { inkToSvg, rasterizeContent } from './render/canvasRenderer'
 
 export interface ExportFile {
@@ -198,8 +199,7 @@ export function deliverExport(format: string, result: BuildResult, notify: Notif
   return true
 }
 
-/** `file.publish` engine entry (P-8 default platform = HTML5 Canvas). */
-/** Encode the timeline as a WebM video (browser MediaRecorder). */
+/** Encode the timeline as a playable Motion-JPEG AVI. */
 export async function exportWebmVideo(
   opts: { first: number; last: number; scale: number; fps?: number },
   notify: Notify,
@@ -213,12 +213,19 @@ export async function exportWebmVideo(
     notify('export video: no document open')
     return false
   }
+  const duration = Math.max(1, st.duration ?? 1)
   const first = Math.max(1, Math.trunc(opts.first))
-  const last = Math.max(first, Math.trunc(opts.last))
+  const last = Math.min(duration, Math.max(first, Math.trunc(opts.last)))
+  if (first > duration) {
+    notify(`export video: first frame ${first} exceeds the timeline (${duration})`)
+    return false
+  }
   const fps = Math.max(1, Math.min(60, opts.fps ?? st.fps ?? 24))
   const scale = opts.scale > 0 ? opts.scale : 1
   const ink = listInk()
-  const frames: HTMLCanvasElement[] = []
+  const jpegs: Uint8Array[] = []
+  let w = 0
+  let h = 0
   for (let f = first; f <= last; f++) {
     const canvas = rasterizeContent(
       {
@@ -234,63 +241,35 @@ export async function exportWebmVideo(
       notify('export video: rasterizer unavailable')
       return false
     }
-    frames.push(canvas)
+    w = canvas.width
+    h = canvas.height
+    try {
+      jpegs.push(await canvasToJpeg(canvas, 0.92))
+    } catch {
+      notify('export video: could not encode a frame as JPEG')
+      return false
+    }
   }
-  if (typeof MediaRecorder === 'undefined') {
-    notify('export video: this browser cannot record WebM (MediaRecorder missing)')
-    return false
-  }
-  const out = document.createElement('canvas')
-  out.width = frames[0].width
-  out.height = frames[0].height
-  const ctx = out.getContext('2d')
-  if (!ctx) {
-    notify('export video: no 2D context')
-    return false
-  }
-  const stream = out.captureStream(fps)
-  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-    ? 'video/webm;codecs=vp9'
-    : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-      ? 'video/webm;codecs=vp8'
-      : 'video/webm'
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 })
-  const chunks: BlobPart[] = []
-  rec.ondataavailable = (e) => {
-    if (e.data.size) chunks.push(e.data)
-  }
-  const done = new Promise<Blob>((resolve, reject) => {
-    rec.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }))
-    rec.onerror = () => reject(new Error('recorder failed'))
-  })
-  rec.start()
-  const interval = 1000 / fps
-  for (const frame of frames) {
-    ctx.drawImage(frame, 0, 0)
-    await new Promise((r) => setTimeout(r, interval))
-  }
-  rec.stop()
-  stream.getTracks().forEach((t) => t.stop())
-  let blob: Blob
+  let avi: Uint8Array
   try {
-    blob = await done
-  } catch {
-    notify('export video: recording failed')
+    avi = encodeMjpegAvi(jpegs, w, h, fps)
+  } catch (e) {
+    notify(`export video: ${e instanceof Error ? e.message : 'mux failed'}`)
     return false
   }
-  if (blob.size === 0) {
-    notify('export video: empty file — try Chrome/Edge')
-    return false
-  }
-  const name = `${(st.doc_title ?? 'kineora').trim() || 'kineora'}.webm`
+  const name = `${(st.doc_title ?? 'kineora').trim() || 'kineora'}.avi`
+  const blob = new Blob([avi], { type: 'video/x-msvideo' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name
+  a.rel = 'noopener'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 2_000)
   bus.emit('export:done', { format: 'video', path: name })
-  notify(`Exported video “${name}” (${last - first + 1} frames @ ${fps} fps) — check Downloads`)
+  notify(`Exported video "${name}" (${last - first + 1} frames @ ${fps} fps) — check Downloads`)
   return true
 }
 

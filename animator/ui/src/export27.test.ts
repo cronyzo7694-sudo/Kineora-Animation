@@ -7,6 +7,7 @@ const clientMock = vi.hoisted(() => ({
   getEngine: vi.fn(() => ({})),
   getEngineStatus: vi.fn(() => ({ kind: 'ok' as const, detail: 'attached' })),
   exportSvgScaled: vi.fn((frame: number, scale: number) => `<svg data-frame="${frame}" data-scale="${scale}"/>`),
+  evaluate: vi.fn(() => []),
   statusJson: vi.fn(() => ({
     doc_id: 1,
     doc_title: 'My Movie',
@@ -21,12 +22,29 @@ vi.mock('./engine/client', () => clientMock)
 
 const actionsMock = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
 vi.mock('./engine/actions', () => actionsMock)
+vi.mock('./render/canvasRenderer', () => ({
+  inkToSvg: () => '',
+  rasterizeContent: vi.fn(() => {
+    const c = document.createElement('canvas')
+    c.width = 16
+    c.height = 9
+    return c
+  }),
+}))
+vi.mock('./encodeAvi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./encodeAvi')>()
+  return {
+    ...actual,
+    canvasToJpeg: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+  }
+})
 
 import { bus } from './bus'
 import {
   buildHtml5Publish,
   buildSvgSequence,
   deliverExport,
+  exportWebmVideo,
   publishHtml5,
   sequenceFrameName,
 } from './export27'
@@ -182,6 +200,21 @@ describe('SYS-27 delivery + export:done contract (CROSS_SYSTEM_CONTRACT §D)', (
     deliverExport('sequence', buildSvgSequence({ first: 1, last: 1, scale: 1, baseName: 'a' }), notify)
     deliverExport('sequence', buildSvgSequence({ first: 1, last: 1, scale: 1, baseName: 'b' }), notify)
     expect(actionsMock.downloadBlob).toHaveBeenCalledTimes(4) // 2 × (frame + sidecar)
+  })
+
+  it('export video writes a playable AVI and emits export:done{video}', async () => {
+    const g = globalThis as typeof globalThis & { URL: typeof URL }
+    if (typeof g.URL.createObjectURL !== 'function') {
+      g.URL.createObjectURL = () => 'blob:test'
+      g.URL.revokeObjectURL = () => {}
+    }
+    const events: unknown[] = []
+    const off = bus.on('export:done', (p) => events.push(p))
+    const notify = vi.fn()
+    expect(await exportWebmVideo({ first: 1, last: 2, scale: 1, fps: 12 }, notify)).toBe(true)
+    expect(events).toEqual([{ format: 'video', path: 'My Movie.avi' }])
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('My Movie.avi'))
+    off()
   })
 
   it('export is NON-MUTATING: no document:changed, no saving:changed', () => {

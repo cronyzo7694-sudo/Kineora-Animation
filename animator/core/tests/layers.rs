@@ -847,3 +847,61 @@ fn b5_draw_and_place_blocked_on_folder_and_hidden_ancestor() {
     let sid = s.new_symbol("Blob", animator_core::SymbolType::Graphic);
     assert_eq!(s.place_symbol(sid, 0.0, 0.0), animator_core::NodeId(0));
 }
+
+// ——— B-6: reordering a folder must carry its subtree (my batch, kept on top of
+// the Inc-0 guards merged from main) ———
+
+/// Adobe: folders organize layers "in much the same way you organize files on
+/// your computer" — dragging a folder moves its contents with it.
+#[test]
+fn reordering_a_folder_carries_its_children() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    assert!(s.set_layer_parent(li, Some(fi)));
+    let folder_id = s.doc.scene(0).unwrap().layers[fi].id;
+    let child_id = s.doc.scene(0).unwrap().layers[li].id;
+    let other_id = s.doc.scene(0).unwrap().layers[0].id;
+
+    assert!(s.move_layer(fi, 0));
+    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    assert_eq!(
+        ids,
+        vec![folder_id, child_id, other_id],
+        "the folder and its child moved together, keeping their relative order"
+    );
+    assert_eq!(
+        s.doc.scene(0).unwrap().layers[1].parent_id,
+        Some(folder_id),
+        "nesting is untouched"
+    );
+
+    s.undo();
+    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    assert_eq!(ids, vec![other_id, folder_id, child_id], "undo is exact");
+}
+
+/// A drop inside the folder's own subtree is skipped in the direction of travel:
+/// nothing beyond it → no-op; a row past it → the block steps over its children.
+#[test]
+fn a_folder_move_steps_over_its_own_subtree() {
+    let mut s = session();
+    let fi = s.create_folder().unwrap();
+    let li = s.create_layer().unwrap();
+    s.set_layer_parent(li, Some(fi));
+    let n = s.history.undo_len();
+    assert!(!s.move_layer(fi, li), "nothing past the subtree → no-op");
+    assert_eq!(s.history.undo_len(), n, "no command recorded");
+
+    s.set_active_layer(li);
+    let top = s.create_layer().unwrap();
+    assert_eq!(top, 3);
+    let folder_id = s.doc.scene(0).unwrap().layers[fi].id;
+    let child_id = s.doc.scene(0).unwrap().layers[2].id;
+    let bottom_id = s.doc.scene(0).unwrap().layers[0].id;
+    let top_id = s.doc.scene(0).unwrap().layers[3].id;
+
+    assert!(s.move_layer(fi, 2), "move up steps over the folder's own child");
+    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    assert_eq!(ids, vec![bottom_id, top_id, folder_id, child_id]);
+}

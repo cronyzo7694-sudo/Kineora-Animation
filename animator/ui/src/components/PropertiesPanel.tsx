@@ -36,6 +36,9 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
   const multi = details.length > 1
+  /** BUG-P-001 — objects that actually own base W/H (instances do not). */
+  const baseEditable = details.filter((d) => d.kind !== 'instance')
+  const anyInstance = details.some((d) => d.kind === 'instance')
 
   const guard = (action: string): boolean => {
     if (!attached) {
@@ -57,7 +60,10 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
 
   const commitBase = (field: 'width' | 'height', value: number) => {
     if (!guard('edit property')) return
-    setNodeProps(details.map((d) => ({ id: d.id, [field]: value })))
+    // BUG-P-001: symbol instances have no base W/H (the engine ignores the
+    // patch for them), so never send one — a mixed selection must not look
+    // like it resized the instances too.
+    setNodeProps(baseEditable.map((d) => ({ id: d.id, [field]: value })))
   }
 
   const commitFill = (color: string) => {
@@ -136,7 +142,7 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
             <SectionTitle>Position &amp; Size</SectionTitle>
             <NumberField testId="prop-x" label="X" value={sharedX === null ? '' : fmt(sharedX)} onCommit={(n) => commitTransform('x', n)} />
             <NumberField testId="prop-y" label="Y" value={sharedY === null ? '' : fmt(sharedY)} onCommit={(n) => commitTransform('y', n)} />
-            {single?.kind !== 'instance' && (
+            {!anyInstance && (
               <>
                 <NumberField testId="prop-w" label="W" value={sharedW === null ? '' : fmt(sharedW)} min={0} onCommit={(n) => commitBase('width', n)} />
                 <NumberField testId="prop-h" label="H" value={sharedH === null ? '' : fmt(sharedH)} min={0} onCommit={(n) => commitBase('height', n)} />

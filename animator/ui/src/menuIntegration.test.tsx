@@ -38,12 +38,15 @@ describe('menu bar + command architecture integration', () => {
     expect(screen.getByTestId('timeline')).toBeInTheDocument()
   })
 
-  it('Window ▸ Tools hides the toolbar', () => {
+  it('Window ▸ Tools hides the Tools panel and the command toolbar', () => {
     render(<App />)
-    expect(screen.getByTestId('tool.select')).toBeInTheDocument()
+    // the Adobe-style vertical Tools panel on the left…
+    expect(screen.getByTestId('tools-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('tool-select')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('menu.window'))
     fireEvent.click(screen.getByTestId('menu-item-panel.show-tools'))
-    expect(screen.queryByTestId('tool.select')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tools-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tool-select')).not.toBeInTheDocument()
   })
 
   it('Control ▸ Loop toggles the timeline loop state (same executor as the Loop button)', () => {

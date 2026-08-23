@@ -347,7 +347,9 @@ export function duplicateKeyframe(layer: number, from: number, to: number): bool
   return ok
 }
 
-/** COPY FRAMES is session clipboard only — never emits document:changed (B-8 / H04). */
+/** COPY FRAMES is session clipboard only — never emits document:changed
+ *  (B-8 / BUG-TOOL-011 / H04 "copy is not a mutation" — same rule as
+ *  copyObjects, which never emitted). */
 export function copyFrames(layer: number, start: number, end: number): boolean {
   return mod?.kineora_copy_frames(layer, start, end) ?? false
 }

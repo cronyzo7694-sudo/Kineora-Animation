@@ -299,6 +299,70 @@ export const commands: Command[] = [
     run: (c) => c.setTool('transform'),
     toolbar: true,
   },
+  {
+    // Adobe: "In the Tools panel, select the Hand tool and drag the Stage…
+    // To temporarily switch between another tool and the Hand tool, hold down
+    // the Spacebar" (helpx — Use the Stage and Tools panel for Animate).
+    id: 'tool.hand',
+    label: 'Hand Tool',
+    category: 'tools',
+    shortcut: 'H',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Stage & Tools panel — view tools',
+    run: (c) => c.setTool('hand'),
+    toolbar: true,
+  },
+  {
+    // Adobe (helpx — Strokes, fills and gradients): "The Paint Bucket tool
+    // fills enclosed areas with color… change the color of already painted
+    // areas." Uses the Tools-panel Fill Color.
+    id: 'tool.paintBucket',
+    label: 'Paint Bucket Tool',
+    category: 'tools',
+    shortcut: 'K',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('bucket'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "To change the stroke color, width, and style of one or more lines
+    // or shape outlines, use the Ink Bottle tool."
+    id: 'tool.inkBottle',
+    label: 'Ink Bottle Tool',
+    category: 'tools',
+    shortcut: 'S',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('ink'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "Use the Eyedropper tool to copy fill and stroke attributes from
+    // one object and immediately apply them to another object… When you click a
+    // filled area, the tool automatically changes to the Paint Bucket tool."
+    id: 'tool.eyedropper',
+    label: 'Eyedropper Tool',
+    category: 'tools',
+    shortcut: 'I',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Strokes, fills, and gradients with Animate',
+    run: (c) => c.setTool('eyedropper'),
+    toolbar: true,
+  },
+  {
+    // Adobe: "select the Zoom tool and click the element… Alt-click to zoom
+    // out… To zoom in so that a specific area fills the window, drag a
+    // rectangular selection on the Stage with the Zoom tool."
+    id: 'tool.zoom',
+    label: 'Zoom Tool',
+    category: 'tools',
+    shortcut: 'Z',
+    status: 'FUNCTIONAL',
+    source: '[ADOBE-DERIVED] Stage & Tools panel — view tools',
+    run: (c) => c.setTool('zoom'),
+    toolbar: true,
+  },
 
   // ——— File (SYS-02 §6.1/§7: 10 REQUIRED + 8 HANDOFF; AIR/Print/Page-Setup = HIDDEN) ———
   {

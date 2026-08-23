@@ -2236,10 +2236,52 @@ impl Session {
             return false;
         }
         let before: Vec<LayerId> = sc.layers.iter().map(|l| l.id).collect();
-        let mut after = before.clone();
-        let moved = after.remove(from);
-        after.insert(to, moved);
+        let from_is_folder = sc.layers[from].is_folder();
         let active_id = sc.layers.get(self.active_layer).map(|l| l.id);
+        let moved_id = before[from];
+
+        // B-6 (LAYER research: "reorder must keep parent/children consistent")
+        // — Adobe: folders "can contain both layers and other folders, allowing
+        // you to organize layers in much the same way you organize files on
+        // your computer", so dragging a FOLDER carries its whole subtree.
+        // Moving the folder row alone left its children stranded in the stack.
+        let block: Vec<LayerId> = if from_is_folder {
+            let desc = self.doc.layer_descendants(scene, moved_id);
+            before
+                .iter()
+                .copied()
+                .filter(|id| *id == moved_id || desc.contains(id))
+                .collect()
+        } else {
+            vec![moved_id]
+        };
+        // A drop position INSIDE the moved block is meaningless — keep walking
+        // in the direction of travel until a row outside the block is found
+        // (so "move up" on a folder steps over its own children instead of
+        // being blocked). No such row = the block is already at that edge.
+        let step: isize = if to > from { 1 } else { -1 };
+        let mut t = to as isize;
+        while t >= 0 && (t as usize) < n && block.contains(&before[t as usize]) {
+            t += step;
+        }
+        if t < 0 || (t as usize) >= n {
+            self.log("layer:reorder(no room past own subtree)");
+            return false;
+        }
+        let target_id = before[t as usize];
+
+        let mut after: Vec<LayerId> = before
+            .iter()
+            .copied()
+            .filter(|id| !block.contains(id))
+            .collect();
+        let Some(pos) = after.iter().position(|id| *id == target_id) else {
+            return false;
+        };
+        let insert_at = if to > from { pos + 1 } else { pos };
+        for (i, id) in block.iter().copied().enumerate() {
+            after.insert(insert_at + i, id);
+        }
         let cmd = ReorderLayer {
             scene,
             before,

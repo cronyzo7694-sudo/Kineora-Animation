@@ -321,6 +321,47 @@ describe('PropertiesPanel — symbol instances (Part 11 §11.5)', () => {
   })
 })
 
+describe('PropertiesPanel — mixed selection with an instance (BUG-P-001)', () => {
+  const mixed = () =>
+    makeStatus({
+      selection: [1, 2],
+      selection_details: [
+        detail({ id: 1 }),
+        { ...detail({ id: 2, fill: '', stroke: null }), kind: 'instance', symbol_id: 7, symbol_name: 'arm', symbol_type: 'graphic' },
+      ],
+    })
+
+  it('hides W/H when the selection contains an instance (instances own no base W/H)', () => {
+    render(<PropertiesPanel status={mixed()} notify={notify} />)
+    expect(screen.getByTestId('props-mixed')).toBeInTheDocument()
+    expect(screen.getByTestId('prop-x')).toBeInTheDocument()
+    expect(screen.queryByTestId('prop-w')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('prop-h')).not.toBeInTheDocument()
+  })
+
+  it('a W edit never carries instance ids (rect-only patch)', () => {
+    render(
+      <PropertiesPanel
+        status={makeStatus({
+          selection: [1, 2],
+          selection_details: [
+            detail({ id: 1 }),
+            detail({ id: 2 }),
+          ],
+        })}
+        notify={notify}
+      />,
+    )
+    const w = screen.getByTestId('prop-w')
+    fireEvent.change(w, { target: { value: '80' } })
+    fireEvent.blur(w)
+    expect(setNodePropsMock).toHaveBeenCalledWith([
+      { id: 1, width: 80 },
+      { id: 2, width: 80 },
+    ])
+  })
+})
+
 describe('PropertiesPanel — SymbolInstance controls (Part 11 §11.4/§11.6)', () => {
   const instance = () =>
     makeStatus({

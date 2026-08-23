@@ -51,6 +51,49 @@ export function ToolOptions({ tool, vertical = false }: { tool: string; vertical
     )
   }
 
+  if (tool === 'select') {
+    const chk = (key: 'snapToObjects' | 'snapToPixels' | 'contactSensitive', label: string, title: string) => (
+      <label
+        key={key}
+        title={title}
+        style={{
+          display: 'flex',
+          alignItems: vertical ? 'center' : 'center',
+          gap: 4,
+          color: '#ccc',
+          fontSize: 10,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <input
+          data-testid={`select-opt-${key}`}
+          type="checkbox"
+          checked={opts[key]}
+          onChange={(e) => setToolOptions({ [key]: e.target.checked })}
+          style={{ margin: 0 }}
+        />
+        {!vertical && <span>{label}</span>}
+        {vertical && <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: 0.4 }}>{label}</span>}
+      </label>
+    )
+    return (
+      <div
+        data-testid="tool-options"
+        aria-label="Selection options"
+        style={
+          vertical
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '2px 0' }
+            : { display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px', flexWrap: 'wrap' }
+        }
+      >
+        {chk('snapToObjects', 'Snap obj', 'Snap to Objects — edges of other items and the stage')}
+        {chk('snapToPixels', 'Snap px', 'Snap to Pixels — whole-pixel moves')}
+        {chk('contactSensitive', 'Contact', 'Contact-sensitive selection — marquee selects anything it touches')}
+      </div>
+    )
+  }
+
   if (tool !== 'zoom') return null
 
   const btn = (mode: 'in' | 'out', label: string, title: string) => (

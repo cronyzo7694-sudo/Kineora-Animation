@@ -24,6 +24,7 @@ import {
   deleteInkIds,
   hitInk,
   hitInkAnchor,
+  inkBounds,
   inkInPolygon,
   inkInRect,
   listInk,
@@ -40,7 +41,7 @@ import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '
 import { loadViewPrefs, patchViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { contrastOn } from '../contrast'
-import { loadToolOptions, subscribeToolOptions } from '../toolOptions'
+import { loadToolOptions, rectFullyInside, snapMoveDelta, subscribeToolOptions } from '../toolOptions'
 import { loadOnionPrefs, subscribeOnionPrefs } from '../onionPrefs'
 import { collectGhosts } from '../onion'
 import {
@@ -215,6 +216,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const t = activeTool()
     return t === 'select' || t === 'transform'
   }
+  /** Adobe: scale/rotate handles belong to Free Transform, not the black arrow. */
+  const showTransformHandles = () => activeTool() === 'transform'
 
   const scheduleRedraw = () => {
     if (rafRef.current == null) {
@@ -466,7 +469,18 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       if (ms) {
         if (mq) {
           selectInRect(mq.x, mq.y, mq.x + mq.w, mq.y + mq.h)
-          selectInk(inkInRect(mq.x, mq.y, mq.w, mq.h))
+          const contact = loadToolOptions().contactSensitive
+          let inkIds = inkInRect(mq.x, mq.y, mq.w, mq.h)
+          if (!contact) {
+            const st = statusJson()
+            const extras = (st?.selection_rects ?? []).filter((r) => !rectFullyInside(r, mq))
+            for (const r of extras) selectToggleAt(r.x + r.w / 2, r.y + r.h / 2)
+            inkIds = inkIds.filter((id) => {
+              const it = listInk().find((x) => x.id === id)
+              return it ? rectFullyInside(inkBounds(it), mq) : false
+            })
+          }
+          selectInk(inkIds)
         } else {
           // click (no drag) on empty stage → clear selection (Phase-1 03.3.1)
           selectInRect(ms.x, ms.y, ms.x, ms.y)
@@ -480,8 +494,16 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const p = previewRef.current
       previewRef.current = null
       if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
-        moveSelection(p.x, p.y)
-        moveInk(selectedInkIds(), p.x, p.y)
+        const st = statusJson()
+        const opts = loadToolOptions()
+        const selectedBoxes = (st?.selection_rects ?? []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+        const selIds = new Set(st?.selection ?? [])
+        const others = (evaluate(st?.playhead ?? 1) ?? [])
+          .filter((it) => !selIds.has(it.id))
+          .map((it) => ({ x: it.x, y: it.y, w: it.w, h: it.h }))
+        const snapped = snapMoveDelta(p.x, p.y, selectedBoxes, others, st?.doc_width ?? 1920, st?.doc_height ?? 1080, opts)
+        moveSelection(snapped.x, snapped.y)
+        moveInk(selectedInkIds(), snapped.x, snapped.y)
       }
 
       subAnchorRef.current = null
@@ -571,6 +593,34 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     // Blueprint T2B.4: Esc discards an in-progress rect (no command, no undo).
     // Capture so we win over edit.exitOneLevel when a draw is live.
     const onKey = (ev: KeyboardEvent) => {
+      const typing = (() => {
+        const el = ev.target as HTMLElement | null
+        if (!el || !el.tagName) return false
+        const tag = el.tagName.toLowerCase()
+        return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true
+      })()
+      if (!typing && isSelectLike() && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
+        ev.preventDefault()
+        const step = ev.shiftKey ? 10 : 1
+        let dx = 0
+        let dy = 0
+        if (ev.key === 'ArrowLeft') dx = -step
+        if (ev.key === 'ArrowRight') dx = step
+        if (ev.key === 'ArrowUp') dy = -step
+        if (ev.key === 'ArrowDown') dy = step
+        const st = statusJson()
+        const opts = loadToolOptions()
+        const selectedBoxes = (st?.selection_rects ?? []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+        const selIds = new Set(st?.selection ?? [])
+        const others = (evaluate(st?.playhead ?? 1) ?? [])
+          .filter((it) => !selIds.has(it.id))
+          .map((it) => ({ x: it.x, y: it.y, w: it.w, h: it.h }))
+        const snapped = snapMoveDelta(dx, dy, selectedBoxes, others, st?.doc_width ?? 1920, st?.doc_height ?? 1080, opts)
+        if (selIds.size) moveSelection(snapped.x, snapped.y)
+        if (selectedInkIds().length) moveInk(selectedInkIds(), snapped.x, snapped.y)
+        scheduleRedraw()
+        return
+      }
       if (ev.key === 'Enter' && penPtsRef.current.length >= 2) {
         ev.preventDefault()
         ev.stopPropagation()
@@ -919,7 +969,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const doc = screenToDoc(vpRef.current, sx, sy)
       const inkHit = hitInk(doc.x, doc.y)
       if (inkHit) {
-        if (e.shiftKey) selectInk([inkHit.id], true)
+        if (e.shiftKey || e.ctrlKey || e.metaKey) selectInk([inkHit.id], true)
         else {
           selectInk([inkHit.id])
           clearSelection()
@@ -931,10 +981,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       }
       clearInkSelection()
 
-      // 1) handle hit-test → arm transform gesture
+      // 1) handle hit-test → arm transform gesture (Free Transform only)
       const status = statusJson()
       const details = status?.selection_details ?? []
-      if (details.length > 0) {
+      if (showTransformHandles() && details.length > 0) {
         const geom = selectionGeometry(details)
         const handles = handlePositions(geom)
         const screenHandles = {} as Record<HandleKind, Pt>
@@ -950,8 +1000,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         }
       }
 
-      // 2) shift → toggle
-      if (e.shiftKey) {
+      // 2) Shift / Ctrl / Cmd → add or remove (Adobe additive select)
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
         selectToggleAt(doc.x, doc.y)
         scheduleRedraw()
         return

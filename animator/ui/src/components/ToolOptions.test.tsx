@@ -11,8 +11,17 @@ import { loadToolOptions, resetToolOptionsForTests } from '../toolOptions'
 beforeEach(() => resetToolOptionsForTests())
 
 describe('ToolOptions — Tools panel options area', () => {
-  it('shows nothing for a tool without modifiers', () => {
+  it('Selection tool shows Snap / Contact modifiers', () => {
     render(<ToolOptions tool="select" />)
+    expect(screen.getByTestId('tool-options')).toBeInTheDocument()
+    expect(screen.getByTestId('select-opt-snapToObjects')).toBeChecked()
+    expect(screen.getByTestId('select-opt-contactSensitive')).toBeChecked()
+    fireEvent.click(screen.getByTestId('select-opt-snapToPixels'))
+    expect(loadToolOptions().snapToPixels).toBe(true)
+  })
+
+  it('shows nothing for a tool without modifiers', () => {
+    render(<ToolOptions tool="hand" />)
     expect(screen.queryByTestId('tool-options')).not.toBeInTheDocument()
   })
 

@@ -122,8 +122,8 @@ describe('Stage viewport interaction wiring (regression)', () => {
     await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('30,0'))
   })
 
-  it('double-click fits the viewport immediately', async () => {
-    renderStage()
+  it('double-click on Hand tool fits the viewport immediately', async () => {
+    renderStage('hand')
     const canvas = screen.getByTestId('stage-canvas')
 
     fireEvent.wheel(canvas, { deltaY: -100 })
@@ -330,7 +330,7 @@ describe('Stage transform + multi-selection gestures', () => {
   })
 
   it('drag on a corner handle commits exactly ONE transformSelection command', async () => {
-    renderStage()
+    renderStage('transform')
     const canvas = screen.getByTestId('stage-canvas')
     // tl handle is at (0,0); drag it to (20,20) → scale
     fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })

@@ -58,6 +58,7 @@ import {
   openExternalLibrary,
   openFromRecent,
   findDocByPath,
+  findDocByTitle,
   type RecentEntry,
   publishHandoff,
   saveDocument,
@@ -515,7 +516,8 @@ export const commands: Command[] = [
         // H06 §6 step 1 — BEFORE the guard: an already-open path activates
         // the existing document (D-AMB-001) — NO guard, NO load, NO open-set
         // change, `activeDoc:changed` only.
-        const existing = entry.path ? findDocByPath(entry.path) : undefined
+        const existing =
+          (entry.path ? findDocByPath(entry.path) : undefined) ?? findDocByTitle(entry.title)
         if (existing !== undefined) {
           switchActiveDocument(existing, c.notify)
           c.notify(`already open — activated "${entry.title}"`)

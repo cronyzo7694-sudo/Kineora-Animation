@@ -137,6 +137,8 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
 // that path without re-prompting (SYS-02 P-1). Paths are SESSION state (the
 // browser has no path; recent files remain the durable record).
 const docPaths = new Map<number, string>()
+/** Saved display name (Adobe “the file has a name”) — independent of WASM title. */
+const sessionNames = new Map<number, string>()
 const inkBags = new Map<number, ReturnType<typeof serializeInk>>()
 
 function parkActiveInk(): void {
@@ -174,9 +176,11 @@ export function docPath(docId: number): string | undefined {
 /** Test-only: clear the session path map (jsdom has no session boundary). */
 export function __resetDocPathsForTests(): void {
   docPaths.clear()
+  sessionNames.clear()
   inkBags.clear()
   sessionSaved.clear()
   inkSaved.clear()
+  saveInFlight = false
 }
 
 /** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
@@ -246,10 +250,18 @@ function markSessionClean(id: number): void {
   rememberInkClean(id)
 }
 
+/** True while Save is finishing — ignore leftover document:changed so ● stays off. */
+let saveInFlight = false
+
 bus.on('document:changed', () => {
+  if (saveInFlight) return
   const id = activeDocId()
   if (id) sessionSaved.delete(id)
 })
+
+function namedTitle(id: number, engineTitle: string): string {
+  return sessionNames.get(id) || engineTitle || ''
+}
 
 // H10 §5.2 OPEN HANDOFF (SYS-02 → SYS-28): SYS-02 triggers the load, handles
 // the ok/fail outcomes (CASE A/B) and the UI; validate → migrate → re-link →
@@ -264,7 +276,10 @@ export function openDocument(notify: Notify): void {
     // instance. No second document, no second tab, NO disk reload — activate
     // the existing document; its session/dirty/selection/playhead/History are
     // preserved exactly (ST2b: `activeDoc:changed` only).
-    const existing = findDocByPath(opened.path) ?? findDocByTitle(opened.name) ?? findDocByTitle(opened.name)
+    const existing =
+      findDocByPath(opened.path) ??
+      findDocByTitle(opened.name) ??
+      findDocByTitle(titleFromSavedPath(opened.path, opened.name))
     if (existing !== undefined) {
       switchActiveDocument(existing, notify)
       notify(`already open — activated "${opened.name}"`)
@@ -292,7 +307,8 @@ export function openDocument(notify: Notify): void {
       return
     }
     rememberInk(id, peeled.ink)
-    markSessionClean(id)
+    rememberInkClean(id)
+    if (opened.name) sessionNames.set(id, opened.name.replace(/\.json$/i, ''))
     setDocPath(id, opened.path)
     addRecent(opened.name, prepared.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
@@ -346,18 +362,20 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   const withInk = embedInk(stamped, { version: 1, items: serializeInk() }) ?? stamped
 
   const docId = activeDocId()
-  let title = st.doc_title ?? ''
+  let title = namedTitle(docId, st.doc_title ?? '')
   const knownPath = docPath(docId)
+  saveInFlight = true
 
   // H04 T2: save start → SAVING (transient sub-state of DIRTY — the document
   // stays unsaved until the write succeeds).
   bus.emit('saving:changed', { state: 'saving' })
 
   const saveCancelled = () => {
-    // cancelled picker → save state returns to idle; document unchanged.
+    saveInFlight = false
     bus.emit('saving:changed', { state: 'idle' })
   }
   const saveError = (msg?: string) => {
+    saveInFlight = false
     bus.emit('saving:changed', { state: 'error' })
     notify(msg ?? 'Save error: could not write the file (document left dirty — retry)')
   }
@@ -438,8 +456,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       }
     }
   } else if (platform.isDesktop()) {
-    // Titled but the session lost the disk path — never writeProject(null)
-    // on desktop (that always fails and used to surface a fake Save error).
+    // Titled but the session lost the disk path — pick once, then overwrite.
     const path = await platform.pickSavePath(title)
     if (!path) {
       saveCancelled()
@@ -457,12 +474,9 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     setDocPath(docId, path)
     title = titleFromSavedPath(path, title)
   } else {
-    if (!(await platform.writeProject(null, title, withInk))) {
-      if (!browserDownload(title)) {
-        saveError()
-        return false
-      }
-    }
+    // Browser + already named (Adobe Save): keep the current file identity.
+    // Do NOT download again — that pops the OS “Replace file?” dialog every
+    // Ctrl+S. Snapshot lives in Open Recent; Save As is how you export a copy.
   }
 
   // H05 §7.1 BINDING order: (3) modifiedAt ← now (H05 owns the stamp) →
@@ -470,12 +484,14 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   // modifiedAt is stamped BEFORE markClean so the snapshot includes it
   // (a later content-equality comparison is unaffected).
   setDocModifiedAt(nowSec())
+  if (docId) sessionNames.set(docId, title)
   setDocTitle(docId, title)
   markClean()
   if (docId) {
     inkBags.set(docId, serializeInk())
     markSessionClean(docId)
   }
+  saveInFlight = false
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
   addRecent(title, withInk, docPath(docId))
   // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the
@@ -525,6 +541,7 @@ export function closeDocumentById(id: number, notify: Notify): void {
     return
   }
   docPaths.delete(id)
+  sessionNames.delete(id)
   inkBags.delete(id)
   sessionSaved.delete(id)
   inkSaved.delete(id)

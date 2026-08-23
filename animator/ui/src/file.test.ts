@@ -30,6 +30,7 @@ vi.mock('./engine/client', () => clientMock)
 vi.mock('./engine/actions', () => ({ downloadBlob: vi.fn() }))
 
 import { bus } from './bus'
+import { registerSaveNamePicker } from './platform'
 import {
   addRecent,
   createDocument,
@@ -41,10 +42,13 @@ import {
   openFromRecent,
   saveDocument,
   saveTemplate,
+  __resetDocPathsForTests,
 } from './file'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  registerSaveNamePicker(null)
+  __resetDocPathsForTests()
   try {
     localStorage.removeItem('kineora.recentFiles')
     localStorage.removeItem('kineora.templates')

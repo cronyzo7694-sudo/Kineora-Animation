@@ -42,7 +42,7 @@ export function SaveAsDialog({ open, suggested, onCancel, onConfirm }: Props) {
   return (
     <div
       data-testid="dlg-save-as"
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 95 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120 }}
       onMouseDown={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div

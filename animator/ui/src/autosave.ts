@@ -97,6 +97,8 @@ export interface AutosaveDeps {
   listRecentPaths(): { title: string; path: string }[]
   /** Bind a recovered document to its project path (SYS-02 session map). */
   adoptDocPath(docId: number, path: string): void
+  /** Already-open document at this project path, if any. */
+  findOpenByPath?(path: string): number | undefined
 }
 
 // ——— slot IO (blank = absent, AS-D3) ———
@@ -391,6 +393,15 @@ export async function checkRecovery(deps: AutosaveDeps): Promise<RecoveryScan> {
 export async function acceptRecovery(c: RecoveryCandidate, deps: AutosaveDeps): Promise<number> {
   const prepared = prepareForLoad(c.content)
   if (!prepared.ok) return 0
+  // Same disk file already open → don't spawn a second tab (Adobe: one path, one document).
+  if (c.projectPath && deps.findOpenByPath) {
+    const existing = deps.findOpenByPath(c.projectPath)
+    if (existing) {
+      rememberHandled(snapshotKey(c.content, c.projectPath, c.savedAt))
+      await clearAllSlots(c.projectPath)
+      return existing
+    }
+  }
   const id = openDocJson(prepared.content, c.title)
   if (id === 0) return 0
   if (c.projectPath) deps.adoptDocPath(id, c.projectPath)

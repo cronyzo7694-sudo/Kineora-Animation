@@ -165,6 +165,10 @@ function parseInkPayload(payload: unknown): ReturnType<typeof serializeInk> {
   >
 }
 
+function normalizePath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/\/+/g, '/')
+}
+
 function setDocPath(docId: number, path: string): void {
   if (path) docPaths.set(docId, path)
 }
@@ -189,6 +193,8 @@ export function __resetDocPathsForTests(): void {
  *  unchanged. Called only by the recovery accept flow. */
 export function adoptDocPathForRecovery(docId: number, path: string): void {
   setDocPath(docId, path)
+  const name = titleFromSavedPath(path, '')
+  if (name && isTitled(name)) sessionNames.set(docId, name)
 }
 
 /** The open document that already holds `path`, if any (H02 D-AMB-001:
@@ -390,7 +396,11 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     }
   }
 
-  if (opts.saveAs || !isTitled(title)) {
+  // Adobe/Blender: Save As always picks. First Save of a never-named doc
+  // picks. A recovered/opened doc that already has a disk path overwrites
+  // that path even if the tab still says Untitled-N.
+  const needsPicker = opts.saveAs || (!isTitled(title) && !knownPath)
+  if (needsPicker) {
     // New path: Save As, or a first save of an untitled document.
     // A real picker (desktop native, or browser File System Access) is
     // pick-THEN-write so INV-IDENT-4 can block before any bytes land.

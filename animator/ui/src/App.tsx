@@ -4,7 +4,7 @@ import { getCommand } from './commands'
 import { useShortcutScope } from './shortcuts'
 import { docList, getEngineStatus, loadEngine, setActiveDoc, statusJson } from './engine/client'
 import { stopPlayback } from './engine/actions'
-import { adoptDocPathForRecovery, docPath, isShownDirty, listRecent, openDocument, saveDocument } from './file'
+import { adoptDocPathForRecovery, docPath, findDocByPath, isShownDirty, listRecent, openDocument, saveDocument } from './file'
 import {
   acceptRecovery,
   checkRecovery,
@@ -87,6 +87,7 @@ const AUTOSAVE_DEPS: AutosaveDeps = {
       .filter((r): r is typeof r & { path: string } => typeof r.path === 'string' && r.path !== '')
       .map((r) => ({ title: r.title, path: r.path })),
   adoptDocPath: (docId, path) => adoptDocPathForRecovery(docId, path),
+  findOpenByPath: (path) => findDocByPath(path),
 }
 
 export default function App() {

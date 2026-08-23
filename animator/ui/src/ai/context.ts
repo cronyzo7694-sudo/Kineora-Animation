@@ -261,9 +261,9 @@ export function createConversationContextStore(): ConversationContextStore {
     forPrompt(documentId, snapshot, currentRequest) {
       validDocumentId(documentId)
       const thread = threads.get(documentId)
-      if (currentRequest !== undefined && thread?.turns.length) {
+      if (currentRequest !== undefined) {
         const current = sanitizeTurn({ role: 'user', content: currentRequest })
-        const newest = thread.turns[thread.turns.length - 1]
+        const newest = thread?.turns[thread.turns.length - 1]
         if (newest?.role === 'user' && newest.content === current.content) {
           throw new ContextError(
             'E_CONTEXT_INPUT',

@@ -313,6 +313,107 @@ function PencilFields() {
   )
 }
 
+function BrushFields() {
+  const [opts, setOpts] = useState(loadToolOptions)
+  useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
+  const mode = opts.brushMode || 'normal'
+  const shape = opts.brushShape || 'circle'
+  const modeBtn = (id: typeof mode, label: string, title: string) => (
+    <button
+      type="button"
+      data-testid={`brush-mode-${id}`}
+      title={title}
+      data-active={mode === id ? 'true' : 'false'}
+      onClick={() => setToolOptions({ brushMode: id })}
+      style={{ ...smallBtn, background: mode === id ? '#2d5aa7' : '#2a2a2a' }}
+    >
+      {label}
+    </button>
+  )
+  const shapeBtn = (id: typeof shape, label: string) => (
+    <button
+      type="button"
+      data-testid={`brush-shape-${id}`}
+      onClick={() => setToolOptions({ brushShape: id })}
+      style={{ ...smallBtn, background: shape === id ? '#2d5aa7' : '#2a2a2a' }}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div data-testid="brush-props" style={{ margin: '8px 0' }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Paint mode</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {modeBtn('normal', 'Normal', 'Paint over lines and fills on this layer')}
+        {modeBtn('fills', 'Fills', 'Start on a fill — skip empty / strokes')}
+        {modeBtn('behind', 'Behind', 'Paint under existing ink')}
+        {modeBtn('selection', 'Selection', 'Clip to the selected fill')}
+        {modeBtn('inside', 'Inside', 'Stay inside the fill you start in')}
+      </div>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Brush</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {shapeBtn('circle', '○')}
+        {shapeBtn('oval', '⬭')}
+        {shapeBtn('square', '□')}
+        {shapeBtn('rect', '▭')}
+        {shapeBtn('diamond', '◇')}
+      </div>
+      <label style={field}>
+        <span style={{ color: '#999' }}>Angle</span>
+        <input
+          data-testid="brush-angle"
+          type="number"
+          min={0}
+          max={179}
+          value={opts.brushAngle ?? 0}
+          onChange={(e) => setToolOptions({ brushAngle: Number(e.target.value) || 0 })}
+          style={input}
+        />
+      </label>
+      <label style={field}>
+        <span style={{ color: '#999' }}>Smoothing</span>
+        <input
+          data-testid="brush-smooth"
+          type="range"
+          min={0}
+          max={100}
+          value={opts.brushSmooth ?? 50}
+          onChange={(e) => setToolOptions({ brushSmooth: Number(e.target.value) })}
+          style={{ flex: 1, accentColor: '#0a7cff' }}
+        />
+        <span style={{ width: 28, textAlign: 'right', color: '#ddd' }}>{opts.brushSmooth ?? 50}</span>
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="brush-zoom-stage"
+          type="checkbox"
+          checked={opts.brushZoomWithStage !== false}
+          onChange={(e) => setToolOptions({ brushZoomWithStage: e.target.checked })}
+        />
+        Zoom size with Stage
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="brush-object"
+          type="checkbox"
+          checked={!!opts.brushObject}
+          onChange={(e) => setToolOptions({ brushObject: e.target.checked })}
+        />
+        Object Drawing
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="brush-pressure"
+          type="checkbox"
+          checked={!!opts.brushPressure}
+          onChange={(e) => setToolOptions({ brushPressure: e.target.checked })}
+        />
+        Pressure (stylus only)
+      </label>
+    </div>
+  )
+}
+
 function PenFields({ notify }: { notify: (msg: string) => void }) {
   const [opts, setOpts] = useState(loadToolOptions)
   const [, tick] = useState(0)

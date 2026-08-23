@@ -512,12 +512,12 @@ export function textLocalBox(it: InkItem): { x: number; y: number; w: number; h:
   const lines = (it.text ?? '').split('\n')
   const size = it.fontSize ?? 18
   const longest = lines.reduce((m, s) => Math.max(m, s.length), 1)
-  const w = Math.max(24, longest * size * 0.55 + (it.letterSpacing ?? 0) * Math.max(0, longest - 1))
-  const h = Math.max(size, lines.length * size * 1.3)
+  const w = Math.max(16, longest * size * 0.62 + (it.letterSpacing ?? 0) * Math.max(0, longest - 1))
+  const h = Math.max(size * 1.15, lines.length * size * 1.25)
   let x = p.x
   if (it.textAlign === 'center') x = p.x - w / 2
   if (it.textAlign === 'right') x = p.x - w
-  return { x, y: p.y - size + 4, w, h }
+  return { x, y: p.y - size, w, h }
 }
 
 function rotateScaleBox(b: { x: number; y: number; w: number; h: number }, deg: number, sx: number, sy: number) {

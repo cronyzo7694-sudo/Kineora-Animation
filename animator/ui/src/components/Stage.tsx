@@ -368,13 +368,17 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const dx = dlt?.x ?? 0
     const dy = dlt?.y ?? 0
     const handles = handlePositions({ box, center, aabb: geom.aabb })
-    const hs = (Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>).map(
-      ([k, p]) => [k, translatePt(p, dx, dy)] as [string, Pt],
-    )
+    const textOnly = details.length === 0 && inkSel.length > 0 && inkSel.every((it) => it.kind === 'text')
+    const skipHandles = textOnly && toolRef.current === 'select'
+    const hs = skipHandles
+      ? []
+      : (Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>).map(
+          ([k, p]) => [k, translatePt(p, dx, dy)] as [string, Pt],
+        )
     return {
       box: translatePts(box, dx, dy),
       handles: hs,
-      rotateHandle: translatePt(handles.rotate, dx, dy),
+      rotateHandle: skipHandles ? translatePt(center, dx, dy) : translatePt(handles.rotate, dx, dy),
       center: translatePt(center, dx, dy),
     }
   }
@@ -1043,7 +1047,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       marquee: marqueeRef.current ?? zoomMarqueeRef.current,
       previewDelta: previewRef.current,
       previewRect: rectPreviewRef.current,
-      inkItems: listInk(),
+      inkItems: listInk().filter((it) => it.id !== textDraft?.editId),
       inkSelected: selectedInkIds(),
       inkAnchors: selectedAnchors(),
       showInkAnchors: tool === 'subselect',
@@ -1495,32 +1499,54 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         </div>
       )}
       {textDraft && (
-        <input
+        <textarea
           data-testid="stage-text-input"
           autoFocus
+          rows={Math.max(1, textDraft.value.split('\n').length)}
           value={textDraft.value}
           onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
           onBlur={() => {
             const d = textDraft
             setTextDraft(null)
-            if (d && d.value.trim()) {
-              const colors = loadToolColors()
-              addInk({
-                kind: 'text',
-                points: [{ x: d.x, y: d.y }],
-                closed: false,
-                fill: contrastOn(colors.fill, statusJson()?.background ?? '#ffffff'),
-                stroke: null,
-                strokeWidth: 0,
-                text: d.value.trim(),
-                fontSize: loadToolOptions().fontSize,
-              })
+            const raw = d?.value ?? ''
+            if (d && raw.trim()) {
+              if (d.editId != null) {
+                updateInk(d.editId, { text: raw })
+              } else {
+                const colors = loadToolColors()
+                const o = loadToolOptions()
+                addInk({
+                  kind: 'text',
+                  points: [{ x: d.x, y: d.y }],
+                  closed: false,
+                  fill: contrastOn(colors.fill, statusJson()?.background ?? '#ffffff'),
+                  stroke: null,
+                  strokeWidth: 0,
+                  text: raw,
+                  fontSize: o.fontSize,
+                  fontFamily: o.fontFamily,
+                  fontWeight: o.fontWeight,
+                  fontItalic: o.fontItalic,
+                  fontUnderline: o.fontUnderline,
+                  textAlign: o.textAlign,
+                  letterSpacing: o.letterSpacing,
+                  rotation: 0,
+                  scaleX: 1,
+                  scaleY: 1,
+                })
+              }
             }
             scheduleRedraw()
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-            if (e.key === 'Escape') setTextDraft(null)
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              ;(e.target as HTMLTextAreaElement).blur()
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setTextDraft(null)
+            }
           }}
           style={{
             position: 'absolute',
@@ -1528,12 +1554,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             top: textDraft.sy - 18,
             zIndex: 20,
             minWidth: 80,
+            resize: 'both',
             background: '#111',
             color: '#eee',
             border: '1px solid #0a7cff',
             borderRadius: 3,
             padding: '2px 6px',
             fontSize: 14,
+            fontFamily: 'system-ui, sans-serif',
+            lineHeight: 1.25,
           }}
         />
       )}

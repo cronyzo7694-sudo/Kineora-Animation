@@ -606,7 +606,7 @@ function drawInkItems(
       }
     }
     ctx.restore()
-    if (sel.has(it.id) || showAnchors) {
+    if (it.kind !== 'text' && (sel.has(it.id) || showAnchors)) {
       pts.forEach((p, i) => {
         const hot = picked.has(`${it.id}:${i}`)
         const s = docToScreen(vp, p.x, p.y)
@@ -649,30 +649,31 @@ function drawInkText(
   origin: InkPt,
   background: string,
 ): void {
+  const z = vp.zoom
+  const size = Math.max(1, (it.fontSize ?? 18) * z)
   const local = textLocalBox({ ...it, points: [origin], rotation: 0, scaleX: 1, scaleY: 1 })
-  const cx = local.x + local.w / 2
-  const cy = local.y + local.h / 2
-  const c = docToScreen(vp, cx, cy)
+  const ox = (local.x + local.w / 2 - origin.x) * z
+  const oy = (local.y + local.h / 2 - origin.y) * z
   const p = docToScreen(vp, origin.x, origin.y)
-  const size = (it.fontSize ?? 18) * vp.zoom
-  const fam = it.fontFamily || 'system-ui, sans-serif'
-  const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
-  const style = it.fontItalic ? 'italic' : 'normal'
   ctx.save()
-  ctx.translate(c.x, c.y)
+  ctx.translate(p.x, p.y)
+  ctx.translate(ox, oy)
   const rot = it.rotation ?? 0
   if (rot) ctx.rotate((rot * Math.PI) / 180)
   const sx = it.scaleX ?? 1
   const sy = it.scaleY ?? 1
   if (sx !== 1 || sy !== 1) ctx.scale(sx, sy)
-  ctx.translate(p.x - c.x, p.y - c.y)
+  ctx.translate(-ox, -oy)
   ctx.fillStyle = contrastOn(it.fill, background)
-  ctx.font = `${style} ${weight} ${Math.max(1, size)}px ${fam}`
+  const fam = it.fontFamily || 'system-ui, sans-serif'
+  const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
+  const italic = it.fontItalic ? 'italic' : 'normal'
+  ctx.font = `${italic} ${weight} ${size}px ${fam}`
   ctx.textAlign = it.textAlign === 'center' || it.textAlign === 'right' ? it.textAlign : 'left'
   ctx.textBaseline = 'alphabetic'
   if (it.letterSpacing) {
     try {
-      ;(ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${it.letterSpacing * vp.zoom}px`
+      ;(ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${(it.letterSpacing ?? 0) * z}px`
     } catch {
       /* ignore */
     }
@@ -680,13 +681,13 @@ function drawInkText(
   const lines = (it.text || '').split('\n')
   const lh = size * 1.25
   lines.forEach((line, i) => {
-    const y = p.y + i * lh
-    ctx.fillText(line, p.x, y)
+    const y = i * lh
+    ctx.fillText(line, 0, y)
     if (it.fontUnderline) {
       const w = ctx.measureText(line).width
-      let x0 = p.x
-      if (it.textAlign === 'center') x0 = p.x - w / 2
-      if (it.textAlign === 'right') x0 = p.x - w
+      let x0 = 0
+      if (it.textAlign === 'center') x0 = -w / 2
+      if (it.textAlign === 'right') x0 = -w
       ctx.strokeStyle = ctx.fillStyle as string
       ctx.lineWidth = Math.max(1, size / 16)
       ctx.beginPath()
@@ -695,6 +696,7 @@ function drawInkText(
       ctx.stroke()
     }
   })
+  ctx.restore()
 }
 
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {

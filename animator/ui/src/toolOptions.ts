@@ -120,6 +120,14 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
         ? Math.max(0, Math.min(49, patch.cornerRadius))
         : (state.cornerRadius ?? d.cornerRadius),
     penRubberBand: typeof patch.penRubberBand === 'boolean' ? patch.penRubberBand : (state.penRubberBand ?? d.penRubberBand),
+    pencilMode:
+      patch.pencilMode === 'straighten' || patch.pencilMode === 'smooth' || patch.pencilMode === 'ink'
+        ? patch.pencilMode
+        : (state.pencilMode ?? d.pencilMode),
+    pencilSmooth:
+      typeof patch.pencilSmooth === 'number' && Number.isFinite(patch.pencilSmooth)
+        ? Math.max(0, Math.min(100, patch.pencilSmooth))
+        : (state.pencilSmooth ?? d.pencilSmooth),
   }
   state = next
   for (const fn of [...listeners]) fn()

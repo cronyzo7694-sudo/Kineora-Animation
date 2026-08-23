@@ -75,6 +75,8 @@ import { CloseConfirmationDialog, type CloseConfirmationRequest } from './compon
 import { FindReplaceDialog } from './components/FindReplaceDialog'
 import type { CloseAllDecision } from './file'
 import type { ColorPreview } from './render/canvasRenderer'
+import { AiPanel } from './ai/AiPanel'
+import { createAiRuntime, type AiRuntime } from './ai/runtime'
 
 const VERSION = '0.2'
 
@@ -93,6 +95,10 @@ const AUTOSAVE_DEPS: AutosaveDeps = {
 export default function App() {
   // ——— boot: load workspace prefs (layout + visibility + collapse + name) ———
   const initialPrefs = useRef(loadWorkspacePrefs())
+  const aiRuntimeRef = useRef<AiRuntime | null>(null)
+  if (!aiRuntimeRef.current) aiRuntimeRef.current = createAiRuntime()
+  const aiRuntime = aiRuntimeRef.current
+  const [aiOpen, setAiOpen] = useState(false)
   const [tool, setToolState] = useState('select')
   const [toast, setToast] = useState('')
   const [toasts, setToasts] = useState<string[]>([])
@@ -262,6 +268,14 @@ export default function App() {
   useEffect(() => {
     return bus.on('document:changed', () => setTick((t) => t + 1))
   }, [])
+
+  useEffect(() => {
+    return bus.on('openSet:changed', (event) => {
+      if (event.change === 'removed' && typeof event.docId === 'number') {
+        aiRuntime.disposeDocument(event.docId)
+      }
+    })
+  }, [aiRuntime])
 
   // SYS-01 §27.1 / INT-0010: layer mutations ALSO emit the canonical
   // layer:changed — the shell re-reads immediately (same refresh semantics
@@ -538,6 +552,7 @@ export default function App() {
     notify,
     setTool,
     togglePanel,
+    toggleAiPanel: () => setAiOpen((open) => !open),
     panels,
     openExport: (format) => {
       if (format === 'video' || format === 'movie') setExportIntent('video')
@@ -724,6 +739,15 @@ export default function App() {
         />
         <span style={{ color: '#7eb8ff', fontSize: 12, fontWeight: 700, letterSpacing: 0.8, marginLeft: 10 }}>Kineora</span>
         <span style={{ color: '#555', fontSize: 10, margin: '0 10px' }}>{VERSION}</span>
+        <button
+          data-testid="ai-panel-button"
+          aria-label="Toggle Kineora AI"
+          title="Kineora AI"
+          onClick={() => getCommand('ai.panel.toggle')?.run(ctx)}
+          style={{ padding: '2px 10px', marginRight: 6, borderRadius: 3, border: '1px solid #35708a', background: aiOpen ? '#18465c' : '#1d2d35', color: '#9ee8ff', cursor: 'pointer', fontSize: 11 }}
+        >
+          AI
+        </button>
         {status && (
           <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {status.doc_title}
@@ -851,6 +875,13 @@ export default function App() {
         />
       )}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
+      {aiOpen && (
+        <AiPanel
+          runtime={aiRuntime}
+          documentId={status?.doc_id ?? null}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
       <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
       <ExportDialog
         open={exportOpen}

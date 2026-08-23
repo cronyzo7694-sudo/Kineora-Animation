@@ -68,6 +68,8 @@ pub struct History {
     /// it `true`, after which `is_dirty` compares the document against the
     /// snapshot so an undo that returns to the exact saved state is CLEAN.
     dirty_hint: bool,
+    /// E-AI-4: monotonic revision — +1 per execute/undo/redo.
+    rev: u64,
 }
 
 impl History {
@@ -79,6 +81,7 @@ impl History {
             redo: Vec::new(),
             saved: Some(doc.clone()),
             dirty_hint: false,
+            rev: 0,
         }
     }
 
@@ -92,6 +95,7 @@ impl History {
         prev_selection: Vec<NodeId>,
     ) {
         cmd.apply(doc);
+        self.rev += 1;
         self.undo.push(HistoryEntry {
             cmd,
             prev_selection,
@@ -116,6 +120,7 @@ impl History {
         let Some(mut e) = self.undo.pop() else {
             return None;
         };
+        self.rev += 1;
         e.cmd.revert(doc);
         let restore = e.prev_selection.clone();
         self.redo.push(e);
@@ -128,6 +133,7 @@ impl History {
         let Some(mut e) = self.redo.pop() else {
             return None;
         };
+        self.rev += 1;
         e.cmd.apply(doc);
         let restore = e.post_selection.clone();
         self.undo.push(e);
@@ -2537,6 +2543,45 @@ impl Command for DeleteLayerGroup {
         for (idx, layer) in restored {
             let i = idx.min(sc.layers.len());
             sc.layers.insert(i, layer);
+        }
+    }
+}
+
+/// A5: one undo row for a fully-built group of commands.
+pub struct CompositeCommand {
+    label: String,
+    children: Vec<Box<dyn Command>>,
+}
+
+impl CompositeCommand {
+    pub fn new(label: impl Into<String>, children: Vec<Box<dyn Command>>) -> Self {
+        Self {
+            label: label.into(),
+            children,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.children.is_empty()
+    }
+}
+
+impl Command for CompositeCommand {
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        for child in &mut self.children {
+            child.apply(doc);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        for child in self.children.iter_mut().rev() {
+            child.revert(doc);
         }
     }
 }

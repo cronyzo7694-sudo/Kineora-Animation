@@ -101,6 +101,7 @@ export interface CommandContext {
   notify: (msg: string) => void
   setTool: (tool: string) => void
   togglePanel: (id: string) => void
+  toggleAiPanel: () => void
   panels: Record<string, boolean>
   openExport: (format?: string) => void
   openDocumentSettings: () => void
@@ -2349,6 +2350,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     engine: { kind: 'error', detail: 'not provided' },
     setTool: () => {},
     togglePanel: () => {},
+    toggleAiPanel: () => {},
     panels: {},
     openExport: () => {},
     openDocumentSettings: () => {},

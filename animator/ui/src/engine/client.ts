@@ -541,6 +541,106 @@ export function hasSymbolFacade(): boolean {
   return !!mod && typeof mod.kineora_library === 'function'
 }
 
+export interface AiEngineExecutionError {
+  code: string
+  stage: number
+  message: string
+  actionIndex?: number
+  actionId?: string
+}
+
+export interface AiEngineActionExecution {
+  index: number
+  id?: string
+  action: string
+  status: 'pending' | 'prepared' | 'applied' | 'rolled-back' | 'failed' | 'skipped'
+  summary?: string
+}
+
+export interface AiEngineEntityBinding {
+  alias: string
+  kind: 'node' | 'layer' | 'symbol'
+  id: number
+}
+
+export interface AiEngineTransactionResult {
+  ok: boolean
+  outcome: 'applied' | 'rolled-back' | 'failed'
+  rolledBack: boolean
+  mutationCount: number
+  actions: AiEngineActionExecution[]
+  bindings: AiEngineEntityBinding[]
+  error?: AiEngineExecutionError
+}
+
+export function hasAiEngineFacades(): boolean {
+  return (
+    !!mod &&
+    typeof mod.kineora_scene_snapshot === 'function' &&
+    typeof mod.kineora_capabilities === 'function' &&
+    typeof mod.kineora_doc_revision === 'function' &&
+    typeof mod.kineora_set_selection === 'function'
+  )
+}
+
+export function hasAiTransactionFacade(): boolean {
+  return !!mod && typeof mod.kineora_ai_execute_transaction === 'function'
+}
+
+export function aiSceneSnapshot(): string | null {
+  if (!mod || typeof mod.kineora_scene_snapshot !== 'function') return null
+  const json = mod.kineora_scene_snapshot()
+  return json && json !== '{}' ? json : null
+}
+
+export function aiCapabilities(): string | null {
+  if (!mod || typeof mod.kineora_capabilities !== 'function') return null
+  return mod.kineora_capabilities()
+}
+
+export function aiDocRevision(): number | null {
+  if (!mod || typeof mod.kineora_doc_revision !== 'function') return null
+  return Number(mod.kineora_doc_revision())
+}
+
+export function aiSetSelection(ids: number[]): number | null {
+  if (!mod || typeof mod.kineora_set_selection !== 'function') return null
+  const prev = statusJson()?.selection ?? []
+  const kept = mod.kineora_set_selection(JSON.stringify(ids))
+  emitSelectionChanged(prev)
+  return Number(kept)
+}
+
+export function aiExecuteTransaction(
+  planJson: string,
+  label: string,
+): AiEngineTransactionResult | null {
+  if (!mod || typeof mod.kineora_ai_execute_transaction !== 'function') return null
+  const prev = statusJson()?.selection ?? []
+  try {
+    const result = JSON.parse(mod.kineora_ai_execute_transaction(planJson, label)) as AiEngineTransactionResult
+    if (result.ok) {
+      if (result.mutationCount > 0) docChanged('ai:transaction')
+      emitSelectionChanged(prev)
+    }
+    return result
+  } catch {
+    return {
+      ok: false,
+      outcome: 'failed',
+      rolledBack: false,
+      mutationCount: 0,
+      actions: [],
+      bindings: [],
+      error: {
+        code: 'E_UNKNOWN',
+        stage: 0,
+        message: 'engine returned an invalid transaction result',
+      },
+    }
+  }
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

@@ -280,6 +280,11 @@ export interface KineoraWasm {
   kineora_remove_transform?(): boolean
   kineora_arrange_selection?(op: string): boolean
   kineora_align_selection?(op: string, space: string): boolean
+  kineora_scene_snapshot?(): string
+  kineora_capabilities?(): string
+  kineora_doc_revision?(): bigint
+  kineora_set_selection?(idsJson: string): number
+  kineora_ai_execute_transaction?(planJson: string, label: string): string
   /** wasm-bindgen --target web default init (accepts explicit wasm input). */
   default?: (input?: ArrayBuffer | Response | string | URL) => Promise<unknown>
 }

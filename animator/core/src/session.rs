@@ -117,6 +117,54 @@ impl Session {
             .seal_last_post_selection(self.selection.clone());
     }
 
+    pub fn execute_grouped(
+        &mut self,
+        label: &str,
+        children: Vec<Box<dyn crate::command::Command>>,
+    ) -> bool {
+        if children.is_empty() {
+            self.log("group:(empty — refused)");
+            return false;
+        }
+        let cmd = crate::command::CompositeCommand::new(label, children);
+        self.exec_then(Box::new(cmd), |_| {});
+        self.log(&format!("group:{label}"));
+        true
+    }
+
+    pub fn doc_revision(&self) -> u64 {
+        self.history.revision()
+    }
+
+    pub fn scene_snapshot(&self) -> String {
+        crate::snapshot::scene_snapshot(self)
+    }
+
+    pub fn capabilities(&self) -> String {
+        crate::snapshot::capabilities()
+    }
+
+    pub fn set_selection(&mut self, ids: Vec<NodeId>) -> usize {
+        let mut frame_content = std::collections::BTreeSet::new();
+        if let Some(sc) = self.doc.scene(self.active_scene) {
+            for li in 0..sc.layers.len() {
+                for id in self.doc.content_at(self.active_scene, li, self.playhead) {
+                    frame_content.insert(id);
+                }
+            }
+        }
+        let asked = ids.len();
+        self.selection = ids
+            .into_iter()
+            .filter(|id| frame_content.contains(id))
+            .collect();
+        self.log(&format!(
+            "select:ids asked={asked} kept={}",
+            self.selection.len()
+        ));
+        self.selection.len()
+    }
+
     pub fn set_playhead(&mut self, frame: u32) {
         self.playhead = frame.max(1);
         self.log(&format!("playhead:{frame}"));

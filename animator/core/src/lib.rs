@@ -5,6 +5,7 @@
 //! Ownership (Phase-3): MOD-DOC / MOD-FRAME / MOD-SELECTION / MOD-XFR /
 //! MOD-COMMAND / MOD-PERSIST / MOD-EXPORT (SVG subset).
 
+pub mod ai_runner;
 pub mod command;
 pub mod doc_manager;
 pub mod easing;
@@ -15,10 +16,11 @@ pub mod id;
 pub mod model;
 pub mod persist;
 pub mod session;
+pub mod snapshot;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-pub use command::{Command, History, HISTORY_BOUND};
+pub use command::{Command, CompositeCommand, History, HISTORY_BOUND};
 pub use doc_manager::{DocManager, ManagedDoc};
 pub use easing::{ease_classic, ease_penner, EaseFn, EaseMode};
 pub use edit_ops::{

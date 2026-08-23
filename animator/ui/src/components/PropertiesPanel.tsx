@@ -127,7 +127,7 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
   return (
     <aside data-testid="properties-panel" aria-label="Properties" style={{ width: width ?? 220, height: '100%', background: '#1e1e1e', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
       <PanelHeader id="properties" title="Properties" collapsed={collapsed} onToggleCollapse={onToggleCollapse ?? (() => {})} onClose={onClose ?? (() => {})}>
-        <span data-testid="props-context" style={{ color: '#8ef', fontSize: 11, background: '#2a2a2a', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
+        <span data-testid="props-context" style={{ color: '#8ab4e8', fontSize: 11, background: '#252525', padding: '1px 8px', borderRadius: 8 }}>{contextChip}</span>
       </PanelHeader>
 
       {!collapsed && (

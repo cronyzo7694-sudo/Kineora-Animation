@@ -533,6 +533,7 @@ export default function App() {
     new Set([
       'tool.select',
       'tool.rect',
+      'tool.oval',
       'tool.transform',
       'tool.hand',
       'tool.zoom',
@@ -863,7 +864,7 @@ export default function App() {
       {engine.kind === 'ok' && !status && !exited && (
         <div data-testid="no-doc-state" style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
           <div style={{ background: '#1a1a1a', border: '1px solid #3a3a3a', borderRadius: 8, padding: '24px 32px', textAlign: 'center', pointerEvents: 'auto' }}>
-            <div style={{ color: '#8ef', fontSize: 18, fontWeight: 800, letterSpacing: 1, marginBottom: 4 }}>KINEORA ANIMATION</div>
+            <div style={{ color: '#7eb8ff', fontSize: 16, fontWeight: 700, letterSpacing: 0.6, marginBottom: 4 }}>Kineora</div>
             <div style={{ color: '#777', fontSize: 13, marginBottom: 16 }}>No document open</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button data-testid="no-doc-new" onClick={() => setNewOpen(true)} style={{ padding: '8px 18px', borderRadius: 4, border: '1px solid var(--kineora-btn-primary-border)', background: 'var(--kineora-btn-primary-bg)', color: 'var(--kineora-accent-text)', cursor: 'pointer', fontSize: 13 }}>

@@ -101,6 +101,16 @@ function rulerInterval(cellW: number): number {
   return 10
 }
 
+/** Unique ruler labels — never emit 1 twice when interval === 1. */
+function rulerFrames(cells: number, interval: number): number[] {
+  const out = [1]
+  const step = Math.max(1, interval)
+  for (let f = step; f <= cells; f += step) {
+    if (f !== 1) out.push(f)
+  }
+  return out
+}
+
 /**
  * Timeline (Part 07) — the "clock + score" panel.
  * View state that lives here (never in the engine, never persisted):
@@ -893,7 +903,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                 }}
               />
             ))}
-            {Array.from({ length: Math.ceil(cells / interval) }, (_, i) => (i === 0 ? 1 : i * interval)).map((f) => (
+            {rulerFrames(cells, interval).map((f) => (
               <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * cellW + 2, top: 1, color: f === playhead ? '#ff4d4d' : '#9a9a9a', fontWeight: f === playhead ? 700 : 400, fontSize: 9 }}>
                 {f}
               </span>
@@ -927,7 +937,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                     const f = i + 1
                     const selected = selLayer === engineIndex && selFrames.has(f)
                     const tw = tweenAt(l, f)
-                    const bg = tw ? '#4a7aaa' : kind === 'key' || kind === 'held' ? '#c4c4c4' : kind === 'blank' ? '#9a9a9a' : '#2b2b2b'
+                    const bg = tw ? '#3d6a8f' : kind === 'key' || kind === 'held' ? '#c8c8c8' : kind === 'blank' ? '#9a9a9a' : (f % 5 === 1 ? '#222' : '#1c1c1c')
                     const marker = l.keyframes.find((m) => m.frame === f)
                     const label = marker?.label ?? undefined
                     // span edge = the LAST held cell of a span (next cell isn't held)
@@ -949,7 +959,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                         data-tween={tw ? 'true' : 'false'}
                         data-selected={selected ? 'true' : 'false'}
                         onMouseDown={(e) => onCellDown(e, engineIndex, f)}
-                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: kind === 'empty' ? '1px solid #333' : '1px solid #b0b0b0', boxShadow: selected ? 'inset 0 0 0 1px #1473e6' : 'none', color: tw ? '#e8f2ff' : '#333', fontSize: 9, lineHeight: `${ROW_H}px`, textAlign: 'center' }}
+                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: kind === 'empty' ? '1px solid #2a2a2a' : '1px solid #b4b4b4', boxShadow: selected ? 'inset 0 0 0 1px #3d8eff' : 'none', color: tw ? '#e8f2ff' : '#333', fontSize: 9, lineHeight: `${ROW_H}px`, textAlign: 'center' }}
                       >
                         {tw && f === tw.end ? '▶' : ''}
                         {(kind === 'key' || kind === 'blank') && (

@@ -58,8 +58,9 @@ export interface RenderState {
   marquee?: { x: number; y: number; w: number; h: number } | null
   /** Editor-only drag preview: selected objects drawn translated by this DOC delta. */
   previewDelta?: { x: number; y: number } | null
-  /** Editor-only draw preview: DOC-space rect being drawn (Rect tool). */
-  previewRect?: { x: number; y: number; w: number; h: number } | null
+  /** Editor-only draw preview: DOC-space bounds of the shape being drawn
+   *  (Rectangle / Oval tools — `shape` picks the preview outline). */
+  previewRect?: { x: number; y: number; w: number; h: number; shape?: 'rect' | 'oval' } | null
   /** Editor-only live color preview (color/stroke-width field editing). */
   colorPreview?: ColorPreview | null
   /** SYS-04 view flags (defaults preserve the previous always-on behavior). */
@@ -214,12 +215,26 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
   ctx.save()
   ctx.translate(p.x, p.y)
   if (it.rotation !== 0) ctx.rotate((it.rotation * Math.PI) / 180)
-  ctx.fillStyle = style.fill
-  ctx.fillRect(-w / 2, -h / 2, w, h)
-  if (style.stroke) {
-    ctx.strokeStyle = style.stroke
-    ctx.lineWidth = style.strokeWidth * vp.zoom
-    ctx.strokeRect(-w / 2, -h / 2, w, h)
+  if (it.shape === 'oval') {
+    // T2B.5: the ellipse INSCRIBED in the item's bounding box — the exact same
+    // geometry the engine hit-tests and the SVG <ellipse> export emits.
+    ctx.beginPath()
+    ctx.ellipse(0, 0, Math.max(0, w / 2), Math.max(0, h / 2), 0, 0, Math.PI * 2)
+    ctx.fillStyle = style.fill
+    ctx.fill()
+    if (style.stroke) {
+      ctx.strokeStyle = style.stroke
+      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.stroke()
+    }
+  } else {
+    ctx.fillStyle = style.fill
+    ctx.fillRect(-w / 2, -h / 2, w, h)
+    if (style.stroke) {
+      ctx.strokeStyle = style.stroke
+      ctx.lineWidth = style.strokeWidth * vp.zoom
+      ctx.strokeRect(-w / 2, -h / 2, w, h)
+    }
   }
   ctx.restore()
 }
@@ -333,13 +348,23 @@ function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number
   ctx.fillRect(p.x, p.y, m.w * vp.zoom, m.h * vp.zoom)
 }
 
-function drawRectPreview(ctx: CanvasRenderingContext2D, vp: Viewport, r: { x: number; y: number; w: number; h: number }): void {
-  const p = docToScreen(vp, r.x, r.y)
+function drawRectPreview(ctx: CanvasRenderingContext2D, vp: Viewport, r: { x: number; y: number; w: number; h: number; shape?: 'rect' | 'oval' }): void {
   ctx.fillStyle = 'rgba(63, 155, 245, 0.2)'
-  ctx.fillRect(p.x, p.y, r.w * vp.zoom, r.h * vp.zoom)
   ctx.strokeStyle = '#3f9bf5'
   ctx.lineWidth = 1
   ctx.setLineDash([4, 3])
+  if (r.shape === 'oval') {
+    // T2B.5: rubber-band = the ellipse itself, not its bounding box.
+    const c = docToScreen(vp, r.x + r.w / 2, r.y + r.h / 2)
+    ctx.beginPath()
+    ctx.ellipse(c.x, c.y, Math.max(0, (r.w / 2) * vp.zoom), Math.max(0, (r.h / 2) * vp.zoom), 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+    ctx.setLineDash([])
+    return
+  }
+  const p = docToScreen(vp, r.x, r.y)
+  ctx.fillRect(p.x, p.y, r.w * vp.zoom, r.h * vp.zoom)
   ctx.strokeRect(p.x, p.y, r.w * vp.zoom, r.h * vp.zoom)
   ctx.setLineDash([])
 }

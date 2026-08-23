@@ -30,6 +30,7 @@ fn animated_symbol(s: &mut Session) -> SymbolId {
             fill: "#123456".into(),
             stroke: None,
             stroke_width: 0.0,
+            shape: Default::default(),
         },
     );
     let f1 = Frame::keyframe(vec![inner]);

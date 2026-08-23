@@ -102,6 +102,29 @@
 
 ---
 
+### D-0009 — Blueprint-internal 'O' conflict: Oval tool vs Onion-skin toggle
+
+- **Question:** Blueprint Part 29 binds `O` twice — tools section "Oval | O"
+  (also Part 34: the Oval button's key is O) and view section "Onion skin
+  toggle | O" (also its timeline row). The command registry forbids duplicate
+  keys (validator), so one binding must move. Which?
+- **Evidence:** Blueprint §1.3.1 — a tool is "the heart of editing"; tool
+  activation keys are per-tool contracts. Onion Skin is a view toggle that
+  additionally has a View-menu row (Part 01 §1.2.3) and a Timeline button
+  (Part 34); losing its bare key costs less than a tool losing its activation
+  key. Onion's modifier chain stays intact: toggle moved, Outlines keeps
+  Shift+O, Edit Multiple Frames keeps Alt+O.
+- **Affected systems:** tools (T2B.5 Oval, AI-T) · timeline onion (AI-B,
+  `view.onion` in commands.ts + TimelineStrip tooltip).
+- **Options:** (a) Oval=O, onion toggle → Ctrl+Alt+O · (b) onion=O, Oval gets
+  no activation key · (c) onion toggle → Shift+O with outlines → unbound
+  (breaks the documented outlines chain).
+- **Recommendation (NOT authoritative):** (a) — SHIPPED provisionally in the
+  Oval batch so the registry validates; flip if ruled otherwise (2-line change).
+- **Status:** PENDING HUMAN.
+
+---
+
 ## Non-blocking recommendations (do NOT treat as decisions)
 
 | ID | Topic | Recommendation |

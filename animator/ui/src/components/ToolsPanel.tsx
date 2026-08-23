@@ -57,6 +57,11 @@ const icons = {
       <rect x="3.5" y="5.5" width="13" height="9" {...stroke} />
     </svg>
   ),
+  oval: (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <ellipse cx="10" cy="10" rx="7" ry="5.2" {...stroke} />
+    </svg>
+  ),
   bucket: (
     <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
       <path d="M8.6 3.2 3.9 7.9a1.4 1.4 0 0 0 0 2l4.6 4.6a1.4 1.4 0 0 0 2 0l4.7-4.7z" {...stroke} />
@@ -95,6 +100,7 @@ export const TOOLS_AREA: ToolDef[] = [
   { id: 'select', label: 'Selection Tool', shortcut: 'V', icon: icons.select },
   { id: 'transform', label: 'Free Transform Tool', shortcut: 'Q', icon: icons.transform },
   { id: 'rect', label: 'Rectangle Tool', shortcut: 'R', icon: icons.rect },
+  { id: 'oval', label: 'Oval Tool', shortcut: 'O', icon: icons.oval },
   { id: 'bucket', label: 'Paint Bucket Tool', shortcut: 'K', icon: icons.bucket },
   { id: 'ink', label: 'Ink Bottle Tool', shortcut: 'S', icon: icons.ink },
   { id: 'eyedropper', label: 'Eyedropper Tool', shortcut: 'I', icon: icons.eyedropper },

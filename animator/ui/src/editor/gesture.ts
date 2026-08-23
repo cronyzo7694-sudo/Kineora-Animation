@@ -61,7 +61,10 @@ export function normalizeRect(ax: number, ay: number, bx: number, by: number): D
   }
 }
 
-/** Blueprint T2B.4 modifiers — not invented: Shift = square, Alt = from center. */
+/** Blueprint T2B.4 modifiers — not invented: Shift = square, Alt = from center.
+ *  T2B.5 (Oval) reuses this math verbatim: "drag a bounding box; Shift = circle;
+ *  Alt/Option = from center" — a circle is a square bounding box, so the SAME
+ *  builder drives both tools and can never drift. */
 export interface RectBuildOpts {
   square?: boolean
   fromCenter?: boolean

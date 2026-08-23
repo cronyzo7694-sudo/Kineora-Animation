@@ -23,7 +23,7 @@ use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
     layer_and_ancestors_unlocked, layer_and_ancestors_visible, Document, Frame, Layer, LoopMode,
-    Node, Scene, Settings, Symbol, SymbolType, Transform,
+    Node, Scene, Settings, ShapeKind, Symbol, SymbolType, Transform,
 };
 use crate::persist;
 
@@ -176,9 +176,35 @@ impl Session {
     }
 
     pub fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str) -> NodeId {
-        // Draw-target contract (REQ-DRW-003 / B-5): a hidden, locked, or
-        // folder layer is not a valid draw target. Blocked → no command,
-        // no node (returns NodeId(0)).
+        // Legacy facade (pre-E1): a plain rectangle with no stroke. Behavior
+        // is byte-identical to before — the E1 parametric entry point is
+        // `draw_shape`, which also honors the stroke style.
+        self.draw_shape(ShapeKind::Rect, x, y, w, h, fill, None, 0.0)
+    }
+
+    /// E1 — Blueprint Part 02b draw contract (T2B.4 Rectangle / T2B.5 Oval):
+    /// draw a parametric shape honoring the current fill AND stroke styles
+    /// (Part 02b preamble: "Every drawing tool must honor (1) the current
+    /// stroke and fill style"). Closes the rest of BUG-TOOL-008.
+    ///
+    /// Draw-target contract (REQ-DRW-003 / B-5): a hidden, locked, or folder
+    /// layer is not a valid draw target. Blocked → no command, no node
+    /// (returns NodeId(0)) — byte-identical logging to the pre-E1 facade.
+    ///
+    /// One call = ONE undo command (`DrawRect`, labelled per shape) and the
+    /// new shape is selected, per the Part 02b §8 commit contract.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_shape(
+        &mut self,
+        shape: ShapeKind,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        fill: &str,
+        stroke: Option<&str>,
+        stroke_width: f64,
+    ) -> NodeId {
         if self.editable_target_layer().is_none() {
             if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
                 if l.is_folder() {
@@ -200,8 +226,9 @@ impl Session {
             width: w,
             height: h,
             fill: fill.to_string(),
-            stroke: None,
-            stroke_width: 0.0,
+            stroke: stroke.map(str::to_string),
+            stroke_width,
+            shape,
         };
         let cmd = DrawRect {
             scene: self.active_scene,
@@ -212,7 +239,11 @@ impl Session {
         self.exec_then(Box::new(cmd), |s| {
             s.selection = vec![id];
         });
-        self.log(&format!("draw:rect id={:?} @{}", id, self.playhead));
+        let kind = match shape {
+            ShapeKind::Rect => "rect",
+            ShapeKind::Oval => "oval",
+        };
+        self.log(&format!("draw:{kind} id={id:?} @{}", self.playhead));
         id
     }
 
@@ -2549,6 +2580,7 @@ fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
             fill,
             stroke,
             stroke_width,
+            shape,
         } => {
             let mut w = *width;
             let mut h = *height;
@@ -2592,6 +2624,7 @@ fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
                 fill: f,
                 stroke: s,
                 stroke_width: sw,
+                shape: *shape,
             }
         }
         // instances have no base rect props — patch is a no-op for them

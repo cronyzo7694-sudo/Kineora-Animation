@@ -290,6 +290,18 @@ export const commands: Command[] = [
     toolbar: true,
   },
   {
+    // Blueprint T2B.5 — Oval tool: drag a bounding box (Shift = circle,
+    // Alt/Option = from center); draws with the current Fill + Stroke colors.
+    id: 'tool.oval',
+    label: 'Oval Tool',
+    category: 'tools',
+    shortcut: 'O',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 02b T2B.5 / Part 29 §29.1',
+    run: (c) => c.setTool('oval'),
+    toolbar: true,
+  },
+  {
     id: 'tool.transform',
     label: 'Free Transform Tool',
     category: 'tools',
@@ -1017,7 +1029,12 @@ export const commands: Command[] = [
     id: 'view.onion',
     label: 'Onion Skin',
     category: 'view',
-    shortcut: 'O',
+    // D-0009 (register): Blueprint Part 29 is internally conflicted on 'O'
+    // (tools: "Oval | O" vs view: "Onion skin toggle | O"). The Oval tool
+    // keeps 'O' (§1.3.1 tool activation); the onion toggle — which also has
+    // a View-menu row and a Timeline button — moves to the free Ctrl+Alt+O.
+    // AI-B owns this command: flip the key if the human rules otherwise.
+    shortcut: 'Ctrl+Alt+O',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 15.2.1 / 15.3 — view state, never exported',
     checked: () => loadOnionPrefs().on,

@@ -238,6 +238,45 @@ export function drawRect(x: number, y: number, w: number, h: number, fill: strin
   return id
 }
 
+/** E1 — parametric shape drawing (Blueprint Part 02b, T2B.4 Rectangle /
+ *  T2B.5 Oval). Honors BOTH the Fill and Stroke swatches per the Part 02b
+ *  preamble ("every drawing tool must honor the current stroke and fill
+ *  style"). One call = one undo command in the core.
+ *
+ *  Honest degrade on a pre-E1 wasm build: 'rect' falls back to the legacy
+ *  facade (stroke dropped, exactly the old behavior); 'oval' returns 0 so
+ *  the caller can tell the user to rebuild the engine — never a silent rect. */
+export function drawShape(
+  shape: 'rect' | 'oval',
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  fill: string,
+  stroke: string | null,
+  strokeWidth: number,
+): number {
+  const prev = statusJson()?.selection ?? []
+  let id = 0
+  if (typeof mod?.kineora_draw_shape === 'function') {
+    id = asNum(mod.kineora_draw_shape(shape, x, y, w, h, fill, stroke, strokeWidth))
+  } else if (shape === 'rect') {
+    id = asNum(mod?.kineora_draw_rect(x, y, w, h, fill))
+  }
+  if (id > 0) {
+    docChanged('draw')
+    emitSelectionChanged(prev)
+  }
+  return id
+}
+
+/** True when the attached engine exposes the E1 shape facade (build honesty —
+ *  lets the Stage distinguish "draw blocked by layer guards" from "engine
+ *  build too old for the Oval tool"). */
+export function hasShapeDrawFacade(): boolean {
+  return !!mod && typeof mod.kineora_draw_shape === 'function'
+}
+
 export function evaluate(frame: number): RectItemJson[] {
   if (!mod) return []
   try {

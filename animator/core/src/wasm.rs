@@ -18,7 +18,7 @@ use wasm_bindgen::prelude::*;
 use crate::doc_manager::DocManager;
 use crate::edit_ops::{AlignOp, AlignSpace, ArrangeOp, PasteMode};
 use crate::id::{NodeId, SymbolId};
-use crate::model::{Document, LoopMode, SymbolType};
+use crate::model::{Document, LoopMode, ShapeKind, SymbolType};
 use crate::session::{NodePropsPatch, SettingsPatch, TransformPatch};
 use crate::{Session, Settings};
 
@@ -412,6 +412,34 @@ pub fn kineora_mark_clean() -> bool {
 #[wasm_bindgen]
 pub fn kineora_draw_rect(x: f64, y: f64, w: f64, h: f64, fill: String) -> u64 {
     with_session(|s| s.draw_rect(x, y, w, h, &fill).0).unwrap_or(0)
+}
+
+/// E1 — draw a parametric shape ("rect" | "oval", Blueprint T2B.4/T2B.5) with
+/// the current fill AND stroke styles (Part 02b preamble). Returns the new
+/// node id; 0 = draw blocked (hidden/locked/folder layer) or an unknown
+/// shape kind (rejected, never guessed).
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn kineora_draw_shape(
+    shape: String,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    fill: String,
+    stroke: Option<String>,
+    stroke_width: f64,
+) -> u64 {
+    let kind = match shape.as_str() {
+        "rect" => ShapeKind::Rect,
+        "oval" => ShapeKind::Oval,
+        _ => return 0,
+    };
+    with_session(|s| {
+        s.draw_shape(kind, x, y, w, h, &fill, stroke.as_deref(), stroke_width)
+            .0
+    })
+    .unwrap_or(0)
 }
 
 /// Hit-test at (x,y) and update the selection. Returns true if something hit.

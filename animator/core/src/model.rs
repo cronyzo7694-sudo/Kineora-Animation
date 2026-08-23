@@ -126,7 +126,20 @@ impl Symbol {
     }
 }
 
-/// Content node (slice: rectangle + symbol instance).
+/// Parametric shape kind carried by the rect node (E1 — Blueprint Part 02b:
+/// T2B.4 Rectangle, T2B.5 Oval). The node stays ONE kind (`Node::Rect`) whose
+/// `shape` picks the geometry: fill/stroke/transform semantics are shared,
+/// only the drawn + hit-tested outline differs. Serialized lowercase with a
+/// serde default of `rect`, so every pre-E1 project file loads unchanged.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeKind {
+    #[default]
+    Rect,
+    Oval,
+}
+
+/// Content node (slice: parametric shape + symbol instance).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Node {
     Rect {
@@ -137,6 +150,9 @@ pub enum Node {
         fill: String,
         stroke: Option<String>,
         stroke_width: f64,
+        /// Parametric shape (E1). Default `rect` — old files never mention it.
+        #[serde(default)]
+        shape: ShapeKind,
     },
     SymbolInstance {
         id: NodeId,
@@ -184,6 +200,7 @@ impl Node {
                 fill,
                 stroke,
                 stroke_width,
+                shape,
                 ..
             } => Node::Rect {
                 id,
@@ -193,6 +210,7 @@ impl Node {
                 fill: fill.clone(),
                 stroke: stroke.clone(),
                 stroke_width: *stroke_width,
+                shape: *shape,
             },
             Node::SymbolInstance {
                 transform,
@@ -219,6 +237,7 @@ impl Node {
                 fill,
                 stroke,
                 stroke_width,
+                shape,
                 ..
             } => Node::Rect {
                 id: *id,
@@ -228,6 +247,7 @@ impl Node {
                 fill: fill.clone(),
                 stroke: stroke.clone(),
                 stroke_width: *stroke_width,
+                shape: *shape,
             },
             Node::SymbolInstance {
                 id,

@@ -31,19 +31,23 @@ vi.mock('../engine/client', () => ({
   selectInRect: vi.fn(),
   transformSelection: vi.fn(),
   moveSelection: vi.fn(),
-  drawRect: vi.fn((_x: number, _y: number, _w: number, _h: number, _fill: string) => 2),
+  drawShape: vi.fn((_shape: string, _x: number, _y: number, _w: number, _h: number, _fill: string, _stroke: string | null, _strokeWidth: number) => 2),
+  hasShapeDrawFacade: () => true,
   placeSymbol: vi.fn((_s: number, _x: number, _y: number) => 3),
   swapInstance: vi.fn((_i: number, _s: number) => true),
   setNodeProps: vi.fn(),
 }))
 
-import { drawRect, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, setNodeProps, statusJson, swapInstance, transformSelection } from '../engine/client'
+import { drawShape, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, setNodeProps, statusJson, swapInstance, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
 import { defaultToolColors, loadToolColors, resetToolColorsCacheForTests, setToolColors } from '../toolColors'
 import { resetToolOptionsForTests, setToolOptions } from '../toolOptions'
 
 /** Adobe: new objects are drawn with the Tools-panel Fill Color (default white). */
 const DEFAULT_FILL = defaultToolColors().fill as string
+/** Default Stroke Color (black, 1px) — shape tools honor it at draw time (Part 02b). */
+const DEFAULT_STROKE = defaultToolColors().stroke as string
+const DEFAULT_SW = defaultToolColors().strokeWidth
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -56,7 +60,7 @@ const selectToggleAtMock = vi.mocked(selectToggleAt)
 const selectInRectMock = vi.mocked(selectInRect)
 const transformSelectionMock = vi.mocked(transformSelection)
 const moveSelectionMock = vi.mocked(moveSelection)
-const drawRectMock = vi.mocked(drawRect)
+const drawShapeMock = vi.mocked(drawShape)
 const setNodePropsMock = vi.mocked(setNodeProps)
 
 function renderStage(tool = 'select') {
@@ -345,9 +349,9 @@ describe('Stage transform + multi-selection gestures', () => {
   })
 })
 
-describe('Stage rect-tool drawing', () => {
+describe('Stage rect-tool drawing (T2B.4)', () => {
   beforeEach(() => {
-    drawRectMock.mockClear()
+    drawShapeMock.mockClear()
     moveSelectionMock.mockClear()
   })
 
@@ -361,9 +365,9 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 20 })
     fireEvent.mouseMove(window, { clientX: 110, clientY: 70 })
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
-    // zoom is 1 after fit → screen == doc
-    expect(drawRectMock).toHaveBeenCalledWith(10, 20, 100, 50, DEFAULT_FILL)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    // zoom is 1 after fit → screen == doc; Part 02b: fill AND stroke honored
+    expect(drawShapeMock).toHaveBeenCalledWith('rect', 10, 20, 100, 50, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
   })
 
   it('reverse-direction drag normalizes to positive width/height', async () => {
@@ -372,8 +376,8 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 110, clientY: 70 }) // bottom-right
     fireEvent.mouseMove(window, { clientX: 10, clientY: 20 }) // → top-left
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
-    expect(drawRectMock).toHaveBeenCalledWith(10, 20, 100, 50, DEFAULT_FILL)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('rect', 10, 20, 100, 50, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
   })
 
   it('sub-threshold click creates NO rect (no accidental object)', async () => {
@@ -382,7 +386,7 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
     fireEvent.mouseMove(window, { clientX: 2, clientY: 1 })
     fireEvent.mouseUp(window)
-    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(drawShapeMock).not.toHaveBeenCalled()
   })
 
   it('pointer cancel discards the draw — NO rect, NO command', async () => {
@@ -392,7 +396,7 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
     fireEvent.pointerCancel(canvas)
     fireEvent.mouseUp(window)
-    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(drawShapeMock).not.toHaveBeenCalled()
   })
 
   it('two separate drags create two rect commands', async () => {
@@ -404,7 +408,7 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 60, clientY: 60 })
     fireEvent.mouseMove(window, { clientX: 90, clientY: 90 })
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(2))
   })
 
   it('draw uses document coordinates under zoom (screen px ÷ zoom)', async () => {
@@ -415,10 +419,10 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 11, clientY: 22 })
     fireEvent.mouseMove(window, { clientX: 22, clientY: 33 })
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
     // 11px @1.1 zoom = 10 doc px; 22→22px=20doc
-    expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(10, 5)
-    expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(10, 5)
+    expect(drawShapeMock.mock.calls[0][3]).toBeCloseTo(10, 5)
+    expect(drawShapeMock.mock.calls[0][4]).toBeCloseTo(10, 5)
   })
 
   it('draw after pan keeps document coordinates correct', async () => {
@@ -433,11 +437,11 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(window, { clientX: 200, clientY: 150 })
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
-    expect(drawRectMock.mock.calls[0][0]).toBeCloseTo(80, 5)
-    expect(drawRectMock.mock.calls[0][1]).toBeCloseTo(90, 5)
-    expect(drawRectMock.mock.calls[0][2]).toBeCloseTo(100, 5)
-    expect(drawRectMock.mock.calls[0][3]).toBeCloseTo(50, 5)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock.mock.calls[0][1]).toBeCloseTo(80, 5)
+    expect(drawShapeMock.mock.calls[0][2]).toBeCloseTo(90, 5)
+    expect(drawShapeMock.mock.calls[0][3]).toBeCloseTo(100, 5)
+    expect(drawShapeMock.mock.calls[0][4]).toBeCloseTo(50, 5)
   })
 
   it('Shift-drag commits a square (longer side, start-corner anchor) — T2B.4', async () => {
@@ -446,8 +450,8 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
     fireEvent.mouseMove(window, { clientX: 100, clientY: 50, shiftKey: true })
     fireEvent.mouseUp(window, { shiftKey: true })
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
-    expect(drawRectMock).toHaveBeenCalledWith(0, 0, 100, 100, DEFAULT_FILL)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('rect', 0, 0, 100, 100, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
   })
 
   it('Alt-drag commits from the start point as center — T2B.4', async () => {
@@ -456,8 +460,8 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
     fireEvent.mouseMove(window, { clientX: 150, clientY: 120, altKey: true })
     fireEvent.mouseUp(window, { altKey: true })
-    await waitFor(() => expect(drawRectMock).toHaveBeenCalledTimes(1))
-    expect(drawRectMock).toHaveBeenCalledWith(50, 80, 100, 40, DEFAULT_FILL)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('rect', 50, 80, 100, 40, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
   })
 
   it('Escape mid-draw discards the rect — NO command (T2B.4 cancel)', async () => {
@@ -467,7 +471,88 @@ describe('Stage rect-tool drawing', () => {
     fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
     fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.mouseUp(window)
-    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(drawShapeMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Stage oval-tool drawing (T2B.5)', () => {
+  beforeEach(() => {
+    drawShapeMock.mockClear()
+  })
+
+  function renderOvalStage() {
+    return render(<Stage engine={{ kind: 'ok', detail: 'mock' }} tool="oval" playhead={1} tick={0} />)
+  }
+
+  it('drag commits exactly ONE oval with the bounding-box geometry', async () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 20 })
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 70 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('oval', 10, 20, 100, 50, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
+  })
+
+  it('Shift-drag commits a circle (square bounding box) — T2B.5 §6', async () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50, shiftKey: true })
+    fireEvent.mouseUp(window, { shiftKey: true })
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('oval', 0, 0, 100, 100, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
+  })
+
+  it('Alt-drag draws from the centre — T2B.5 §6', async () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 100, clientY: 100 })
+    fireEvent.mouseMove(window, { clientX: 150, clientY: 120, altKey: true })
+    fireEvent.mouseUp(window, { altKey: true })
+    await waitFor(() => expect(drawShapeMock).toHaveBeenCalledTimes(1))
+    expect(drawShapeMock).toHaveBeenCalledWith('oval', 50, 80, 100, 40, DEFAULT_FILL, DEFAULT_STROKE, DEFAULT_SW)
+  })
+
+  it('honors the Fill AND Stroke swatches at draw time (Part 02b preamble)', () => {
+    setToolColors({ fill: '#112233', stroke: '#445566', strokeWidth: 3 })
+    renderOvalStage()
+    drag(screen.getByTestId('stage-canvas'), [10, 10], [110, 60])
+    expect(drawShapeMock).toHaveBeenCalledWith('oval', 10, 10, 100, 50, '#112233', '#445566', 3)
+  })
+
+  it('Escape mid-draw discards the oval — NO command (T2B.5 §11 cancel)', async () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.mouseUp(window)
+    expect(drawShapeMock).not.toHaveBeenCalled()
+  })
+
+  it('sub-threshold click creates NO oval (no accidental object)', async () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 2, clientY: 1 })
+    fireEvent.mouseUp(window)
+    expect(drawShapeMock).not.toHaveBeenCalled()
+  })
+
+  it('pointer cancel discards the draw — NO oval, NO command', () => {
+    renderOvalStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 50 })
+    fireEvent.pointerCancel(canvas)
+    fireEvent.mouseUp(window)
+    expect(drawShapeMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the drawing crosshair cursor like the other shape tools', () => {
+    renderOvalStage()
+    expect(screen.getByTestId('stage-canvas').style.cursor).toBe('crosshair')
   })
 })
 
@@ -563,7 +648,7 @@ describe('Stage — Hand tool (H)', () => {
     const canvas = screen.getByTestId('stage-canvas')
     drag(canvas, [10, 10], [80, 60])
     expect(selectAtMock).not.toHaveBeenCalled()
-    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(drawShapeMock).not.toHaveBeenCalled()
     expect(moveSelectionMock).not.toHaveBeenCalled()
   })
 
@@ -588,7 +673,7 @@ describe('Stage — Spacebar = temporary Hand tool', () => {
     fireEvent.mouseMove(window, { clientX: 70, clientY: 90 })
     await waitFor(() => expect(screen.getByTestId('pan-readout')).toHaveTextContent('20,40'))
     fireEvent.mouseUp(window)
-    expect(drawRectMock).not.toHaveBeenCalled() // the rect tool did NOT draw
+    expect(drawShapeMock).not.toHaveBeenCalled() // the rect tool did NOT draw
 
     fireEvent.keyUp(window, { code: 'Space', key: ' ' })
     await waitFor(() => expect(screen.getByTestId('tool-readout')).toHaveTextContent('rect'))
@@ -638,7 +723,7 @@ describe('Stage — Zoom tool (Z)', () => {
     fireEvent.mouseUp(window, { clientX: 210, clientY: 110 })
     await waitFor(() => expect(screen.getByTestId('zoom-readout')).not.toHaveTextContent('100%'))
     expect(selectInRectMock).not.toHaveBeenCalled()
-    expect(drawRectMock).not.toHaveBeenCalled()
+    expect(drawShapeMock).not.toHaveBeenCalled()
     expect(moveSelectionMock).not.toHaveBeenCalled()
   })
 
@@ -689,7 +774,7 @@ describe('Stage — Free Transform tool (Q) drives the pointer (BUG-TOOL-005)', 
     renderStage('rect')
     const canvas = screen.getByTestId('stage-canvas')
     drag(canvas, [10, 10], [60, 50])
-    expect(drawRectMock).toHaveBeenCalled()
+    expect(drawShapeMock).toHaveBeenCalled()
   })
 })
 
@@ -729,7 +814,7 @@ describe('Stage — Rectangle tool uses the Fill Color swatch (BUG-TOOL-007)', (
     renderStage('rect')
     const canvas = screen.getByTestId('stage-canvas')
     drag(canvas, [10, 10], [110, 60])
-    expect(drawRectMock).toHaveBeenLastCalledWith(10, 10, 100, 50, '#22cc88')
+    expect(drawShapeMock).toHaveBeenLastCalledWith('rect', 10, 10, 100, 50, '#22cc88', DEFAULT_STROKE, DEFAULT_SW)
   })
 })
 

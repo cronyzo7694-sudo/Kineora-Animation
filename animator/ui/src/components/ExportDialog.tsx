@@ -5,10 +5,10 @@ import { inkToSvg, rasterizeContent } from '../render/canvasRenderer'
 import { listInk } from '../editor/inkStore'
 import { bus } from '../bus'
 // SYS-27 MOD-EXPORT engines (sequence slice — INT-AID-003)
-import { buildSvgSequence, deliverExport } from '../export27'
+import { buildSvgSequence, deliverExport, exportWebmVideo } from '../export27'
 import type { EngineStatus } from '../controlRegistry'
 
-export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq'
+export type ExportFormat = 'svg' | 'png' | 'jpeg' | 'webp' | 'svgseq' | 'webm'
 
 interface Props {
   open: boolean
@@ -24,6 +24,7 @@ const FORMATS: Array<{ id: ExportFormat; label: string; ext: string; mime: strin
   { id: 'webp', label: 'WebP (raster)', ext: 'webp', mime: 'image/webp' },
   // SYS-27 slice 1: real sequence engine (eng 14 "Sequence: range + sidecar fps")
   { id: 'svgseq', label: 'SVG sequence (frame range)', ext: 'svg', mime: 'image/svg+xml' },
+  { id: 'webm', label: 'Video (WebM)', ext: 'webm', mime: 'video/webm' },
 ]
 const SCALES = [1, 2, 4]
 
@@ -41,6 +42,8 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
   // sequence range (SYS-27 slice 1): defaults = full timeline
   const [seqFirst, setSeqFirst] = useState(1)
   const [seqLast, setSeqLast] = useState(0) // 0 = "use duration" until touched
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
 
   if (!open) return null
   const attached = engine.kind === 'ok'
@@ -49,9 +52,22 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
   const duration = Math.max(1, status?.duration ?? 1)
   const effLast = seqLast === 0 ? duration : seqLast
 
+  const report = (msg: string) => {
+    setResult(msg)
+    notify(msg)
+  }
+
   const doExport = () => {
     if (!attached) {
       notify('export: engine not attached')
+      return
+    }
+    if (format === 'webm') {
+      setBusy(true)
+      void exportWebmVideo({ first: seqFirst, last: effLast, scale, fps: status?.fps }, notify).then((ok) => {
+        setBusy(false)
+        if (ok) report('Video exported — check your Downloads folder for the .webm file.')
+      })
       return
     }
     if (format === 'svgseq') {
@@ -63,7 +79,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
         buildSvgSequence({ first: seqFirst, last: effLast, scale, baseName: base }),
         notify,
       )
-      if (ok) onClose()
+      if (ok) report(`SVG sequence exported (${seqFirst}–${effLast}) — check Downloads.`)
       return
     }
     const f = FORMATS.find((x) => x.id === format)!
@@ -73,13 +89,11 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
         notify('export: engine returned no SVG')
         return
       }
-      const ink = inkToSvg(listInk())
+      const ink = inkToSvg(listInk(), status?.background ?? '#ffffff')
       if (ink) svg = svg.replace(/<\/svg>\s*$/i, `${ink}</svg>`)
       downloadBlob(`kineora.${f.ext}`, svg, f.mime)
-      // SYS-27 contract §D: export:done{format, path} on every successful
-      // export (browser dev mode: path = the download file name).
       bus.emit('export:done', { format: 'svg', path: `kineora.${f.ext}` })
-      notify(`export: downloaded kineora.${f.ext} (${scale}×)`)
+      report(`Exported kineora.${f.ext} (${scale}×) — check your Downloads folder.`)
     } else {
       const items = evaluate(frame)
       const st = statusJson()
@@ -100,9 +114,8 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
       const quality = format === 'jpeg' ? 0.92 : undefined
       downloadCanvasBlob(canvas, `kineora.${f.ext}`, f.mime, quality)
       bus.emit('export:done', { format, path: `kineora.${f.ext}` })
-      notify(`export: downloaded kineora.${f.ext} (${canvas.width}×${canvas.height})`)
+      report(`Exported kineora.${f.ext} (${canvas.width}×${canvas.height}) — check your Downloads folder.`)
     }
-    onClose()
   }
 
   return (
@@ -128,7 +141,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           </select>
         </label>
 
-        {format === 'svgseq' && (
+        {(format === 'svgseq' || format === 'webm') && (
           <div data-testid="export-seq-range" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <label style={{ flex: 1 }}>
               <span style={{ color: '#999', display: 'block', marginBottom: 3 }}>First frame</span>

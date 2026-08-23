@@ -11,6 +11,7 @@ import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
 import { docRectToScreen, docToScreen } from './viewport'
 import type { InkItem, InkPt } from '../editor/inkStore'
+import { contrastOn, tooClose } from '../contrast'
 
 export interface Pt {
   x: number
@@ -210,6 +211,17 @@ interface ItemStyle {
   strokeWidth: number
 }
 
+function exportItemStyle(it: RectItemJson, bg: string): ItemStyle {
+  const fill = it.fill || '#ffffff'
+  let stroke = it.stroke
+  let sw = it.stroke_width
+  if ((!stroke || tooClose(stroke, bg)) && tooClose(fill, bg)) {
+    stroke = '#111111'
+    sw = Math.max(sw || 0, 1.5)
+  }
+  return { fill, stroke, strokeWidth: sw }
+}
+
 /** Mix a fill toward `tint` and bake `alpha` into rgba (no ctx.globalAlpha). */
 export function tintFill(src: string, tint: string, alpha: number): string {
   const [sr, sg, sb] = parseColor(src)
@@ -295,23 +307,23 @@ export function renderContent(ctx: CanvasRenderingContext2D, vp: Viewport, s: Co
   ctx.fillStyle = s.background
   ctx.fillRect(r.x, r.y, r.w, r.h)
   for (const it of s.items) {
-    drawRectItem(ctx, vp, it, { x: 0, y: 0 }, { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width })
+    drawRectItem(ctx, vp, it, { x: 0, y: 0 }, exportItemStyle(it, s.background))
   }
   if (s.inkItems && s.inkItems.length > 0) {
-    drawInkItems(ctx, vp, s.inkItems, [], null)
+    drawInkItems(ctx, vp, s.inkItems, [], null, s.background)
   }
 }
 
 /** Serialize ink objects as SVG fragments (no chrome) so File ▸ Export includes
  *  Pen/Pencil/Brush/Text — the Rust exporter still only knows rect/oval. */
-export function inkToSvg(items: InkItem[]): string {
+export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
   const parts: string[] = []
   for (const it of items) {
     if (it.kind === 'text') {
       const p = it.points[0] ?? { x: 0, y: 0 }
       parts.push(
-        `<text x="${p.x}" y="${p.y}" fill="${esc(it.fill || '#111')}" font-size="${it.fontSize ?? 18}" font-family="system-ui,sans-serif">${esc(it.text || '')}</text>`,
+        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="system-ui,sans-serif">${esc(it.text || '')}</text>`,
       )
       continue
     }
@@ -437,6 +449,7 @@ function drawInkItems(
   items: InkItem[],
   selectedIds: number[],
   preview: { x: number; y: number } | null,
+  background?: string,
 ): void {
   const sel = new Set(selectedIds)
   for (const it of items) {
@@ -445,7 +458,7 @@ function drawInkItems(
     if (it.kind === 'text') {
       const p = docToScreen(vp, pts[0]?.x ?? 0, pts[0]?.y ?? 0)
       ctx.save()
-      ctx.fillStyle = it.fill || '#111111'
+      ctx.fillStyle = contrastOn(it.fill, background ?? '#ffffff')
       ctx.font = `${(it.fontSize ?? 18) * vp.zoom}px system-ui, sans-serif`
       ctx.fillText(it.text || '', p.x, p.y)
       ctx.restore()

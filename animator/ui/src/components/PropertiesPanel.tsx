@@ -4,9 +4,33 @@ import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkS
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
+import { ToolColors } from './ToolColors'
+import { ToolOptions } from './ToolOptions'
+
+const TOOL_LABELS: Record<string, string> = {
+  select: 'Selection Tool',
+  subselect: 'Subselection Tool',
+  transform: 'Free Transform',
+  lasso: 'Lasso Tool',
+  pen: 'Pen Tool',
+  text: 'Text Tool',
+  line: 'Line Tool',
+  rect: 'Rectangle Tool',
+  oval: 'Oval Tool',
+  pencil: 'Pencil Tool',
+  brush: 'Brush Tool',
+  bucket: 'Paint Bucket',
+  ink: 'Ink Bottle',
+  eyedropper: 'Eyedropper',
+  eraser: 'Eraser',
+  hand: 'Hand Tool',
+  zoom: 'Zoom Tool',
+}
 
 interface Props {
   status: StatusJson | null
+  /** Active tool — Properties shows its inspector (Adobe-style). */
+  tool?: string
   notify: (msg: string) => void
   /** Dock width (C-06 panel resize); the panel fills the dock column. */
   width?: number
@@ -32,7 +56,7 @@ interface Props {
  * release (blur / picker-close / Enter); Esc cancels. Numeric fields commit on
  * Enter/blur with validation (Part 26.12).
  */
-export function PropertiesPanel({ status, notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
+export function PropertiesPanel({ status, tool = '', notify, width, onPreview, collapsed = false, onToggleCollapse, onClose }: Props) {
   const attached = status !== null
   const [, setInkTick] = useState(0)
   useEffect(() => subscribeInk(() => setInkTick((n) => n + 1)), [])
@@ -119,7 +143,9 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
         ? `Ink (${inkSel[0].kind})`
         : `Ink (${inkSel.length})`
       : details.length === 0
-        ? 'Document'
+        ? tool && tool !== 'select'
+          ? TOOL_LABELS[tool] ?? tool
+          : 'Document'
         : multi
           ? `Objects (${details.length})`
           : 'Object'
@@ -167,6 +193,23 @@ export function PropertiesPanel({ status, notify, width, onPreview, collapsed = 
                 />
               </>
             )}
+          </div>
+        )}
+
+        {attached && !!tool && (
+          <div data-testid="props-tool">
+            <SectionTitle>Tool</SectionTitle>
+            <div data-testid="props-tool-name" style={{ color: '#8ec8ff', fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+              {TOOL_LABELS[tool] ?? tool}
+            </div>
+            <p style={{ margin: '0 0 8px', color: '#888', fontSize: 11, lineHeight: 1.4 }}>
+              {toolHint(tool)}
+            </p>
+            <div style={{ background: '#191919', border: '1px solid #333', borderRadius: 6, padding: '8px 6px', marginBottom: 8 }}>
+              <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Fill / Stroke</div>
+              <ToolColors />
+              <ToolOptions tool={tool} />
+            </div>
           </div>
         )}
 
@@ -474,6 +517,33 @@ function NumberField({ label, value, onCommit, onPreview, min, max, step, testId
       {error && <div data-testid={`${testId}-error`} style={{ color: '#e66', fontSize: 10, marginLeft: 2 }}>{error}</div>}
     </div>
   )
+}
+
+function toolHint(tool: string): string {
+  switch (tool) {
+    case 'rect':
+    case 'oval':
+      return 'Drag on the Stage to draw. Shift constrains. Fill and stroke below apply to the next shape.'
+    case 'line':
+    case 'pen':
+    case 'pencil':
+    case 'brush':
+      return 'Stroke color and width apply to the next stroke. Pencil/Brush size is in the options below.'
+    case 'text':
+      return 'Click the Stage to place text. Fill color is the text color (never white-on-white).'
+    case 'bucket':
+      return 'Click a fill to paint it with the current Fill color.'
+    case 'ink':
+      return 'Click a stroke to apply the current Stroke color and width.'
+    case 'zoom':
+      return 'Click to zoom, Alt-click to zoom out, or drag a region. Use Enlarge/Reduce below.'
+    case 'hand':
+      return 'Drag the Stage to pan. Spacebar temporarily activates Hand from any tool.'
+    case 'eraser':
+      return 'Drag over objects to erase them. Size cycles in the options below.'
+    default:
+      return 'Select an object on the Stage to edit its position, size, and colors here.'
+  }
 }
 
 function fmt(n: number): string {

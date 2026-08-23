@@ -73,6 +73,14 @@ beforeEach(() => {
 })
 
 describe('PropertiesPanel', () => {
+  it('active drawing tool shows the tool inspector (Adobe Properties)', () => {
+    render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} tool="rect" notify={notify} />)
+    expect(screen.getByTestId('props-tool')).toBeInTheDocument()
+    expect(screen.getByTestId('props-tool-name')).toHaveTextContent('Rectangle Tool')
+    expect(screen.getByTestId('tool-colors')).toBeInTheDocument()
+    expect(screen.getByTestId('props-context')).toHaveTextContent('Rectangle Tool')
+  })
+
   it('nothing selected → document schema (size/fps/background)', () => {
     render(<PropertiesPanel status={makeStatus({ selection: [], selection_details: [] })} notify={notify} />)
     expect(screen.getByTestId('props-context')).toHaveTextContent('Document')

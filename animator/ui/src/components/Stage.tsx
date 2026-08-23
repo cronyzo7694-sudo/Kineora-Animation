@@ -1062,7 +1062,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
                 kind: 'text',
                 points: [{ x: d.x, y: d.y }],
                 closed: false,
-                fill: colors.fill ?? '#111111',
+                fill: contrastOn(colors.fill, statusJson()?.background ?? '#ffffff'),
                 stroke: null,
                 strokeWidth: 0,
                 text: d.value.trim(),

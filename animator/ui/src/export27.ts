@@ -37,7 +37,9 @@
 
 import { bus } from './bus'
 import { downloadBlob } from './engine/actions'
-import { exportSvgScaled, getEngine, getEngineStatus, statusJson } from './engine/client'
+import { evaluate, exportSvgScaled, getEngine, getEngineStatus, statusJson } from './engine/client'
+import { listInk } from './editor/inkStore'
+import { inkToSvg, rasterizeContent } from './render/canvasRenderer'
 
 export interface ExportFile {
   name: string
@@ -92,8 +94,10 @@ export function buildSvgSequence(opts: SequenceOptions): BuildResult {
   const base = opts.baseName.trim() || 'kineora'
   const files: ExportFile[] = []
   for (let f = first; f <= last; f++) {
-    const svg = exportSvgScaled(f, scale)
+    let svg = exportSvgScaled(f, scale)
     if (!svg) return { ok: false, error: `export: engine returned no SVG for frame ${f}` }
+    const ink = inkToSvg(listInk(), st.background ?? '#ffffff')
+    if (ink) svg = svg.replace(/<\/svg>\s*$/i, `${ink}</svg>`)
     files.push({ name: sequenceFrameName(base, f), content: svg, mime: 'image/svg+xml' })
   }
   // eng 14: "Sequence: range (#First/#Last) + sidecar fps"
@@ -195,6 +199,101 @@ export function deliverExport(format: string, result: BuildResult, notify: Notif
 }
 
 /** `file.publish` engine entry (P-8 default platform = HTML5 Canvas). */
+/** Encode the timeline as a WebM video (browser MediaRecorder). */
+export async function exportWebmVideo(
+  opts: { first: number; last: number; scale: number; fps?: number },
+  notify: Notify,
+): Promise<boolean> {
+  if (!engineOk()) {
+    notify('export video: engine not attached')
+    return false
+  }
+  const st = statusJson()
+  if (!st) {
+    notify('export video: no document open')
+    return false
+  }
+  const first = Math.max(1, Math.trunc(opts.first))
+  const last = Math.max(first, Math.trunc(opts.last))
+  const fps = Math.max(1, Math.min(60, opts.fps ?? st.fps ?? 24))
+  const scale = opts.scale > 0 ? opts.scale : 1
+  const ink = listInk()
+  const frames: HTMLCanvasElement[] = []
+  for (let f = first; f <= last; f++) {
+    const canvas = rasterizeContent(
+      {
+        background: st.background ?? '#ffffff',
+        stageW: st.doc_width ?? 1920,
+        stageH: st.doc_height ?? 1080,
+        items: evaluate(f),
+        inkItems: ink,
+      },
+      scale,
+    )
+    if (!canvas) {
+      notify('export video: rasterizer unavailable')
+      return false
+    }
+    frames.push(canvas)
+  }
+  if (typeof MediaRecorder === 'undefined') {
+    notify('export video: this browser cannot record WebM (MediaRecorder missing)')
+    return false
+  }
+  const out = document.createElement('canvas')
+  out.width = frames[0].width
+  out.height = frames[0].height
+  const ctx = out.getContext('2d')
+  if (!ctx) {
+    notify('export video: no 2D context')
+    return false
+  }
+  const stream = out.captureStream(fps)
+  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm'
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 })
+  const chunks: BlobPart[] = []
+  rec.ondataavailable = (e) => {
+    if (e.data.size) chunks.push(e.data)
+  }
+  const done = new Promise<Blob>((resolve, reject) => {
+    rec.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }))
+    rec.onerror = () => reject(new Error('recorder failed'))
+  })
+  rec.start()
+  const interval = 1000 / fps
+  for (const frame of frames) {
+    ctx.drawImage(frame, 0, 0)
+    await new Promise((r) => setTimeout(r, interval))
+  }
+  rec.stop()
+  stream.getTracks().forEach((t) => t.stop())
+  let blob: Blob
+  try {
+    blob = await done
+  } catch {
+    notify('export video: recording failed')
+    return false
+  }
+  if (blob.size === 0) {
+    notify('export video: empty file — try Chrome/Edge')
+    return false
+  }
+  const name = `${(st.doc_title ?? 'kineora').trim() || 'kineora'}.webm`
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+  bus.emit('export:done', { format: 'video', path: name })
+  notify(`Exported video “${name}” (${last - first + 1} frames @ ${fps} fps) — check Downloads`)
+  return true
+}
+
 export function publishHtml5(notify: Notify): boolean {
   const st = statusJson()
   const base = (st as { doc_title?: string } | null)?.doc_title?.trim() || 'kineora'

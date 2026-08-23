@@ -275,6 +275,18 @@ export default function App() {
   const setTool = (t: string) => {
     setToolState(t)
     bus.emit('tool:changed', { toolId: t })
+    // Adobe: picking a tool always reveals Properties so fill/stroke/size
+    // can be edited immediately.
+    if (!panels.properties) {
+      const next = { ...panels, properties: true }
+      setPanels(next)
+      bus.emit('panel:changed', { id: 'properties', change: 'visibility', visible: true })
+    }
+    if (collapsed.properties) {
+      const next = { ...collapsed, properties: false }
+      setCollapsed(next)
+      bus.emit('panel:changed', { id: 'properties', change: 'collapse', collapsed: false })
+    }
   }
 
   const togglePanel = (id: string) => {
@@ -741,6 +753,7 @@ export default function App() {
                 <PropertiesPanel
                   width={layout.propsW}
                   status={status}
+                  tool={tool}
                   notify={notify}
                   onPreview={setColorPreview}
                   collapsed={collapsed.properties}

@@ -674,10 +674,8 @@ export const commands: Command[] = [
     // input: 'image' | 'video' | 'gif' | 'movie' | 'sequence'
     run: (c, input) => {
       const format = typeof input === 'string' ? input : 'image'
-      if (format === 'image') c.openExport()
-      else if (format === 'video') exportHandoff('Video', c.notify)
+      if (format === 'image' || format === 'video' || format === 'movie' || format === 'sequence') c.openExport()
       else if (format === 'gif') exportHandoff('Animated GIF', c.notify)
-      else if (format === 'movie') exportHandoff('Movie', c.notify)
       // SYS-27 slice 1 (INT-AID-003): sequence is now a REAL engine — the
       // export dialog hosts the range UI (SVG sequence + fps sidecar,
       // eng 14). Video/GIF/movie remain honest handoff toasts (no fake

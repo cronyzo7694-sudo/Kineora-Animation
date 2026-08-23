@@ -98,7 +98,9 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
         <span style={{ color: saving ? (saving.danger ? 'var(--kineora-danger)' : '#4a4') : dim }}>{saving?.text ?? 'save —'}</span>
       </span>
       <span data-testid="st-recording" style={{ ...cell, width: 0, overflow: 'hidden', opacity: 0 }} aria-hidden><span style={{ color: dim }}>rec —</span></span>
-      <span data-testid="st-export" style={{ ...cell, width: 0, overflow: 'hidden', opacity: 0 }} aria-hidden><span style={{ color: dim }}>export —</span></span>
+      <span data-testid="st-export" style={{ ...cell, background: saving ? 'transparent' : 'transparent', opacity: 1 }}>
+        <span style={{ color: dim }}>export ready</span>
+      </span>
       <span data-testid="st-mode" style={{ ...cell, width: 0, overflow: 'hidden', opacity: 0 }} aria-hidden><span style={{ color: dim }}>mode —</span></span>
       <span data-testid="st-snap" style={{ ...cell, opacity: 0.45 }}><SnapCellInner /></span>
       <span data-testid="engine-status" style={{ color: engine.kind === 'ok' ? '#4a4' : '#e66', marginLeft: 'auto', fontSize: 11, background: engine.kind === 'ok' ? 'rgba(74,170,74,0.12)' : 'rgba(229,85,85,0.12)', padding: '2px 8px', borderRadius: 3 }}>

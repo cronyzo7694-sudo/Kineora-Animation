@@ -874,9 +874,9 @@ export default function App() {
         }}
         onDiscard={() => {
           if (!recovery) return
-          void discardRecovery(recovery)
+          const c = recovery
           setRecovery(null)
-          notify('autosaved changes discarded')
+          void discardRecovery(c).then(() => notify('autosaved changes discarded'))
         }}
       />
       {/* H07 §6 — sequential Close All guard (one dirty document at a time) */}

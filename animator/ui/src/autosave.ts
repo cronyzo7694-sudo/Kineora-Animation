@@ -27,11 +27,9 @@
 //          so the manual save file is never overwritten).
 //   AS-D3  Clearing = writing a blank slot ("") — the shell exposes no
 //          delete; a blank envelope is treated as absent.
-//   AS-D4  T14 Discard → slot CLEARED (an explicit user discard that stayed
-//          would re-prompt forever). T13 Accept → slot KEPT (the recovered
-//          content is live but UNPERSISTED until the next manual save —
-//          which clears it via AS-D1; a crash before that save must be able
-//          to offer recovery again).
+//   AS-D4  T14 Discard AND T13 Accept both CLEAR the slot. Keeping the slot
+//          after Recover re-prompted on every reload (the same snapshot the
+//          user already handled). A later dirty edit writes a NEW slot.
 //   AS-D5  Browser = dev harness (H10 §11: native authoritative): one
 //          localStorage slot for the active document. Never authoritative.
 //   AS-D6  A pending autosave is cancelled on active-document switch: the
@@ -49,13 +47,15 @@
 
 import { bus } from './bus'
 import { platform } from './platform'
-import { activeDocId, openDocJson, projectJson, statusJson } from './engine/client'
+import { activeDocId, markClean, openDocJson, projectJson, statusJson } from './engine/client'
 import { checksumHex, prepareForLoad, stampFormatVersion } from './persist'
 
 export const AUTOSAVE_DEBOUNCE_MS = 2_000
 export const AUTOSAVE_MAX_INTERVAL_MS = 30_000
 /** Browser dev-harness slot (AS-D5). */
 export const BROWSER_DEV_SLOT_KEY = 'kineora.autosave.dev'
+/** Last Recover/Discard fingerprint — never re-prompt the same snapshot. */
+export const HANDLED_SLOT_KEY = 'kineora.autosave.handled'
 
 /** Native `.autosave` slot path for a project file (AS-D2). */
 export function autosaveSlotPath(projectPath: string): string {
@@ -123,6 +123,31 @@ async function writeSlot(where: { path?: string }, data: string): Promise<boolea
   } catch {
     return false
   }
+}
+
+function snapshotKey(content: string, projectPath: string | null, savedAt: number): string {
+  return `${checksumHex(content)}|${projectPath ?? ''}|${savedAt}`
+}
+
+function rememberHandled(key: string): void {
+  try {
+    localStorage.setItem(HANDLED_SLOT_KEY, key)
+  } catch {
+    /* quota */
+  }
+}
+
+function isHandled(key: string): boolean {
+  try {
+    return localStorage.getItem(HANDLED_SLOT_KEY) === key
+  } catch {
+    return false
+  }
+}
+
+async function clearAllSlots(projectPath: string | null): Promise<void> {
+  await writeSlot({}, '')
+  if (projectPath) await writeSlot({ path: projectPath }, '')
 }
 
 function parseEnvelope(raw: string): AutosaveEnvelope | null {
@@ -287,6 +312,11 @@ export async function checkRecovery(deps: AutosaveDeps): Promise<RecoveryScan> {
         corrupt += 1
         continue
       }
+      const key = snapshotKey(env.content, r.path, env.savedAt)
+      if (isHandled(key)) {
+        void writeSlot({ path: r.path }, '')
+        continue
+      }
       return {
         candidate: {
           source: 'native',
@@ -304,6 +334,11 @@ export async function checkRecovery(deps: AutosaveDeps): Promise<RecoveryScan> {
   if (!raw) return { candidate: null, corruptSkipped: 0 }
   const env = parseEnvelope(raw)
   if (!env) return { candidate: null, corruptSkipped: 1 }
+  const key = snapshotKey(env.content, env.projectPath, env.savedAt)
+  if (isHandled(key)) {
+    await writeSlot({}, '')
+    return { candidate: null, corruptSkipped: 0 }
+  }
   return {
     candidate: {
       source: 'browser-dev',
@@ -320,8 +355,8 @@ export async function checkRecovery(deps: AutosaveDeps): Promise<RecoveryScan> {
  * T13 Accept: load the recovered content (validate → migrate via
  * MOD-PERSIST), document becomes ACTIVE(TITLED, CLEAN); events in H02 §14
  * order (`openSet:changed{added}` FIRST, then `activeDoc:changed`). The slot
- * is KEPT (AS-D4) — the next manual save clears it. Returns the new docId,
- * or 0 on failure (state unchanged — error outcome, not a state).
+ * is CLEARED (AS-D4) so the same snapshot never re-prompts. Returns the new
+ * docId, or 0 on failure (state unchanged — error outcome, not a state).
  */
 export async function acceptRecovery(c: RecoveryCandidate, deps: AutosaveDeps): Promise<number> {
   const prepared = prepareForLoad(c.content)
@@ -329,6 +364,9 @@ export async function acceptRecovery(c: RecoveryCandidate, deps: AutosaveDeps): 
   const id = openDocJson(prepared.content, c.title)
   if (id === 0) return 0
   if (c.projectPath) deps.adoptDocPath(id, c.projectPath)
+  markClean()
+  rememberHandled(snapshotKey(c.content, c.projectPath, c.savedAt))
+  await clearAllSlots(c.projectPath)
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
   return id
@@ -336,7 +374,8 @@ export async function acceptRecovery(c: RecoveryCandidate, deps: AutosaveDeps): 
 
 /** T14 Discard: clear the slot (AS-D4), remain NO_DOCUMENT — no events. */
 export async function discardRecovery(c: RecoveryCandidate): Promise<void> {
-  await writeSlot({ path: platform.isDesktop() && c.projectPath ? c.projectPath : undefined }, '')
+  rememberHandled(snapshotKey(c.content, c.projectPath, c.savedAt))
+  await clearAllSlots(c.projectPath)
 }
 
 /** Test seam: reset module timer state (jsdom has no session boundary). */
@@ -346,4 +385,9 @@ export function __resetAutosaveForTests(): void {
   disposers.forEach((d) => d())
   disposers = []
   writtenSlots.clear()
+  try {
+    localStorage.removeItem(HANDLED_SLOT_KEY)
+  } catch {
+    /* ignore */
+  }
 }

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const clientMock = vi.hoisted(() => ({
   activeDocId: vi.fn(() => 1),
   openDocJson: vi.fn(() => 9),
+  markClean: vi.fn(() => true),
   projectJson: vi.fn(() => '{"settings":{"width":1920.0}}'),
   statusJson: vi.fn(() => ({
     doc_id: 1,
@@ -30,6 +31,7 @@ import {
   AUTOSAVE_DEBOUNCE_MS,
   AUTOSAVE_MAX_INTERVAL_MS,
   BROWSER_DEV_SLOT_KEY,
+  HANDLED_SLOT_KEY,
   __resetAutosaveForTests,
   acceptRecovery,
   autosaveSlotPath,
@@ -69,6 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
   localStorage.removeItem(BROWSER_DEV_SLOT_KEY)
+  localStorage.removeItem(HANDLED_SLOT_KEY)
   platformMock.platform.isDesktop.mockReturnValue(false)
   clientMock.statusJson.mockReturnValue({ doc_id: 1, doc_title: 'My Project', dirty: true, doc_count: 1, playhead: 1 })
   clientMock.activeDocId.mockReturnValue(1)
@@ -310,5 +313,13 @@ describe('SYS-28 recovery — launch scan (T12) + accept (T13) + discard (T14)',
     expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).toBeNull()
     expect(events).toEqual([])
     off()
+  })
+
+  it('does not re-prompt the same snapshot after Discard (even if the slot reappears)', async () => {
+    const env = makeEnvelope(VALID_CONTENT)
+    localStorage.setItem(BROWSER_DEV_SLOT_KEY, env)
+    await discardRecovery({ source: 'browser-dev', title: 'X', content: VALID_CONTENT, savedAt: 1700000000000, projectPath: null })
+    localStorage.setItem(BROWSER_DEV_SLOT_KEY, env)
+    expect((await checkRecovery(deps())).candidate).toBeNull()
   })
 })

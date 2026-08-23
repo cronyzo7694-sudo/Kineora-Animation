@@ -7,8 +7,11 @@ import {
   fitViewport,
   panBy,
   screenToDoc,
+  setZoomAt,
+  sliderToZoom,
   zoomAt,
   zoomToRect,
+  zoomToSlider,
 } from './viewport'
 
 describe('viewport geometry', () => {
@@ -41,6 +44,20 @@ describe('viewport geometry', () => {
     const p = docToScreen(after, 50, 40)
     expect(p.x).toBeCloseTo(anchor.x, 6)
     expect(p.y).toBeCloseTo(anchor.y, 6)
+  })
+
+  it('setZoomAt keeps the anchor and clamps', () => {
+    const vp = { zoom: 1, panX: 0, panY: 0 }
+    const after = setZoomAt(vp, 40, 20, 2)
+    expect(after.zoom).toBe(2)
+    const p = docToScreen(after, 40, 20)
+    expect(p.x).toBeCloseTo(40)
+    expect(p.y).toBeCloseTo(20)
+  })
+
+  it('slider log map round-trips mid range', () => {
+    const z = sliderToZoom(zoomToSlider(1))
+    expect(z).toBeCloseTo(1, 1)
   })
 
   it('clampZoom bounds zoom to [MIN, MAX]', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { makeCommandContext, stageViewController } from '../commands'
 import { useShortcutScope } from '../shortcuts'
 import type { EngineStatus } from '../controlRegistry'
@@ -42,7 +42,20 @@ import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColor
 import { loadToolOptions, subscribeToolOptions } from '../toolOptions'
 import { loadOnionPrefs, subscribeOnionPrefs } from '../onionPrefs'
 import { collectGhosts } from '../onion'
-import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, zoomToRect, type Viewport } from '../render/viewport'
+import {
+  ZOOM_STEP_FINE,
+  createViewport,
+  docToScreen,
+  fitViewport,
+  panBy,
+  screenToDoc,
+  setZoomAt,
+  sliderToZoom,
+  zoomAt,
+  zoomToRect,
+  zoomToSlider,
+  type Viewport,
+} from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
   handlePositions,
@@ -79,6 +92,19 @@ interface Props {
  * Pointer feedback per tool (Adobe's Tools panel cursors): the Hand tool grabs,
  * the Zoom tool magnifies, drawing tools cross-hair.
  */
+const gearBtn: CSSProperties = {
+  width: 22,
+  height: 20,
+  padding: 0,
+  borderRadius: 3,
+  border: '1px solid #3a3a3a',
+  background: '#1e1e1e',
+  color: '#ddd',
+  cursor: 'pointer',
+  fontSize: 14,
+  lineHeight: '18px',
+}
+
 export function stageCursor(tool: string, zoomMode: 'in' | 'out' = 'in'): string {
   switch (tool) {
     case 'hand':
@@ -142,6 +168,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
   const [redrawVersion, setRedrawVersion] = useState(0)
   const [zoomReadout, setZoomReadout] = useState('100%')
+  const [zoomLevel, setZoomLevel] = useState(1)
   const [panReadout, setPanReadout] = useState('0,0')
 
   // live document stage size for the readout (canonical default when detached)
@@ -198,6 +225,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
   const applyViewport = (vp: Viewport) => {
     vpRef.current = vp
+    setZoomLevel(vp.zoom)
     setZoomReadout(`${Math.round(vp.zoom * 100)}%`)
     setPanReadout(`${Math.round(vp.panX)},${Math.round(vp.panY)}`)
     scheduleRedraw()
@@ -709,10 +737,21 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   }, [engine.kind])
 
   const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
     const rect = wrapRef.current?.getBoundingClientRect()
     if (!rect) return
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+    const factor = e.deltaY < 0 ? ZOOM_STEP_FINE : 1 / ZOOM_STEP_FINE
     applyViewport(zoomAt(vpRef.current, e.clientX - rect.left, e.clientY - rect.top, factor))
+  }
+
+  const zoomAroundCenter = (next: number) => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    applyViewport(setZoomAt(vpRef.current, wrap.clientWidth / 2, wrap.clientHeight / 2, next))
+  }
+
+  const nudgeZoom = (dir: 1 | -1) => {
+    zoomAroundCenter(vpRef.current.zoom * (dir > 0 ? ZOOM_STEP_FINE : 1 / ZOOM_STEP_FINE))
   }
 
   const onMouseDown = (e: React.MouseEvent) => {
@@ -1051,14 +1090,68 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }}
         />
       )}
-      <div style={{ position: 'absolute', bottom: 6, right: 8, color: '#8a8a8a', fontSize: 10, pointerEvents: 'none', background: 'rgba(16,16,16,0.72)', border: '1px solid #2a2a2a', borderRadius: 3, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>
-        <span data-testid="tool-readout">{spaceHeld ? 'hand (space)' : tool}</span>
-        {' · '}
-        <span data-testid="zoom-readout">{zoomReadout}</span>
-        {' · '}
-        <span data-testid="pan-readout">{panReadout}</span>
-        {' · '}
-        <span data-testid="stage-readout">{stageW}×{stageH}</span>
+      <div
+        data-testid="stage-zoom-gear"
+        onMouseDown={(e) => e.stopPropagation()}
+        onWheel={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          nudgeZoom(e.deltaY < 0 ? 1 : -1)
+        }}
+        style={{
+          position: 'absolute',
+          bottom: 6,
+          right: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          color: '#b0b0b0',
+          fontSize: 11,
+          pointerEvents: 'auto',
+          background: 'rgba(16,16,16,0.88)',
+          border: '1px solid #333',
+          borderRadius: 6,
+          padding: '4px 8px',
+          fontVariantNumeric: 'tabular-nums',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
+          zIndex: 8,
+        }}
+      >
+        <span data-testid="tool-readout" style={{ color: '#777', pointerEvents: 'none' }}>{spaceHeld ? 'hand (space)' : tool}</span>
+        <span style={{ color: '#444' }}>|</span>
+        <button type="button" data-testid="stage-zoom-out" title="Zoom out 10%" aria-label="Zoom out" onClick={() => nudgeZoom(-1)} style={gearBtn}>
+          −
+        </button>
+        <input
+          data-testid="stage-zoom-slider"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={zoomToSlider(zoomLevel)}
+          title="Drag to zoom — one notch at a time"
+          aria-label="Stage zoom"
+          onChange={(e) => zoomAroundCenter(sliderToZoom(Number(e.target.value)))}
+          style={{ width: 92, accentColor: '#0a7cff', cursor: 'pointer' }}
+        />
+        <button type="button" data-testid="stage-zoom-in" title="Zoom in 10%" aria-label="Zoom in" onClick={() => nudgeZoom(1)} style={gearBtn}>
+          +
+        </button>
+        <button
+          type="button"
+          data-testid="zoom-readout"
+          title="Reset to 100%"
+          onClick={() => stageViewController.current?.zoom100()}
+          style={{ ...gearBtn, minWidth: 44, fontSize: 11, fontWeight: 600, color: '#eee' }}
+        >
+          {zoomReadout}
+        </button>
+        <button type="button" data-testid="stage-zoom-fit" title="Fit stage" onClick={() => stageViewController.current?.zoomFit()} style={{ ...gearBtn, fontSize: 10 }}>
+          Fit
+        </button>
+        <span style={{ color: '#444' }}>|</span>
+        <span data-testid="pan-readout" style={{ color: '#666', pointerEvents: 'none' }}>{panReadout}</span>
+        <span data-testid="stage-readout" style={{ color: '#666', pointerEvents: 'none' }}>{stageW}×{stageH}</span>
       </div>
     </div>
   )

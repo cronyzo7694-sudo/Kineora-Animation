@@ -135,6 +135,15 @@ describe('Stage viewport interaction wiring (regression)', () => {
     renderStage()
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('1920×1080')
   })
+
+  it('stage zoom gear nudges ~10% per click, not 2×', async () => {
+    renderStage()
+    expect(screen.getByTestId('stage-zoom-gear')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('stage-zoom-in'))
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('110%'))
+    fireEvent.click(screen.getByTestId('stage-zoom-out'))
+    await waitFor(() => expect(screen.getByTestId('zoom-readout')).toHaveTextContent('100%'))
+  })
 })
 
 describe('Stage view commands (zoom in/out, 100%, fit — Part 01 §1.2.3)', () => {

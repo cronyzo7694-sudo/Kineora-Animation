@@ -99,7 +99,7 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
               setEditing(it.id)
               setDraft(it.name)
             }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 4, cursor: 'grab', background: highlightId === it.id ? '#2f4a6b' : 'transparent' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 3, cursor: 'grab', background: highlightId === it.id ? '#2f4a6b' : 'transparent', borderBottom: '1px solid #252525' }}
             title={`${it.type} · ${it.duration} frame(s) · used ${it.use_count}× (drag onto the stage to place)`}
           >
             <span style={{ width: 14, textAlign: 'center', color: '#8ec8ff' }}>{TYPE_ICON[it.type] ?? '◆'}</span>

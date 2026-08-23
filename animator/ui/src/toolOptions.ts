@@ -14,10 +14,12 @@ export type ZoomMode = 'in' | 'out'
 
 export interface ToolOptions {
   zoomMode: ZoomMode
+  /** Pencil / Brush diameter in document px (Adobe options area). */
+  inkSize: number
 }
 
 export function defaultToolOptions(): ToolOptions {
-  return { zoomMode: 'in' }
+  return { zoomMode: 'in', inkSize: 4 }
 }
 
 let state: ToolOptions = defaultToolOptions()
@@ -37,6 +39,10 @@ export function loadToolOptions(): ToolOptions {
 export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
   const next: ToolOptions = {
     zoomMode: patch.zoomMode === 'in' || patch.zoomMode === 'out' ? patch.zoomMode : state.zoomMode,
+    inkSize:
+      typeof patch.inkSize === 'number' && Number.isFinite(patch.inkSize)
+        ? Math.max(1, Math.min(64, patch.inkSize))
+        : state.inkSize,
   }
   state = next
   for (const fn of [...listeners]) fn()

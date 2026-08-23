@@ -169,6 +169,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   // Zoom tool's drag rectangle ("drag a rectangular selection on the Stage").
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [zoomMode, setZoomMode] = useState(loadToolOptions().zoomMode)
+  const [textDraft, setTextDraft] = useState<{ x: number; y: number; sx: number; sy: number; value: string } | null>(null)
   const spaceHeldRef = useRef(false)
   const zoomMarqueeRef = useRef<DocRect | null>(null)
   const zoomStartRef = useRef<{ doc: Pt; sx: number; sy: number; dragging: boolean } | null>(null)
@@ -474,13 +475,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           selectInRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))
         } else {
           const pts = sg.kind === 'line' ? sg.pts : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
+          const size = loadToolOptions().inkSize
           addInk({
             kind: sg.kind,
             points: pts,
             closed: false,
             fill: null,
             stroke: colors.stroke ?? '#111111',
-            strokeWidth: sg.kind === 'brush' ? Math.max(8, colors.strokeWidth * 4) : Math.max(1, colors.strokeWidth),
+            strokeWidth: sg.kind === 'brush' ? Math.max(8, size) : Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth),
           })
         }
       }
@@ -798,20 +800,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && activeTool() === 'text') {
       const doc = screenToDoc(vpRef.current, sx, sy)
-      const typed = typeof window.prompt === 'function' ? window.prompt('Text:', 'Text') : 'Text'
-      if (typed && typed.trim()) {
-        const colors = loadToolColors()
-        addInk({
-          kind: 'text',
-          points: [doc],
-          closed: false,
-          fill: colors.fill ?? '#111111',
-          stroke: null,
-          strokeWidth: 0,
-          text: typed,
-          fontSize: 24,
-        })
-      }
+      setTextDraft({ x: doc.x, y: doc.y, sx, sy, value: 'Text' })
       scheduleRedraw()
       return
     }
@@ -994,6 +983,49 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             </p>
           </div>
         </div>
+      )}
+      {textDraft && (
+        <input
+          data-testid="stage-text-input"
+          autoFocus
+          value={textDraft.value}
+          onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
+          onBlur={() => {
+            const d = textDraft
+            setTextDraft(null)
+            if (d && d.value.trim()) {
+              const colors = loadToolColors()
+              addInk({
+                kind: 'text',
+                points: [{ x: d.x, y: d.y }],
+                closed: false,
+                fill: colors.fill ?? '#111111',
+                stroke: null,
+                strokeWidth: 0,
+                text: d.value.trim(),
+                fontSize: 24,
+              })
+            }
+            scheduleRedraw()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            if (e.key === 'Escape') setTextDraft(null)
+          }}
+          style={{
+            position: 'absolute',
+            left: textDraft.sx,
+            top: textDraft.sy - 18,
+            zIndex: 20,
+            minWidth: 80,
+            background: '#111',
+            color: '#eee',
+            border: '1px solid #0a7cff',
+            borderRadius: 3,
+            padding: '2px 6px',
+            fontSize: 14,
+          }}
+        />
       )}
       <div style={{ position: 'absolute', bottom: 4, left: 8, color: '#888', fontSize: 12, pointerEvents: 'none' }}>
         tool: <span data-testid="tool-readout">{spaceHeld ? 'hand (space)' : tool}</span> · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span> · stage: <span data-testid="stage-readout">{stageW}×{stageH}</span>

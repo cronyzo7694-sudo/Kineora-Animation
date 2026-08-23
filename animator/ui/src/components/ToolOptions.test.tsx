@@ -28,4 +28,11 @@ describe('ToolOptions — Tools panel options area', () => {
     expect(loadToolOptions().zoomMode).toBe('out')
     expect(screen.getByTestId('zoom-mode-out')).toHaveAttribute('aria-pressed', 'true')
   })
+
+  it('Pencil shows a size chip that cycles the shared ink size', () => {
+    render(<ToolOptions tool="pencil" />)
+    expect(screen.getByTestId('ink-size-btn')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ink-size-btn'))
+    expect(loadToolOptions().inkSize).toBeGreaterThan(0)
+  })
 })

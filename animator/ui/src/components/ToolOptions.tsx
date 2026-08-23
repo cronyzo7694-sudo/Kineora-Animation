@@ -13,6 +13,44 @@ export function ToolOptions({ tool, vertical = false }: { tool: string; vertical
   const [opts, setOpts] = useState(loadToolOptions)
   useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
 
+  if (tool === 'pencil' || tool === 'brush' || tool === 'eraser') {
+    return (
+      <div
+        data-testid="tool-options"
+        aria-label="Tool options"
+        style={
+          vertical
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '2px 0' }
+            : { display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }
+        }
+      >
+        <button
+          type="button"
+          data-testid="ink-size-btn"
+          title={`Size ${opts.inkSize}px — click to cycle`}
+          onClick={() => {
+            const steps = tool === 'brush' ? [8, 12, 20, 32] : [2, 4, 8, 16]
+            const i = steps.findIndex((s) => s >= opts.inkSize)
+            setToolOptions({ inkSize: steps[(i + 1) % steps.length] })
+          }}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 9,
+          }}
+        >
+          {opts.inkSize}
+        </button>
+      </div>
+    )
+  }
+
   if (tool !== 'zoom') return null
 
   const btn = (mode: 'in' | 'out', label: string, title: string) => (

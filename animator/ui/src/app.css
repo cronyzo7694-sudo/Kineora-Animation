@@ -13,17 +13,21 @@ body,
   box-sizing: border-box;
 }
 
-/* Adobe-like: the tools rail never shows a scrollbar gutter. */
+/* Beat index.html's global `* { scrollbar-* }` — the 36px tools rail
+   must never grow a blue scroll stick. */
 [data-testid='tools-scroll'],
-[data-testid='tools-panel'] {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+[data-testid='tools-panel'],
+[data-testid='tools-pinned'] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 [data-testid='tools-scroll']::-webkit-scrollbar,
-[data-testid='tools-panel']::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+[data-testid='tools-panel']::-webkit-scrollbar,
+[data-testid='tools-pinned']::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
 }
 
 /* Thin, dark scrollbars only on real content docks. */

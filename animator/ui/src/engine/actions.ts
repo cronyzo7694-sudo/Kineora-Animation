@@ -123,12 +123,7 @@ export function performAction(id: string, notify: Notify): void {
       }
       break
     case 'file.save':
-      if (!engineAttached()) return void notify(notAttached('save'))
-      {
-        downloadBlob('kineora-project.json', projectJson(), 'application/json')
-        bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-        notify('save: downloaded kineora-project.json')
-      }
+      void import('../file').then((m) => m.saveDocument(notify))
       break
     case 'edit.selectAll':
       if (!engineAttached()) return void notify(notAttached('select all'))

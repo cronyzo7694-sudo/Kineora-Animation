@@ -14,7 +14,8 @@ import {
   type RecoveryCandidate,
 } from './autosave'
 import { RecoveryDialog } from './components/RecoveryDialog'
-import { platform, registerSaveNamePicker, type Identity, type ShellStatus } from './platform'
+import { platform, type Identity, type ShellStatus } from './platform'
+import * as platformApi from './platform'
 import { SaveAsDialog } from './components/SaveAsDialog'
 import { bus } from './bus'
 import { outputInfo, outputWarn, outputError } from './outputLog'
@@ -144,6 +145,29 @@ export default function App() {
   useEffect(() => {
     layoutRef.current = layout
   }, [layout])
+
+  // Browser Save / Save As: in-app dialog (window.prompt is blocked in iframes).
+  useEffect(() => {
+    try {
+      const register = platformApi.registerSaveNamePicker
+      if (typeof register !== 'function') return
+      register(
+        (suggested) =>
+          new Promise((resolve) => {
+            setSaveAsDlg({ suggested, resolve })
+          }),
+      )
+      return () => {
+        try {
+          register(null)
+        } catch {
+          /* mock platform */
+        }
+      }
+    } catch {
+      /* tests mock platform without this export */
+    }
+  }, [])
 
   // route bus failures to a user-facing toast AND the output console (SYS-10)
   useEffect(() => {
@@ -389,7 +413,7 @@ export default function App() {
   // non-active document — the guard targets THAT document, never the
   // active-by-inference). Guard internals (Save/Discard/Cancel) = H07's.
   const confirmClose = (proceed: () => void, scope: 'active' | 'all' | number = 'active') => {
-    const allDirty = docList().filter((d) => d.dirty).map((d) => d.id)
+    const allDirty = docList().filter((d) => isShownDirty(d.id, d.dirty)).map((d) => d.id)
     let dirtyIds: number[]
     if (typeof scope === 'number') {
       dirtyIds = allDirty.filter((id) => id === scope)
@@ -490,7 +514,7 @@ export default function App() {
   useEffect(() => {
     if (platform.isDesktop()) return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      const dirty = docList().some((d) => d.dirty)
+      const dirty = docList().some((d) => isShownDirty(d.id, d.dirty))
       if (dirty) {
         e.preventDefault()
         e.returnValue = ''

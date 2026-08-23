@@ -124,6 +124,7 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
   if (id === 0) return notify('new: failed to create document')
   inkBags.set(id, [])
   restoreInk([])
+  rememberInkClean(id)
   // H02 §14 (ST1): open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
@@ -175,6 +176,7 @@ export function __resetDocPathsForTests(): void {
   docPaths.clear()
   inkBags.clear()
   sessionSaved.clear()
+  inkSaved.clear()
 }
 
 /** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
@@ -207,10 +209,41 @@ export function findDocByTitle(title: string): number | undefined {
 
 /** Session-clean after a successful Save even if the WASM dirty bit lags. */
 const sessionSaved = new Set<number>()
+/** Last-saved ink snapshot (JSON) per doc — ink lives outside WASM dirty. */
+const inkSaved = new Map<number, string>()
+
+function inkSnap(items: ReturnType<typeof serializeInk>): string {
+  return JSON.stringify(items)
+}
+
+function inkNow(id: number): string {
+  if (id && id === activeDocId()) return inkSnap(serializeInk())
+  return inkSnap(inkBags.get(id) ?? [])
+}
+
+function isInkDirty(id: number): boolean {
+  if (!id) return false
+  const saved = inkSaved.get(id)
+  const now = inkNow(id)
+  if (saved === undefined) return now !== '[]'
+  return now !== saved
+}
 
 export function isShownDirty(id: number, engineDirty: boolean): boolean {
+  if (isInkDirty(id)) return true
   if (sessionSaved.has(id)) return false
   return engineDirty
+}
+
+function rememberInkClean(id: number): void {
+  if (!id) return
+  inkSaved.set(id, inkNow(id))
+}
+
+function markSessionClean(id: number): void {
+  if (!id) return
+  sessionSaved.add(id)
+  rememberInkClean(id)
 }
 
 bus.on('document:changed', () => {
@@ -259,6 +292,7 @@ export function openDocument(notify: Notify): void {
       return
     }
     rememberInk(id, peeled.ink)
+    markSessionClean(id)
     setDocPath(id, opened.path)
     addRecent(opened.name, prepared.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
@@ -403,9 +437,28 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         return false
       }
     }
+  } else if (platform.isDesktop()) {
+    // Titled but the session lost the disk path — never writeProject(null)
+    // on desktop (that always fails and used to surface a fake Save error).
+    const path = await platform.pickSavePath(title)
+    if (!path) {
+      saveCancelled()
+      return false
+    }
+    const owner = findDocByPath(path)
+    if (owner !== undefined && owner !== docId) {
+      saveError('Save blocked: that file is already open as another document — choose a different path')
+      return false
+    }
+    if (!(await platform.writeProject(path, title, withInk))) {
+      saveError()
+      return false
+    }
+    setDocPath(docId, path)
+    title = titleFromSavedPath(path, title)
   } else {
     if (!(await platform.writeProject(null, title, withInk))) {
-      if (platform.isDesktop() || !browserDownload(title)) {
+      if (!browserDownload(title)) {
         saveError()
         return false
       }
@@ -421,7 +474,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   markClean()
   if (docId) {
     inkBags.set(docId, serializeInk())
-    sessionSaved.add(docId)
+    markSessionClean(docId)
   }
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
   addRecent(title, withInk, docPath(docId))
@@ -473,6 +526,8 @@ export function closeDocumentById(id: number, notify: Notify): void {
   }
   docPaths.delete(id)
   inkBags.delete(id)
+  sessionSaved.delete(id)
+  inkSaved.delete(id)
   bus.emit('openSet:changed', { change: 'removed', docId: id })
   if (wasActive) {
     applyDocInk(activeDocId())
@@ -515,7 +570,7 @@ export async function closeAllDocuments(
   for (const d of docList().slice()) {
     const current = docList().find((x) => x.id === d.id)
     if (!current) continue // already closed (defensive — the set is being mutated)
-    if (current.dirty) {
+    if (isShownDirty(current.id, current.dirty)) {
       const decision = await guardDirtyDoc(current.id)
       if (decision === 'cancel') return // STOP — remaining docs stay open
       // 'save-ok' (H05 write succeeded → CLEAN) or 'discard' → close, continue
@@ -640,6 +695,7 @@ export async function openFromRecent(entry: RecentEntry, notify: Notify): Promis
     return
   }
   rememberInk(id, peeled.ink)
+  rememberInkClean(id)
   if (entry.path) setDocPath(id, entry.path)
   addRecent(entry.title, prepared.content, entry.path)
   // H02 §14: open-set change FIRST, then the active pointer.
@@ -714,6 +770,7 @@ export function createFromTemplate(name: string, notify: Notify): void {
   const id = openDocJson(peeled.content, '')
   if (id === 0) return notify(`template "${name}": invalid template data`)
   rememberInk(id, peeled.ink)
+  rememberInkClean(id)
   // H02 §14 (ST1 family — New-from-Template = New): open-set FIRST, then active.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })

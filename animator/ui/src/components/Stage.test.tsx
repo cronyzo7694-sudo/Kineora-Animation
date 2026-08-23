@@ -204,15 +204,40 @@ describe('Stage select + move gestures', () => {
     selectAtMock.mockClear()
     moveSelectionMock.mockClear()
     selectAtMock.mockReturnValue(true)
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [1],
+      selection_rects: [{ id: 1, x: 0, y: 0, w: 100, h: 100, rotation: 0 }],
+      selection_details: [
+        { id: 1, x: 0, y: 0, w: 100, h: 100, base_w: 100, base_h: 100, scale_x: 1, scale_y: 1, rotation: 0, fill: '#ff0000', stroke: null, stroke_width: 0 },
+      ],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1',
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', event_log: [],
+    } as never)
   })
 
-  it('click hits the engine at DOCUMENT coordinates (screen→doc via viewport)', async () => {
+  it('click on an unselected object hits the engine at DOCUMENT coordinates', async () => {
+    vi.mocked(statusJson).mockReturnValue({
+      playhead: 1,
+      selection: [],
+      selection_rects: [],
+      selection_details: [],
+      undo_len: 0, redo_len: 0, scene: 'Scene 1', layer: 'Layer 1',
+      fps: 24, doc_width: 1920, doc_height: 1080, background: '#ffffff', event_log: [],
+    } as never)
     renderStage()
     const canvas = screen.getByTestId('stage-canvas')
-    // zoom is 1 after fit in jsdom → screen == doc
     fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 60 })
     fireEvent.mouseUp(window)
     await waitFor(() => expect(selectAtMock).toHaveBeenCalledWith(40, 60))
+  })
+
+  it('click on an already-selected object does NOT replace the set (Adobe group move)', async () => {
+    renderStage()
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 40, clientY: 60 })
+    fireEvent.mouseUp(window)
+    expect(selectAtMock).not.toHaveBeenCalled()
   })
 
   it('sub-threshold drag does NOT commit a move (no accidental click-to-move)', async () => {

@@ -4,11 +4,14 @@ import {
   handlePositions,
   oppositeHandle,
   pickHandle,
+  pointInRects,
   rotationDelta,
   rotateSelection,
   scaleFactors,
   scaleSelection,
   selectionGeometry,
+  translatePt,
+  translatePts,
   type SelDetail,
 } from './transformMath'
 

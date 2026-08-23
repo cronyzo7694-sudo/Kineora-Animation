@@ -63,11 +63,14 @@ import {
   handlePositions,
   oppositeHandle,
   pickHandle,
+  pointInRects,
   rotationDelta,
   scaleFactors,
   scaleSelection,
   rotateSelection,
   selectionGeometry,
+  translatePt,
+  translatePts,
   type AbsTransformOut,
   type HandleKind,
   type Pt,
@@ -257,15 +260,51 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const overlayFromStatus = () => {
     const status = statusJson()
     const details = status?.selection_details ?? []
-    if (details.length === 0) return null
-    const geom = selectionGeometry(details)
-    const handles = handlePositions(geom)
-    const hs = Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>
+    const inkSel = listInk().filter((it) => selectedInkIds().includes(it.id))
+    if (details.length === 0 && inkSel.length === 0) return null
+    const geom = details.length > 0 ? selectionGeometry(details) : { box: [] as Pt[], center: { x: 0, y: 0 }, aabb: { x: 0, y: 0, w: 0, h: 0 } }
+    let box = geom.box
+    let center = geom.center
+    if (inkSel.length > 0) {
+      const pts = [...box]
+      for (const it of inkSel) {
+        const b = inkBounds(it)
+        pts.push({ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h })
+      }
+      const xs = pts.map((p) => p.x)
+      const ys = pts.map((p) => p.y)
+      const x0 = Math.min(...xs)
+      const y0 = Math.min(...ys)
+      const x1 = Math.max(...xs)
+      const y1 = Math.max(...ys)
+      box = [
+        { x: x0, y: y0 },
+        { x: x1, y: y0 },
+        { x: x1, y: y1 },
+        { x: x0, y: y1 },
+      ]
+      center = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }
+    }
+    const dlt = previewRef.current
+    const dx = dlt?.x ?? 0
+    const dy = dlt?.y ?? 0
+    if (!showTransformHandles()) {
+      return {
+        box: translatePts(box, dx, dy),
+        handles: [] as Array<[string, Pt]>,
+        rotateHandle: translatePt(center, dx, dy),
+        center: translatePt(center, dx, dy),
+      }
+    }
+    const handles = handlePositions({ box, center, aabb: geom.aabb })
+    const hs = (Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>).map(
+      ([k, p]) => [k, translatePt(p, dx, dy)] as [string, Pt],
+    )
     return {
-      box: geom.box,
+      box: translatePts(box, dx, dy),
       handles: hs,
-      rotateHandle: handles.rotate,
-      center: geom.center,
+      rotateHandle: translatePt(handles.rotate, dx, dy),
+      center: translatePt(center, dx, dy),
     }
   }
 
@@ -372,7 +411,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             if (!pastDragThreshold(sx - g.startX, sy - g.startY)) return
             g.dragging = true
           }
-          previewRef.current = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
+          const raw = screenDeltaToDoc(sx - g.startX, sy - g.startY, vpRef.current.zoom)
+          const st = statusJson()
+          const opts = loadToolOptions()
+          const selectedBoxes = (st?.selection_rects ?? []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+          const selIds = new Set(st?.selection ?? [])
+          const others = (evaluate(st?.playhead ?? 1) ?? [])
+            .filter((it) => !selIds.has(it.id))
+            .map((it) => ({ x: it.x, y: it.y, w: it.w, h: it.h }))
+          previewRef.current = snapMoveDelta(raw.x, raw.y, selectedBoxes, others, st?.doc_width ?? 1920, st?.doc_height ?? 1080, opts)
           scheduleRedraw()
           return
         }
@@ -1003,11 +1050,28 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       // 2) Shift / Ctrl / Cmd → add or remove (Adobe additive select)
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
         selectToggleAt(doc.x, doc.y)
+        clearInkSelection()
+        const nowSel = statusJson()?.selection ?? []
+        if (nowSel.length > 0) {
+          selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+          previewRef.current = null
+        }
         scheduleRedraw()
         return
       }
 
-      // 3) plain click: select (or arm marquee on empty)
+      // 3) Click on an already-selected object keeps the WHOLE set (Adobe /
+      // Blender: drag any member → every selected object moves together).
+      if (pointInRects(doc.x, doc.y, status?.selection_rects ?? [])) {
+        clearInkSelection()
+        selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+        previewRef.current = null
+        scheduleRedraw()
+        return
+      }
+
+      // 4) New target replaces the set; empty stage arms a marquee.
+      clearInkSelection()
       const hit = selectAt(doc.x, doc.y)
       if (hit) {
         selectGestureRef.current = { startX: sx, startY: sy, dragging: false }

@@ -531,6 +531,9 @@ function drawOverlay(ctx: CanvasRenderingContext2D, vp: Viewport, o: NonNullable
     ctx.setLineDash([])
   }
 
+  // Selection tool: dashed box only (Adobe black arrow). Handles are Free Transform.
+  if (o.handles.length === 0) return
+
   // rotate connector line
   const center = docToScreen(vp, o.center.x, o.center.y)
   const rot = docToScreen(vp, o.rotateHandle.x, o.rotateHandle.y)

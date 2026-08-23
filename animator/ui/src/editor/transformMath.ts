@@ -89,6 +89,22 @@ export interface SelectionGeometry {
   aabb: { x: number; y: number; w: number; h: number }
 }
 
+/** Translate overlay points by a live move preview (Adobe: box rides with the drag). */
+export function translatePts(pts: Pt[], dx: number, dy: number): Pt[] {
+  if (!dx && !dy) return pts
+  return pts.map((p) => ({ x: p.x + dx, y: p.y + dy }))
+}
+
+export function translatePt(p: Pt, dx: number, dy: number): Pt {
+  if (!dx && !dy) return p
+  return { x: p.x + dx, y: p.y + dy }
+}
+
+/** True when (x,y) is inside any selected AABB (click-on-selected keeps the set). */
+export function pointInRects(x: number, y: number, rects: Array<{ x: number; y: number; w: number; h: number }>): boolean {
+  return rects.some((r) => x >= r.x && y >= r.y && x <= r.x + r.w && y <= r.y + r.h)
+}
+
 export function selectionGeometry(details: SelDetail[]): SelectionGeometry {
   const allCorners = details.flatMap(rectCorners)
   const aabb = aabbOf(allCorners)

@@ -28,6 +28,7 @@ export interface AiRuntime {
   capabilityRegistry(): CapabilityRegistry | null
   activeDocumentId(): number | null
   currentRevision(): number | null
+  disposeDocument(documentId: number): boolean
   undo(): boolean
 }
 
@@ -87,6 +88,7 @@ export function createAiRuntime(storage: StorageLike | undefined = browserStorag
     capabilityRegistry,
     activeDocumentId: active,
     currentRevision: revision,
+    disposeDocument: (documentId) => orchestrator.disposeDocument(documentId),
     undo,
   }
 }

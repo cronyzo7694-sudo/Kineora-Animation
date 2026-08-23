@@ -56,6 +56,7 @@ export interface ConversationContextStore {
   discardDocument(documentId: number): void
   clearAll(): void
   has(documentId: number): boolean
+  isDisposed(documentId: number): boolean
   documentIds(): readonly number[]
 }
 
@@ -196,9 +197,17 @@ export function createConversationContextStore(): ConversationContextStore {
   // The Map and every contained array are closure-private. No returned object
   // shares either collection, preventing accidental external mutation.
   const threads = new Map<number, InternalThread>()
+  const disposed = new Set<number>()
+
+  const assertOpen = (documentId: number): void => {
+    validDocumentId(documentId)
+    if (disposed.has(documentId)) {
+      throw new ContextError('E_CONTEXT_INPUT', 'document AI context has been disposed')
+    }
+  }
 
   const getOrCreate = (documentId: number): InternalThread => {
-    validDocumentId(documentId)
+    assertOpen(documentId)
     let thread = threads.get(documentId)
     if (!thread) {
       thread = { turns: [], bindings: [] }
@@ -209,7 +218,7 @@ export function createConversationContextStore(): ConversationContextStore {
 
   return {
     appendTurn(documentId, turn) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       const safe = sanitizeTurn(turn)
       const thread = getOrCreate(documentId)
       thread.turns.push(safe)
@@ -220,7 +229,7 @@ export function createConversationContextStore(): ConversationContextStore {
     },
 
     addBindings(documentId, bindings, observedRevision) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       // Validate the whole batch before creating/changing internal state.
       const safe = bindings.map((binding) => sanitizeBinding(binding, observedRevision))
       const thread = getOrCreate(documentId)
@@ -243,6 +252,7 @@ export function createConversationContextStore(): ConversationContextStore {
 
     reconcileBindings(documentId, snapshot) {
       validDocumentId(documentId)
+      if (disposed.has(documentId)) return frozenSnapshot(documentId)
       const thread = threads.get(documentId)
       if (!thread) return frozenSnapshot(documentId)
       thread.bindings = thread.bindings.filter((binding) => {
@@ -255,11 +265,11 @@ export function createConversationContextStore(): ConversationContextStore {
 
     get(documentId) {
       validDocumentId(documentId)
-      return frozenSnapshot(documentId, threads.get(documentId))
+      return frozenSnapshot(documentId, disposed.has(documentId) ? undefined : threads.get(documentId))
     },
 
     forPrompt(documentId, snapshot, currentRequest) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       const thread = threads.get(documentId)
       if (currentRequest !== undefined) {
         const current = sanitizeTurn({ role: 'user', content: currentRequest })
@@ -293,15 +303,22 @@ export function createConversationContextStore(): ConversationContextStore {
     discardDocument(documentId) {
       validDocumentId(documentId)
       threads.delete(documentId)
+      disposed.add(documentId)
     },
 
     clearAll() {
       threads.clear()
+      disposed.clear()
     },
 
     has(documentId) {
       validDocumentId(documentId)
-      return threads.has(documentId)
+      return !disposed.has(documentId) && threads.has(documentId)
+    },
+
+    isDisposed(documentId) {
+      validDocumentId(documentId)
+      return disposed.has(documentId)
     },
 
     documentIds() {

@@ -38,6 +38,7 @@ export type OrchestratorErrorKind =
   | 'unverifiable'
   | 'capability'
   | 'state'
+  | 'document-closed'
 
 export interface InteractionError {
   kind: OrchestratorErrorKind
@@ -143,6 +144,8 @@ export interface InteractionStore {
   addCard(documentId: number, card: InteractionCardInput): InteractionSnapshot
   get(documentId: number): InteractionSnapshot
   clear(documentId: number): void
+  disposeDocument(documentId: number): void
+  isDisposed(documentId: number): boolean
   documentIds(): readonly number[]
 }
 
@@ -261,10 +264,17 @@ function frozenSnapshot(documentId: number, state?: InternalState): InteractionS
 
 export function createInteractionStore(): InteractionStore {
   const states = new Map<number, InternalState>()
+  const disposed = new Set<number>()
+  const assertOpen = (documentId: number): void => {
+    validDocumentId(documentId)
+    if (disposed.has(documentId)) {
+      throw new InteractionStateError('document interaction state has been disposed')
+    }
+  }
 
   return {
     begin(documentId, userText) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       const current = states.get(documentId)
       if (current && ['generating', 'executing', 'verifying'].includes(current.phase)) {
         throw new InteractionStateError(`cannot begin while ${current.phase}`)
@@ -276,7 +286,7 @@ export function createInteractionStore(): InteractionStore {
       return frozenSnapshot(documentId, state)
     },
     transition(documentId, phase) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       const state = states.get(documentId) ?? { phase: 'idle' as const, cards: [] }
       if (state.phase === phase) return frozenSnapshot(documentId, state)
       if (!TRANSITIONS[state.phase].includes(phase)) {
@@ -287,7 +297,7 @@ export function createInteractionStore(): InteractionStore {
       return frozenSnapshot(documentId, state)
     },
     addCard(documentId, card) {
-      validDocumentId(documentId)
+      assertOpen(documentId)
       const state = states.get(documentId)
       if (!state) throw new InteractionStateError('cannot add a card before begin()')
       state.cards.push(sanitizedCard(card, state.cards.length))
@@ -295,11 +305,20 @@ export function createInteractionStore(): InteractionStore {
     },
     get(documentId) {
       validDocumentId(documentId)
-      return frozenSnapshot(documentId, states.get(documentId))
+      return frozenSnapshot(documentId, disposed.has(documentId) ? undefined : states.get(documentId))
     },
     clear(documentId) {
       validDocumentId(documentId)
       states.delete(documentId)
+    },
+    disposeDocument(documentId) {
+      validDocumentId(documentId)
+      states.delete(documentId)
+      disposed.add(documentId)
+    },
+    isDisposed(documentId) {
+      validDocumentId(documentId)
+      return disposed.has(documentId)
     },
     documentIds() {
       return Object.freeze([...states.keys()].sort((a, b) => a - b))

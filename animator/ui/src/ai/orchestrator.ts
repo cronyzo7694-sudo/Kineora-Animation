@@ -187,6 +187,7 @@ export class AiOrchestrator {
   private readonly pending = new Map<number, PendingPlan>()
   private readonly inFlight = new Map<number, InFlight>()
   private readonly generation = new Map<number, number>()
+  private readonly disposed = new Set<number>()
 
   constructor(deps: AiOrchestratorDeps) {
     this.deps = deps
@@ -200,7 +201,37 @@ export class AiOrchestrator {
     return this.interaction.get(documentId)
   }
 
+  disposeDocument(documentId: number): boolean {
+    if (!Number.isSafeInteger(documentId) || documentId <= 0) return false
+    if (this.disposed.has(documentId)) return false
+    const known =
+      this.inFlight.has(documentId) ||
+      this.pending.has(documentId) ||
+      this.generation.has(documentId) ||
+      this.deps.context.has(documentId) ||
+      this.interaction.get(documentId).phase !== 'idle'
+
+    // Tombstone FIRST so every synchronous/async path fails closed from this point.
+    this.disposed.add(documentId)
+    const flight = this.inFlight.get(documentId)
+    if (flight) {
+      flight.controller.abort()
+      this.generation.set(documentId, flight.generation + 1)
+    }
+    this.inFlight.delete(documentId)
+    this.pending.delete(documentId)
+    this.generation.delete(documentId)
+    this.interaction.disposeDocument(documentId)
+    this.deps.context.discardDocument(documentId)
+    return known
+  }
+
+  isDisposed(documentId: number): boolean {
+    return this.disposed.has(documentId)
+  }
+
   stop(documentId: number): AiOrchestratorResult {
+    if (this.disposed.has(documentId)) return this.disposedResult(documentId)
     const flight = this.inFlight.get(documentId)
     if (flight) {
       flight.controller.abort()
@@ -230,6 +261,7 @@ export class AiOrchestrator {
   }
 
   async generate(input: AiOrchestratorRequest): Promise<AiOrchestratorResult> {
+    if (this.disposed.has(input.documentId)) return this.disposedResult(input.documentId)
     const mode = input.mode ?? DEFAULT_MODE
     if (mode !== 'ask' && mode !== 'preview' && mode !== 'apply') {
       throw new Error('AUTO/unknown mode is prohibited')
@@ -359,6 +391,7 @@ export class AiOrchestrator {
       }
       return await this.executePending(input.documentId, {})
     } catch (error) {
+      if (this.disposed.has(input.documentId)) return this.disposedResult(input.documentId)
       if (controller.signal.aborted || (error instanceof AiError && error.kind === 'aborted')) {
         return this.cancelled(input.documentId)
       }
@@ -376,6 +409,7 @@ export class AiOrchestrator {
   }
 
   async approve(documentId: number, confirmation: AiConfirmation = {}): Promise<AiOrchestratorResult> {
+    if (this.disposed.has(documentId)) return this.disposedResult(documentId)
     const pending = this.pending.get(documentId)
     if (!pending) return this.fail(documentId, 'failed', safeError('state', 'No pending validated plan exists.'))
     if (pending.plan.massDestructive && confirmation.typedConfirmationAccepted !== true) {
@@ -450,6 +484,7 @@ export class AiOrchestrator {
     documentId: number,
     _confirmation: AiConfirmation,
   ): Promise<AiOrchestratorResult> {
+    if (this.disposed.has(documentId)) return this.disposedResult(documentId)
     const pending = this.pending.get(documentId)
     if (!pending) return this.fail(documentId, 'failed', safeError('state', 'No pending plan exists.'))
     if (this.deps.currentDocumentId?.() !== documentId) {
@@ -505,9 +540,11 @@ export class AiOrchestrator {
       pending.verificationReplans < MAX_VERIFICATION_REPLANS
     ) {
       const replanned = await this.replanAfterVerification(documentId, pending, verification)
+      if (this.disposed.has(documentId)) return this.disposedResult(documentId)
       if (replanned) return replanned
     }
 
+    if (this.disposed.has(documentId)) return this.disposedResult(documentId)
     this.pending.delete(documentId)
     const postRevision = post?.rev ?? this.currentRevision()
     if (post && transaction.activity.entityBindings.length > 0) {
@@ -559,6 +596,7 @@ export class AiOrchestrator {
     pending: PendingPlan,
     report: VerificationReport,
   ): Promise<AiOrchestratorResult | null> {
+    if (this.disposed.has(documentId)) return null
     const provider = this.deps.providerStore.active()
     const key = provider ? this.keyVault.get(provider.id) : undefined
     if (!provider || !key || !this.deps.hasConsent()) return null
@@ -646,12 +684,19 @@ export class AiOrchestrator {
   }
 
   private cancelled(documentId: number): AiOrchestratorResult {
+    if (this.disposed.has(documentId)) return this.disposedResult(documentId)
     const current = this.interaction.get(documentId)
     if (current.phase === 'generating' || current.phase === 'verifying') {
       this.interaction.transition(documentId, 'cancelled')
     }
     const error = safeError('aborted', 'Generation cancelled. Document unchanged.')
     return this.result(false, documentId, undefined, undefined, undefined, error)
+  }
+
+  private disposedResult(documentId: number): AiOrchestratorResult {
+    const error = safeError('document-closed', 'Document close ho chuka hai; AI state disposed hai.')
+    const state = createErrorSnapshot(documentId, 'unavailable', error)
+    return { ok: false, status: 'unavailable', state, error }
   }
 
   private result(
@@ -677,7 +722,8 @@ export class AiOrchestrator {
   }
 
   private isCurrent(documentId: number, flight: InFlight): boolean {
-    return this.inFlight.get(documentId) === flight &&
+    return !this.disposed.has(documentId) &&
+      this.inFlight.get(documentId) === flight &&
       this.generation.get(documentId) === flight.generation &&
       !flight.controller.signal.aborted
   }

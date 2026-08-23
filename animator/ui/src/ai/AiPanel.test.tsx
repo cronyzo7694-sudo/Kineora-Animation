@@ -134,6 +134,11 @@ function runtime(setup?: (interaction: InteractionStore) => void): FakeRuntime {
     approve,
     stop,
     state: (documentId: number) => interaction.get(documentId),
+    disposeDocument: (documentId: number) => {
+      context.discardDocument(documentId)
+      interaction.disposeDocument(documentId)
+      return true
+    },
   } as unknown as AiOrchestrator
   return {
     storage: store,
@@ -149,6 +154,10 @@ function runtime(setup?: (interaction: InteractionStore) => void): FakeRuntime {
     capabilityRegistry: () => registry(),
     activeDocumentId: () => 1,
     currentRevision: () => 2,
+    disposeDocument: (documentId) => {
+      const disposed = orchestrator.disposeDocument(documentId)
+      return disposed
+    },
     undo: vi.fn(() => true),
     generate,
     approve,

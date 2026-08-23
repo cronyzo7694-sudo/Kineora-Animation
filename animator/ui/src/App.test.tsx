@@ -3,6 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 import { controls, validateRegistry } from './controlRegistry'
 import { getCommand, makeCommandContext } from './commands'
+import { bus } from './bus'
+import { AiOrchestrator } from './ai/orchestrator'
 
 describe('control registry (zero dead button)', () => {
   it('has no duplicate IDs, unbound FUNCTIONAL controls, or missing a11y labels', () => {
@@ -93,6 +95,17 @@ describe('A6.7 Kineora AI overlay', () => {
     expect(screen.getByTestId('right-dock').getAttribute('style')).toBe(before)
     expect(screen.getByTestId('timeline-chrome')).toBeInTheDocument()
     expect(screen.getByTestId('stage-canvas')).toBeInTheDocument()
+  })
+
+  it('canonical openSet removal disposes only the removed document AI runtime state', () => {
+    const dispose = vi.spyOn(AiOrchestrator.prototype, 'disposeDocument').mockReturnValue(true)
+    render(<App />)
+    bus.emit('openSet:changed', { change: 'reordered', docId: 7 })
+    expect(dispose).not.toHaveBeenCalled()
+    bus.emit('openSet:changed', { change: 'removed', docId: 7 })
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(dispose).toHaveBeenCalledWith(7)
+    dispose.mockRestore()
   })
 
   it('composer focus suppresses editor shortcuts; shortcuts resume after blur/close', async () => {

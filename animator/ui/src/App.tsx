@@ -230,6 +230,16 @@ export default function App() {
     return bus.on('activeDoc:changed', () => setTick((t) => t + 1))
   }, [])
 
+  // A6.8 Phase 2: consume the canonical open-set removal event. Disposal is
+  // document-local and aborts stale AI work before the active-doc event fires.
+  useEffect(() => {
+    return bus.on('openSet:changed', (event) => {
+      if (event.change === 'removed' && event.docId !== undefined) {
+        aiRuntime.disposeDocument(event.docId)
+      }
+    })
+  }, [aiRuntime])
+
   // H04 §10 / SYS-01 §27.1: on document:changed (any DOCUMENT mutation —
   // edit/import/undo/redo), document-bound UI re-reads the engine
   // immediately — the dirty ● / title / status update without waiting for

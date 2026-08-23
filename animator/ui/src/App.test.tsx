@@ -51,7 +51,8 @@ describe('app shell', () => {
     expect(screen.getByTestId('file.export')).toHaveAttribute('title', expect.stringContaining('no document open'))
     // UI-only controls remain enabled (they do not need the engine or a doc).
     expect(screen.getByTestId('panel.layers')).toBeEnabled()
-    expect(screen.getByTestId('tool.select')).toBeEnabled()
+    // tools live in the left Tools panel now (Adobe layout) and are UI-only
+    expect(screen.getByTestId('tool-select')).toBeEnabled()
   })
 
   it('renders Properties by default; Layers dock is off (U-G7 — one list on the timeline)', () => {

@@ -9,7 +9,7 @@ import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOp
  * Only the modifiers that actually exist are shown: an empty options area for a
  * tool without modifiers is honest, a fake one is not.
  */
-export function ToolOptions({ tool }: { tool: string }) {
+export function ToolOptions({ tool, vertical = false }: { tool: string; vertical?: boolean }) {
   const [opts, setOpts] = useState(loadToolOptions)
   useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
 
@@ -36,10 +36,18 @@ export function ToolOptions({ tool }: { tool: string }) {
   )
 
   return (
-    <div data-testid="tool-options" aria-label="Tool options" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }}>
-      <span style={{ color: '#888', fontSize: 11 }}>Zoom:</span>
-      {btn('in', '⊕ Enlarge', 'Zoom in on click (Alt+click reverses)')}
-      {btn('out', '⊖ Reduce', 'Zoom out on click (Alt+click reverses)')}
+    <div
+      data-testid="tool-options"
+      aria-label="Tool options"
+      style={
+        vertical
+          ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '2px 0' }
+          : { display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }
+      }
+    >
+      {!vertical && <span style={{ color: '#888', fontSize: 11 }}>Zoom:</span>}
+      {btn('in', vertical ? '⊕' : '⊕ Enlarge', 'Zoom in on click (Alt+click reverses)')}
+      {btn('out', vertical ? '⊖' : '⊖ Reduce', 'Zoom out on click (Alt+click reverses)')}
     </div>
   )
 }

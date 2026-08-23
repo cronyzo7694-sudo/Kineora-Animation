@@ -11,7 +11,7 @@ import { loadToolColors, resetToolColors, setToolColors, subscribeToolColors, sw
  * draws and what the Paint Bucket / Ink Bottle apply. They never touch the
  * document by themselves, so they create no undo entry and never dirty a file.
  */
-export function ToolColors() {
+export function ToolColors({ vertical = false }: { vertical?: boolean } = {}) {
   const [colors, setColors] = useState(loadToolColors)
   useEffect(() => subscribeToolColors(() => setColors(loadToolColors())), [])
 
@@ -22,8 +22,8 @@ export function ToolColors() {
     onPick: (c: string) => void,
     onNone: () => void,
   ) => (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-      <span style={{ color: '#888', fontSize: 11 }}>{label}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title={`${label} color`}>
+      {!vertical && <span style={{ color: '#888', fontSize: 11 }}>{label}</span>}
       <span style={{ position: 'relative', display: 'inline-block' }}>
         <input
           type="color"
@@ -56,7 +56,15 @@ export function ToolColors() {
   )
 
   return (
-    <div data-testid="tool-colors" aria-label="Tool colors" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px' }}>
+    <div
+      data-testid="tool-colors"
+      aria-label="Tool colors"
+      style={
+        vertical
+          ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '2px 0' }
+          : { display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px' }
+      }
+    >
       {swatch('tool-fill', 'Fill', colors.fill, (c) => setToolColors({ fill: c }), () => setToolColors({ fill: null }))}
       {swatch('tool-stroke', 'Stroke', colors.stroke, (c) => setToolColors({ stroke: c }), () => setToolColors({ stroke: null }))}
       <label style={{ color: '#888', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}>

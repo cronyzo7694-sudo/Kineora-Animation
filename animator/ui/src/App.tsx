@@ -43,8 +43,8 @@ import {
   saveWorkspaceSnapshot,
 } from './workspace'
 import { Toolbar } from './components/Toolbar'
-import { ToolColors } from './components/ToolColors'
-import { ToolOptions } from './components/ToolOptions'
+import { commands as allCommands } from './commands'
+import { ToolsPanel } from './components/ToolsPanel'
 import { MenuBar } from './components/MenuBar'
 import { Stage } from './components/Stage'
 import { TimelineStrip } from './components/TimelineStrip'
@@ -601,6 +601,12 @@ export default function App() {
   )
 
   const registryErrors = useMemo(() => validateRegistry(controls), [])
+  /** Tool commands are rendered by the left Tools panel (Adobe layout), so the
+   *  horizontal command toolbar must not repeat them as text buttons. */
+  const nonToolControls = useMemo(() => {
+    const toolIds = new Set(allCommands.filter((c) => c.category === 'tools').map((c) => c.id))
+    return controls.filter((c) => !toolIds.has(c.id))
+  }, [])
   const status = statusJson()
 
   const beginResize = () => {
@@ -679,15 +685,11 @@ export default function App() {
       <DocumentTabs ctx={ctx} />
       {/* Edit bar (breadcrumb) — above the stage */}
       <EditBar ctx={ctx} scene={status?.scene ?? 'Scene 1'} />
-      {/* Tools toolbar (Window ▸ Tools) */}
-      {panels.tools && (
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Toolbar controls={controls} ctx={ctx} />
-          <ToolColors />
-          <ToolOptions tool={tool} />
-        </div>
-      )}
+      {/* Command toolbar — tools now live in the left Tools panel (Adobe layout),
+          so this bar only carries the non-tool commands (Export, panels, …). */}
+      {panels.tools && <Toolbar controls={nonToolControls} ctx={ctx} />}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {panels.tools && <ToolsPanel tool={tool} onPick={setTool} />}
         {panels.layers && (
           <LayersPanel
             width={layout.layersW}

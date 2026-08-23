@@ -56,6 +56,8 @@ beforeEach(() => {
 describe('SYS-02 file — identity + New', () => {
   it('isTitled distinguishes Untitled-N from a real name', () => {
     expect(isTitled('Untitled-1')).toBe(false)
+    expect(isTitled('Untitled')).toBe(false)
+    expect(isTitled('')).toBe(false)
     expect(isTitled('my-project')).toBe(true)
   })
 

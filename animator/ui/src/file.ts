@@ -74,7 +74,9 @@ function jsonName(title: string): string {
 
 /** Title is "titled" (has a persisted name) iff it isn't an Untitled-N doc. */
 export function isTitled(title: string): boolean {
-  return !title.startsWith('Untitled')
+  const t = title.trim()
+  if (!t) return false
+  return !/^Untitled(-\d+)?$/i.test(t)
 }
 
 /** Display title from a saved path or a browser File-System-Access session token. */
@@ -310,7 +312,10 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     // pick-THEN-write so INV-IDENT-4 can block before any bytes land.
     // Cancel of a shown picker is silent (H05 §11). Absence of a picker
     // (browser without File System Access) falls back to prompt+download.
-    const canPick = platform.hasSavePicker?.() ?? platform.isDesktop()
+    // Desktop always has a native picker. Browser File System Access is
+    // often blocked (iframe / preview) and reports cancel — fall through
+    // to the in-app Save As dialog + download instead of a silent no-op.
+    const canPick = platform.isDesktop()
     if (canPick) {
       const path = await platform.pickSavePath(title)
       if (!path) {
@@ -358,8 +363,8 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       return false
     }
   } else {
-    // Titled but no session path (browser download-only previous save, or
-    // the session map was dropped on reload) — honest pathless re-download.
+    // Titled but no session path (browser download-only previous save).
+    // Re-download under the known name — no second name prompt (P-1).
     if (!(await platform.writeProject(null, title, withInk))) {
       saveError()
       return false
@@ -373,6 +378,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   setDocModifiedAt(nowSec())
   setDocTitle(docId, title)
   markClean()
+  if (docId) inkBags.set(docId, serializeInk())
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
   addRecent(title, withInk, docPath(docId))
   // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the

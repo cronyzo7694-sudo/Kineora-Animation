@@ -45,6 +45,7 @@ import { Stage } from './Stage'
 import { listInk, resetInkForTests } from '../editor/inkStore'
 import { defaultToolColors, loadToolColors, resetToolColorsCacheForTests, setToolColors } from '../toolColors'
 import { resetToolOptionsForTests, setToolOptions } from '../toolOptions'
+import { resetViewPrefsForTests } from '../viewPrefs'
 
 /** Adobe: new objects are drawn with the Tools-panel Fill Color (default white). */
 const DEFAULT_FILL = defaultToolColors().fill as string
@@ -57,6 +58,7 @@ beforeEach(() => {
   resetToolColorsCacheForTests()
   resetToolOptionsForTests()
   resetInkForTests()
+  resetViewPrefsForTests()
 })
 
 const selectAtMock = vi.mocked(selectAt)
@@ -134,6 +136,15 @@ describe('Stage viewport interaction wiring (regression)', () => {
   it('shows the document stage dimensions (the published frame)', () => {
     renderStage()
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('1920×1080')
+  })
+
+  it('stage zoom gear can be hidden and restored', () => {
+    renderStage()
+    fireEvent.click(screen.getByTestId('stage-zoom-hide'))
+    expect(screen.getByTestId('stage-zoom-gear-collapsed')).toBeInTheDocument()
+    expect(screen.queryByTestId('stage-zoom-slider')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('zoom-readout'))
+    expect(screen.getByTestId('stage-zoom-slider')).toBeInTheDocument()
   })
 
   it('stage zoom gear nudges ~10% per click, not 2×', async () => {

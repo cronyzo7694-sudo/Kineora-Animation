@@ -37,8 +37,9 @@ import {
   type InkPt,
 } from '../editor/inkStore'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
-import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
+import { loadViewPrefs, patchViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
+import { contrastOn } from '../contrast'
 import { loadToolOptions, subscribeToolOptions } from '../toolOptions'
 import { loadOnionPrefs, subscribeOnionPrefs } from '../onionPrefs'
 import { collectGhosts } from '../onion'
@@ -196,6 +197,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   // tool and the Hand tool, hold down the Spacebar"). `zoomMarquee` is the
   // Zoom tool's drag rectangle ("drag a rectangular selection on the Stage").
   const [spaceHeld, setSpaceHeld] = useState(false)
+  const [viewPrefs, setViewPrefs] = useState(loadViewPrefs)
   const [zoomMode, setZoomMode] = useState(loadToolOptions().zoomMode)
   const [textDraft, setTextDraft] = useState<{ x: number; y: number; sx: number; sy: number; value: string } | null>(null)
   const spaceHeldRef = useRef(false)
@@ -239,7 +241,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     }
   }, [])
 
-  useEffect(() => subscribeViewPrefs(() => scheduleRedraw()), [])
+  useEffect(() => subscribeViewPrefs(() => {
+    setViewPrefs(loadViewPrefs())
+    scheduleRedraw()
+  }), [])
   useEffect(() => subscribeToolColors(() => scheduleRedraw()), [])
   useEffect(() => subscribeToolOptions(() => setZoomMode(loadToolOptions().zoomMode)), [])
   useEffect(() => subscribeOnionPrefs(() => scheduleRedraw()), [])
@@ -1090,6 +1095,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }}
         />
       )}
+      {viewPrefs.zoomGear ? (
       <div
         data-testid="stage-zoom-gear"
         onMouseDown={(e) => e.stopPropagation()}
@@ -1149,10 +1155,49 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         <button type="button" data-testid="stage-zoom-fit" title="Fit stage" onClick={() => stageViewController.current?.zoomFit()} style={{ ...gearBtn, fontSize: 10 }}>
           Fit
         </button>
+        <button
+          type="button"
+          data-testid="stage-zoom-hide"
+          title="Hide zoom controls (View ▸ Show Zoom Controls to restore)"
+          aria-label="Hide zoom controls"
+          onClick={() => patchViewPrefs({ zoomGear: false })}
+          style={gearBtn}
+        >
+          ×
+        </button>
         <span style={{ color: '#444' }}>|</span>
         <span data-testid="pan-readout" style={{ color: '#666', pointerEvents: 'none' }}>{panReadout}</span>
         <span data-testid="stage-readout" style={{ color: '#666', pointerEvents: 'none' }}>{stageW}×{stageH}</span>
       </div>
+      ) : (
+      <div
+        data-testid="stage-zoom-gear-collapsed"
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute',
+          bottom: 6,
+          right: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          color: '#888',
+          fontSize: 11,
+          pointerEvents: 'auto',
+          background: 'rgba(16,16,16,0.72)',
+          border: '1px solid #2a2a2a',
+          borderRadius: 6,
+          padding: '3px 7px',
+          zIndex: 8,
+        }}
+      >
+        <span data-testid="tool-readout" style={{ color: '#777' }}>{spaceHeld ? 'hand (space)' : tool}</span>
+        <button type="button" data-testid="zoom-readout" title="Show zoom controls" onClick={() => patchViewPrefs({ zoomGear: true })} style={{ ...gearBtn, minWidth: 40, fontSize: 11 }}>
+          {zoomReadout}
+        </button>
+        <span data-testid="pan-readout" style={{ display: 'none' }}>{panReadout}</span>
+        <span data-testid="stage-readout" style={{ color: '#666' }}>{stageW}×{stageH}</span>
+      </div>
+      )}
     </div>
   )
 }

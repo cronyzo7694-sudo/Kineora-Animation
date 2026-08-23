@@ -362,7 +362,9 @@ const browserAdapter: PlatformAdapter = {
         const token = await rememberFsaHandle(handle)
         return { path: token, name: nameWithoutExt(handle.name) }
       } catch (e) {
-        return (e as DOMException)?.name === 'AbortError' ? 'cancelled' : 'failed'
+        if ((e as DOMException)?.name !== 'AbortError') return 'failed'
+        // Picker blocked (iframe) or user dismissed — fall through to the
+        // in-app name dialog so Save never silently does nothing.
       }
     }
     const name = await browserName(suggestedName)

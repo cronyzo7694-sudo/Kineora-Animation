@@ -1163,6 +1163,18 @@ export const commands: Command[] = [
     run: () => {},
   },
   {
+    id: 'view.zoomGear',
+    label: 'Show Zoom Controls',
+    category: 'view',
+    status: 'FUNCTIONAL',
+    source: '[OUR DESIGN DECISION] Stage zoom gear can be hidden',
+    checked: () => loadViewPrefs().zoomGear,
+    run: (c) => {
+      const next = toggleViewFlag('zoomGear')
+      c.notify(next.zoomGear ? 'zoom controls: on' : 'zoom controls: off')
+    },
+  },
+  {
     id: 'view.workArea',
     label: 'Show Work Area (Pasteboard)',
     category: 'view',

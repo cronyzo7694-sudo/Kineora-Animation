@@ -5,7 +5,7 @@ import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkS
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
-import { SubselectFields, ToolInspector, toolLabel } from './ToolInspector'
+import { SubselectFields, TextFields, ToolInspector, toolLabel } from './ToolInspector'
 import { getObjExtra, setObjExtra, setObjectsLocked, subscribeObjProps, type BlendMode } from '../editor/objectProps'
 
 interface Props {
@@ -149,14 +149,35 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
             <SectionTitle>Ink object</SectionTitle>
             <div style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 8 }}>{inkSel.length} selected · {inkSel[0].kind}</div>
             {inkSel.length === 1 && inkSel[0].kind === 'text' && (
-              <Field label="Text">
-                <input
-                  data-testid="prop-ink-text"
-                  value={inkSel[0].text ?? ''}
-                  onChange={(e) => updateInk(inkSel[0].id, { text: e.target.value })}
-                  style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+              <>
+                <Field label="Text">
+                  <textarea
+                    data-testid="prop-ink-text"
+                    value={inkSel[0].text ?? ''}
+                    onChange={(e) => updateInk(inkSel[0].id, { text: e.target.value })}
+                    rows={3}
+                    style={{ width: 130, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+                  />
+                </Field>
+                <ColorField
+                  testId="prop-ink-fill"
+                  label="Color"
+                  value={inkSel[0].fill ?? '#111111'}
+                  onCommit={(c) => updateInk(inkSel[0].id, { fill: c })}
                 />
-              </Field>
+                <TextFields
+                  value={{
+                    fontSize: inkSel[0].fontSize,
+                    fontFamily: inkSel[0].fontFamily,
+                    fontWeight: inkSel[0].fontWeight,
+                    fontItalic: inkSel[0].fontItalic,
+                    fontUnderline: inkSel[0].fontUnderline,
+                    textAlign: inkSel[0].textAlign,
+                    letterSpacing: inkSel[0].letterSpacing,
+                  }}
+                  onPatch={(patch) => updateInk(inkSel[0].id, patch)}
+                />
+              </>
             )}
             {inkSel.length === 1 && inkSel[0].kind !== 'text' && (
               <>

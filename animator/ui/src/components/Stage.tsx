@@ -248,7 +248,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [viewPrefs, setViewPrefs] = useState(loadViewPrefs)
   const [zoomMode, setZoomMode] = useState(loadToolOptions().zoomMode)
-  const [textDraft, setTextDraft] = useState<{ x: number; y: number; sx: number; sy: number; value: string } | null>(null)
+  const [textDraft, setTextDraft] = useState<{ x: number; y: number; sx: number; sy: number; value: string; editId?: number } | null>(null)
   const spaceHeldRef = useRef(false)
   const zoomMarqueeRef = useRef<DocRect | null>(null)
   const zoomStartRef = useRef<{ doc: Pt; sx: number; sy: number; dragging: boolean } | null>(null)
@@ -1211,6 +1211,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && activeTool() === 'text') {
       const doc = screenToDoc(vpRef.current, sx, sy)
+      const existing = hitInk(doc.x, doc.y)
+      if (existing && existing.kind === 'text') {
+        const scr = docToScreen(vpRef.current, existing.points[0].x, existing.points[0].y)
+        setTextDraft({ x: existing.points[0].x, y: existing.points[0].y, sx: scr.x, sy: scr.y, value: existing.text || '', editId: existing.id })
+        selectInk([existing.id])
+        scheduleRedraw()
+        return
+      }
       setTextDraft({ x: doc.x, y: doc.y, sx, sy, value: 'Text' })
       scheduleRedraw()
       return
@@ -1402,8 +1410,20 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       return
     }
     const wrap = wrapRef.current
+    if (!wrap) return
+    const rect = wrap.getBoundingClientRect()
+    const doc = screenToDoc(vpRef.current, e.clientX - rect.left, e.clientY - rect.top)
+    const hit = hitInk(doc.x, doc.y)
+    if (hit && hit.kind === 'text') {
+      e.preventDefault()
+      const scr = docToScreen(vpRef.current, hit.points[0].x, hit.points[0].y)
+      setTextDraft({ x: hit.points[0].x, y: hit.points[0].y, sx: scr.x, sy: scr.y, value: hit.text || '', editId: hit.id })
+      selectInk([hit.id])
+      scheduleRedraw()
+      return
+    }
     const status = statusJson()
-    if (!wrap || !status) return
+    if (!status) return
     applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, wrap.clientWidth, wrap.clientHeight))
   }
 

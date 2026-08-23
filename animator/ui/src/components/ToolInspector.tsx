@@ -56,7 +56,7 @@ function hint(tool: string): string {
     case 'brush':
       return 'Thick freehand stroke. Size and stroke color apply to the next brush mark.'
     case 'text':
-      return 'Click the Stage to place text. Fill is the text color. Set size below.'
+      return 'Click the Stage to type. Enter commits, Shift+Enter = new line, Esc cancels. Double-click existing text to edit. Character (family, size, B/I/U, tracking) and Paragraph (align) apply to the next field — and to selected text in Properties.'
     case 'bucket':
       return 'Click a fill to paint it with the current Fill color.'
     case 'ink':
@@ -167,20 +167,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
         </label>
       )}
 
-      {usesTextSize(tool) && (
-        <label style={field}>
-          <span style={{ color: '#999' }}>Font size</span>
-          <input
-            data-testid="prop-tool-font-size"
-            type="number"
-            min={8}
-            max={200}
-            value={opts.fontSize}
-            onChange={(e) => setToolOptions({ fontSize: Math.max(8, Number(e.target.value) || 24) })}
-            style={input}
-          />
-        </label>
-      )}
+      {tool === 'text' && <TextFields />}
 
       {(tool === 'rect' || tool === 'oval') && <ShapeBox notify={notify ?? (() => {})} />}
       {tool === 'pen' && <PenFields notify={notify ?? (() => {})} />}

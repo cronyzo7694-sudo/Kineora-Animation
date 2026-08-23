@@ -411,8 +411,14 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
   for (const it of items) {
     if (it.kind === 'text') {
       const p = it.points[0] ?? { x: 0, y: 0 }
+      const fam = esc(it.fontFamily || 'system-ui,sans-serif')
+      const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
+      const fstyle = it.fontItalic ? 'italic' : 'normal'
+      const anchor = it.textAlign === 'center' ? 'middle' : it.textAlign === 'right' ? 'end' : 'start'
+      const deco = it.fontUnderline ? ' text-decoration="underline"' : ''
+      const ls = it.letterSpacing ? ` letter-spacing="${it.letterSpacing}"` : ''
       parts.push(
-        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="system-ui,sans-serif">${esc(it.text || '')}</text>`,
+        `<text x="${p.x}" y="${p.y}" fill="${esc(contrastOn(it.fill, background))}" font-size="${it.fontSize ?? 18}" font-family="${fam}" font-weight="${weight}" font-style="${fstyle}" text-anchor="${anchor}"${deco}${ls}>${esc(it.text || '')}</text>`,
       )
       continue
     }
@@ -570,10 +576,7 @@ function drawInkItems(
     ctx.save()
     if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
     if (it.kind === 'text') {
-      const p = docToScreen(vp, pts[0]?.x ?? 0, pts[0]?.y ?? 0)
-      ctx.fillStyle = contrastOn(it.fill, background ?? '#ffffff')
-      ctx.font = `${(it.fontSize ?? 18) * vp.zoom}px system-ui, sans-serif`
-      ctx.fillText(it.text || '', p.x, p.y)
+      drawInkText(ctx, vp, it, pts[0] ?? { x: 0, y: 0 }, background ?? '#ffffff')
     } else {
       const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
       const vis = visibleOnStage({ fill: it.fill ?? 'transparent', stroke: it.stroke, strokeWidth: sw }, background ?? '#ffffff')
@@ -633,6 +636,49 @@ function drawInkItems(
       })
     }
   }
+}
+
+function drawInkText(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  it: InkItem,
+  origin: InkPt,
+  background: string,
+): void {
+  const p = docToScreen(vp, origin.x, origin.y)
+  const size = (it.fontSize ?? 18) * vp.zoom
+  const fam = it.fontFamily || 'system-ui, sans-serif'
+  const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
+  const style = it.fontItalic ? 'italic' : 'normal'
+  ctx.fillStyle = contrastOn(it.fill, background)
+  ctx.font = `${style} ${weight} ${Math.max(1, size)}px ${fam}`
+  ctx.textAlign = it.textAlign === 'center' || it.textAlign === 'right' ? it.textAlign : 'left'
+  ctx.textBaseline = 'alphabetic'
+  if (it.letterSpacing) {
+    try {
+      ;(ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${it.letterSpacing * vp.zoom}px`
+    } catch {
+      /* ignore */
+    }
+  }
+  const lines = (it.text || '').split('\n')
+  const lh = size * 1.25
+  lines.forEach((line, i) => {
+    const y = p.y + i * lh
+    ctx.fillText(line, p.x, y)
+    if (it.fontUnderline) {
+      const w = ctx.measureText(line).width
+      let x0 = p.x
+      if (it.textAlign === 'center') x0 = p.x - w / 2
+      if (it.textAlign === 'right') x0 = p.x - w
+      ctx.strokeStyle = ctx.fillStyle as string
+      ctx.lineWidth = Math.max(1, size / 16)
+      ctx.beginPath()
+      ctx.moveTo(x0, y + 2)
+      ctx.lineTo(x0 + w, y + 2)
+      ctx.stroke()
+    }
+  })
 }
 
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {

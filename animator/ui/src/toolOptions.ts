@@ -13,6 +13,12 @@ export interface ToolOptions {
   inkSize: number
   /** Text tool size in document px. */
   fontSize: number
+  fontFamily: string
+  fontWeight: 'normal' | 'bold'
+  fontItalic: boolean
+  fontUnderline: boolean
+  textAlign: 'left' | 'center' | 'right'
+  letterSpacing: number
   /** Selection: snap the move to nearby object / stage edges (Adobe Snap to Objects). */
   snapToObjects: boolean
   /** Selection: snap move / nudge to whole pixels (Adobe Snap to Pixels). */
@@ -36,6 +42,12 @@ export function defaultToolOptions(): ToolOptions {
     zoomMode: 'in',
     inkSize: 4,
     fontSize: 24,
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: 'normal',
+    fontItalic: false,
+    fontUnderline: false,
+    textAlign: 'left',
+    letterSpacing: 0,
     snapToObjects: true,
     snapToPixels: false,
     contactSensitive: true,

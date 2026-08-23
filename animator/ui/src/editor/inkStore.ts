@@ -34,6 +34,13 @@ export interface InkItem {
   strokeWidth: number
   text?: string
   fontSize?: number
+  fontFamily?: string
+  fontWeight?: 'normal' | 'bold'
+  fontItalic?: boolean
+  fontUnderline?: boolean
+  textAlign?: 'left' | 'center' | 'right'
+  letterSpacing?: number
+  maxWidth?: number
 }
 
 const ID_BASE = 1_000_000
@@ -447,9 +454,15 @@ export function pointInPoly(p: InkPt, poly: InkPt[]): boolean {
 export function inkBounds(it: InkItem): { x: number; y: number; w: number; h: number } {
   if (it.kind === 'text') {
     const p = it.points[0] ?? { x: 0, y: 0 }
-    const w = Math.max(40, (it.text ?? '').length * (it.fontSize ?? 18) * 0.55)
-    const h = (it.fontSize ?? 18) * 1.3
-    return { x: p.x, y: p.y - h + 4, w, h }
+    const lines = (it.text ?? '').split('\n')
+    const size = it.fontSize ?? 18
+    const longest = lines.reduce((m, s) => Math.max(m, s.length), 0)
+    const w = Math.max(40, longest * size * 0.55 + (it.letterSpacing ?? 0) * Math.max(0, longest - 1))
+    const h = Math.max(size, lines.length * size * 1.3)
+    let x = p.x
+    if (it.textAlign === 'center') x = p.x - w / 2
+    if (it.textAlign === 'right') x = p.x - w
+    return { x, y: p.y - size + 4, w, h }
   }
   let minX = Infinity
   let minY = Infinity

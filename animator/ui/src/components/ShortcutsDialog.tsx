@@ -84,7 +84,7 @@ export function ShortcutsDialog({ open, onClose }: Props) {
         <div style={{ overflowY: 'auto', padding: '8px 16px 16px', fontSize: 13 }}>
           {groups.map((g) => (
             <section key={g.label} style={{ marginTop: 10 }}>
-              <div style={{ color: '#8ef', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{g.label}</div>
+              <div style={{ color: '#8ab4e8', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4, borderBottom: '1px solid #2a2a2a', paddingBottom: 2 }}>{g.label}</div>
               {g.items.map((row) => (
                 <div key={row.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#bbb' }}>
                   <span>{row.label}</span>

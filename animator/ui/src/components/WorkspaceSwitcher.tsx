@@ -61,9 +61,9 @@ export function WorkspaceSwitcher({ active, names, onSwitch, onSaveCurrent, onSa
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}
+        style={{ padding: '2px 8px', borderRadius: 3, border: '1px solid #333', background: '#1a1a1a', color: '#bbb', cursor: 'pointer', fontSize: 11 }}
       >
-        Workspace: <strong style={{ color: '#8ef' }}>{active}</strong> ▾
+        {active} ▾
       </button>
       {open && (
         <div data-testid="ws-switch-menu" role="menu" style={{ position: 'absolute', right: 0, top: '100%', minWidth: 200, background: '#232323', border: '1px solid #3a3a3a', boxShadow: '0 8px 24px rgba(0,0,0,0.55)', padding: '4px 0', zIndex: 60 }}>

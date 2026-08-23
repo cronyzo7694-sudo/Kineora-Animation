@@ -1,4 +1,14 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import {
+  addAnchorOnSegment,
+  convertAnchors,
+  deleteSelectedAnchors,
+  endInkEdit,
+  listInk,
+  selectedAnchors,
+  setAnchorXY,
+  subscribeInk,
+} from '../editor/inkStore'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOptions'
 import { SelectionActions } from './SelectionActions'
@@ -60,7 +70,7 @@ function hint(tool: string): string {
     case 'lasso':
       return 'Drag a freeform loop to select objects inside it.'
     case 'subselect':
-      return 'Click a path, then drag its anchors to reshape it.'
+      return 'Click a path to show squares. Drag a square to move it (Shift-click several). Alt-drag a corner to pull Bezier handles. Double-click a segment to add a point. Delete removes selected points. Arrows nudge 1px (Shift=10).'
     case 'transform':
       return 'Select an object, then drag handles to scale or the circle to rotate.'
     case 'select':
@@ -178,6 +188,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
         </>
       )}
       {tool === 'transform' && <SelectionActions notify={notify ?? (() => {})} />}
+      {tool === 'subselect' && <SubselectFields notify={notify ?? (() => {})} />}
 
       {(tool === 'pencil' || tool === 'brush' || tool === 'eraser') && (
         <div style={{ marginTop: 4 }}>

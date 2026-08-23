@@ -11,6 +11,17 @@ export type InkKind = 'line' | 'pencil' | 'brush' | 'pen' | 'text'
 export interface InkPt {
   x: number
   y: number
+  /** Incoming Bezier handle (absolute). Missing = corner. */
+  inX?: number
+  inY?: number
+  /** Outgoing Bezier handle (absolute). */
+  outX?: number
+  outY?: number
+}
+
+export interface InkAnchor {
+  id: number
+  index: number
 }
 
 export interface InkItem {
@@ -30,6 +41,8 @@ const ID_BASE = 1_000_000
 let nextId = ID_BASE
 let items: InkItem[] = []
 let selected: number[] = []
+let anchors: InkAnchor[] = []
+let strokeEditOpen = false
 const undoStack: InkItem[][] = []
 const redoStack: InkItem[][] = []
 const listeners = new Set<() => void>()
@@ -68,6 +81,8 @@ export function resetInkForTests(): void {
   nextId = ID_BASE
   items = []
   selected = []
+  anchors = []
+  strokeEditOpen = false
   undoStack.length = 0
   redoStack.length = 0
 }
@@ -84,6 +99,8 @@ export function restoreInk(next: InkItem[]): void {
   for (const it of items) if (it.id >= max) max = it.id + 1
   nextId = max
   selected = []
+  anchors = []
+  strokeEditOpen = false
   undoStack.length = 0
   redoStack.length = 0
   emit()
@@ -124,13 +141,51 @@ export function deleteInkIds(ids: number[]): boolean {
 
 export function selectInk(ids: number[], additive = false): void {
   selected = additive ? Array.from(new Set([...selected, ...ids])) : ids.slice()
+  if (!additive) anchors = []
   emit()
 }
 
 export function clearInkSelection(): void {
-  if (selected.length === 0) return
+  if (selected.length === 0 && anchors.length === 0) return
   selected = []
+  anchors = []
   emit()
+}
+
+export function selectedAnchors(): InkAnchor[] {
+  return anchors.slice()
+}
+
+export function selectAnchors(next: InkAnchor[], additive = false): void {
+  if (!additive) {
+    anchors = next.slice()
+  } else {
+    const key = (a: InkAnchor) => `${a.id}:${a.index}`
+    const have = new Set(anchors.map(key))
+    const extra = next.filter((a) => !have.has(key(a)))
+    anchors = [...anchors, ...extra]
+  }
+  const ids = new Set(anchors.map((a) => a.id))
+  for (const id of ids) if (!selected.includes(id)) selected.push(id)
+  emit()
+}
+
+export function clearAnchors(): void {
+  if (anchors.length === 0) return
+  anchors = []
+  emit()
+}
+
+export function beginInkEdit(): void {
+  if (strokeEditOpen) return
+  pushUndo()
+  strokeEditOpen = true
+}
+
+export function endInkEdit(): void {
+  if (!strokeEditOpen) return
+  strokeEditOpen = false
+  bus.emit('document:changed', { type: 'transform', targets: selected })
 }
 
 export type InkArrangeOp = 'front' | 'forward' | 'back' | 'backward'
@@ -183,25 +238,159 @@ export function moveInk(ids: number[], dx: number, dy: number): void {
   const set = new Set(ids)
   pushUndo()
   items = items.map((it) =>
-    set.has(it.id) ? { ...it, points: it.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : it,
+    set.has(it.id)
+      ? {
+          ...it,
+          points: it.points.map((p) => shiftPt(p, dx, dy)),
+        }
+      : it,
   )
   emit()
   bus.emit('document:changed', { type: 'transform', targets: ids })
 }
 
+function shiftPt(p: InkPt, dx: number, dy: number): InkPt {
+  const n: InkPt = { ...p, x: p.x + dx, y: p.y + dy }
+  if (p.inX != null) n.inX = p.inX + dx
+  if (p.inY != null) n.inY = p.inY + dy
+  if (p.outX != null) n.outX = p.outX + dx
+  if (p.outY != null) n.outY = p.outY + dy
+  return n
+}
+
 export function setInkPoint(id: number, index: number, pt: InkPt): boolean {
   const it = items.find((x) => x.id === id)
   if (!it || index < 0 || index >= it.points.length) return false
+  const prev = it.points[index]
+  return moveAnchors([{ id, index }], pt.x - prev.x, pt.y - prev.y)
+}
+
+export function moveAnchors(list: InkAnchor[], dx: number, dy: number): boolean {
+  if (list.length === 0 || (dx === 0 && dy === 0)) return false
+  beginInkEdit()
+  const want = new Set(list.map((a) => `${a.id}:${a.index}`))
+  items = items.map((it) => ({
+    ...it,
+    points: it.points.map((p, i) => (want.has(`${it.id}:${i}`) ? shiftPt(p, dx, dy) : p)),
+  }))
+  emit()
+  return true
+}
+
+export function setAnchorXY(id: number, index: number, x: number, y: number): boolean {
+  const it = items.find((t) => t.id === id)
+  if (!it || !it.points[index]) return false
+  const p = it.points[index]
+  return moveAnchors([{ id, index }], x - p.x, y - p.y)
+}
+
+export function setAnchorHandle(
+  id: number,
+  index: number,
+  which: 'in' | 'out',
+  hx: number,
+  hy: number,
+  mirror: boolean,
+): boolean {
+  const it = items.find((t) => t.id === id)
+  if (!it || !it.points[index]) return false
+  beginInkEdit()
+  items = items.map((x) => {
+    if (x.id !== id) return x
+    const pts = x.points.slice()
+    const p = { ...pts[index] }
+    if (which === 'in') {
+      p.inX = hx
+      p.inY = hy
+      if (mirror) {
+        p.outX = p.x - (hx - p.x)
+        p.outY = p.y - (hy - p.y)
+      }
+    } else {
+      p.outX = hx
+      p.outY = hy
+      if (mirror) {
+        p.inX = p.x - (hx - p.x)
+        p.inY = p.y - (hy - p.y)
+      }
+    }
+    pts[index] = p
+    return { ...x, points: pts }
+  })
+  emit()
+  return true
+}
+
+export function convertAnchors(mode: 'smooth' | 'corner'): boolean {
+  if (anchors.length === 0) return false
+  beginInkEdit()
+  const want = new Set(anchors.map((a) => `${a.id}:${a.index}`))
+  items = items.map((it) => ({
+    ...it,
+    points: it.points.map((p, i) => {
+      if (!want.has(`${it.id}:${i}`)) return p
+      if (mode === 'corner') {
+        const n = { ...p }
+        delete n.inX
+        delete n.inY
+        delete n.outX
+        delete n.outY
+        return n
+      }
+      const prev = it.points[i - 1] ?? (it.closed ? it.points[it.points.length - 1] : p)
+      const next = it.points[i + 1] ?? (it.closed ? it.points[0] : p)
+      const dx = (next.x - prev.x) / 6
+      const dy = (next.y - prev.y) / 6
+      return { ...p, inX: p.x - dx, inY: p.y - dy, outX: p.x + dx, outY: p.y + dy }
+    }),
+  }))
+  emit()
+  endInkEdit()
+  return true
+}
+
+export function addAnchorOnSegment(id: number, segIndex: number, t: number): boolean {
+  const it = items.find((x) => x.id === id)
+  if (!it || it.kind === 'text' || it.points.length < 2) return false
+  const a = it.points[segIndex]
+  const b = it.points[segIndex + 1] ?? (it.closed ? it.points[0] : null)
+  if (!a || !b) return false
+  const pt: InkPt = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
   pushUndo()
   items = items.map((x) => {
     if (x.id !== id) return x
     const pts = x.points.slice()
-    pts[index] = { ...pt }
+    pts.splice(segIndex + 1, 0, pt)
     return { ...x, points: pts }
   })
+  selected = [id]
+  anchors = [{ id, index: segIndex + 1 }]
   emit()
   bus.emit('document:changed', { type: 'transform', targets: [id] })
   return true
+}
+
+export function deleteSelectedAnchors(): boolean {
+  if (anchors.length === 0) return false
+  const byId = new Map<number, Set<number>>()
+  for (const a of anchors) {
+    if (!byId.has(a.id)) byId.set(a.id, new Set())
+    byId.get(a.id)!.add(a.index)
+  }
+  let changed = false
+  pushUndo()
+  items = items.map((it) => {
+    const drop = byId.get(it.id)
+    if (!drop || it.kind === 'text') return it
+    const keep = it.points.filter((_, i) => !drop.has(i))
+    if (keep.length < 2) return it
+    changed = true
+    return { ...it, points: keep }
+  })
+  anchors = []
+  emit()
+  if (changed) bus.emit('document:changed', { type: 'edit', targets: selected })
+  return changed
 }
 
 export function inkUndo(): boolean {
@@ -300,14 +489,75 @@ export function hitInk(x: number, y: number): InkItem | null {
 }
 
 export function hitInkAnchor(x: number, y: number, radius = 6): { id: number; index: number } | null {
-  for (const it of items) {
-    if (!selected.includes(it.id)) continue
+  const pool = selected.length ? items.filter((it) => selected.includes(it.id)) : items
+  for (const it of pool) {
     if (it.kind === 'text') continue
     for (let i = 0; i < it.points.length; i++) {
       if (Math.hypot(x - it.points[i].x, y - it.points[i].y) <= radius) return { id: it.id, index: i }
     }
   }
   return null
+}
+
+export function hitInkHandle(
+  x: number,
+  y: number,
+  radius = 6,
+): { id: number; index: number; which: 'in' | 'out' } | null {
+  for (const it of items) {
+    if (!selected.includes(it.id) || it.kind === 'text') continue
+    for (let i = 0; i < it.points.length; i++) {
+      const p = it.points[i]
+      if (p.outX != null && p.outY != null && Math.hypot(x - p.outX, y - p.outY) <= radius) {
+        return { id: it.id, index: i, which: 'out' }
+      }
+      if (p.inX != null && p.inY != null && Math.hypot(x - p.inX, y - p.inY) <= radius) {
+        return { id: it.id, index: i, which: 'in' }
+      }
+    }
+  }
+  return null
+}
+
+export function closestInkSegment(
+  x: number,
+  y: number,
+  maxDist = 8,
+): { id: number; index: number; t: number; dist: number } | null {
+  let best: { id: number; index: number; t: number; dist: number } | null = null
+  const p = { x, y }
+  for (const it of items) {
+    if (it.kind === 'text' || it.points.length < 2) continue
+    const segs = it.points.length - 1 + (it.closed ? 1 : 0)
+    for (let s = 0; s < segs; s++) {
+      const a = it.points[s]
+      const b = it.points[s + 1] ?? it.points[0]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len2 = dx * dx + dy * dy
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+      const d = Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+      if (d <= maxDist && (!best || d < best.dist)) best = { id: it.id, index: s, t, dist: d }
+    }
+  }
+  return best
+}
+
+export function anchorsInRect(x: number, y: number, w: number, h: number): InkAnchor[] {
+  const x1 = x + w
+  const y1 = y + h
+  const out: InkAnchor[] = []
+  for (const it of items) {
+    if (it.kind === 'text') continue
+    it.points.forEach((p, i) => {
+      if (p.x >= x && p.x <= x1 && p.y >= y && p.y <= y1) out.push({ id: it.id, index: i })
+    })
+  }
+  return out
+}
+
+export function hasSmooth(p: InkPt): boolean {
+  return p.inX != null || p.outX != null
 }
 
 export function inkInPolygon(poly: InkPt[]): number[] {

@@ -20,18 +20,27 @@ import {
 } from '../engine/client'
 import {
   addInk,
+  addAnchorOnSegment,
+  anchorsInRect,
   clearInkSelection,
+  closestInkSegment,
+  convertAnchors,
   deleteInkIds,
+  endInkEdit,
   hitInk,
   hitInkAnchor,
+  hitInkHandle,
   inkBounds,
   inkInPolygon,
   inkInRect,
   listInk,
+  moveAnchors,
   moveInk,
+  selectAnchors,
   selectInk,
+  selectedAnchors,
   selectedInkIds,
-  setInkPoint,
+  setAnchorHandle,
   updateInk,
   simplifyPolyline,
   subscribeInk,
@@ -126,6 +135,8 @@ export function stageCursor(tool: string, zoomMode: 'in' | 'out' = 'in'): string
     case 'lasso':
     case 'text':
       return 'crosshair'
+    case 'subselect':
+      return 'default'
     case 'transform':
       return 'move'
     case 'bucket':
@@ -188,7 +199,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const rectPreviewRef = useRef<(DocRect & { shape: 'rect' | 'oval' }) | null>(null)
   const strokeRef = useRef<{ kind: 'line' | 'pencil' | 'brush' | 'eraser' | 'lasso'; pts: InkPt[] } | null>(null)
   const penPtsRef = useRef<InkPt[]>([])
-  const subAnchorRef = useRef<{ id: number; index: number } | null>(null)
+  const subAnchorRef = useRef<{
+    kind: 'point' | 'handle' | 'pull'
+    id: number
+    index: number
+    which?: 'in' | 'out'
+    last: InkPt
+    mirror: boolean
+  } | null>(null)
+  const subMarqueeRef = useRef<Pt | null>(null)
   const previewStrokeRef = useRef<InkPt[] | null>(null)
   const transformRef = useRef<TransformGesture | null>(null)
   const pendingRef = useRef<Map<number, AbsTransformOut> | null>(null)
@@ -444,7 +463,25 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       }
 
       if (subAnchorRef.current) {
-        setInkPoint(subAnchorRef.current.id, subAnchorRef.current.index, doc)
+        const g = subAnchorRef.current
+        if (g.kind === 'handle' || g.kind === 'pull') {
+          const which = g.which ?? 'out'
+          setAnchorHandle(g.id, g.index, which, doc.x, doc.y, g.mirror && !e.altKey)
+        } else {
+          const dx = doc.x - g.last.x
+          const dy = doc.y - g.last.y
+          const group = selectedAnchors()
+          const list = group.some((a) => a.id === g.id && a.index === g.index) ? group : [{ id: g.id, index: g.index }]
+          moveAnchors(list, dx, dy)
+          g.last = doc
+        }
+        scheduleRedraw()
+        return
+      }
+
+      if (subMarqueeRef.current) {
+        const m = normalizeRect(subMarqueeRef.current.x, subMarqueeRef.current.y, doc.x, doc.y)
+        if (m.w >= 1 || m.h >= 1) marqueeRef.current = m
         scheduleRedraw()
         return
       }
@@ -571,7 +608,20 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         moveInk(selectedInkIds(), snapped.x, snapped.y)
       }
 
-      subAnchorRef.current = null
+      if (subAnchorRef.current) {
+        endInkEdit()
+        subAnchorRef.current = null
+      }
+      const sm = subMarqueeRef.current
+      subMarqueeRef.current = null
+      if (sm) {
+        const box = marqueeRef.current
+        if (box) selectAnchors(anchorsInRect(box.x, box.y, box.w, box.h), e.shiftKey)
+        else if (!subAnchorRef.current) {
+          /* empty click handled below */
+        }
+        if (!ms) marqueeRef.current = null
+      }
 
       const sg = strokeRef.current
       strokeRef.current = null
@@ -652,6 +702,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       strokeRef.current = null
       previewStrokeRef.current = null
       subAnchorRef.current = null
+      subMarqueeRef.current = null
       scheduleRedraw()
     }
 
@@ -664,6 +715,23 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         const tag = el.tagName.toLowerCase()
         return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true
       })()
+      if (!typing && activeTool() === 'subselect' && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
+        ev.preventDefault()
+        const step = ev.shiftKey ? 10 : 1
+        let dx = 0
+        let dy = 0
+        if (ev.key === 'ArrowLeft') dx = -step
+        if (ev.key === 'ArrowRight') dx = step
+        if (ev.key === 'ArrowUp') dy = -step
+        if (ev.key === 'ArrowDown') dy = step
+        const pts = selectedAnchors()
+        if (pts.length) {
+          moveAnchors(pts, dx, dy)
+          endInkEdit()
+        }
+        scheduleRedraw()
+        return
+      }
       if (!typing && isSelectLike() && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
         ev.preventDefault()
         const step = ev.shiftKey ? 10 : 1
@@ -825,6 +893,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewRect: rectPreviewRef.current,
       inkItems: listInk(),
       inkSelected: selectedInkIds(),
+      inkAnchors: selectedAnchors(),
+      showInkAnchors: tool === 'subselect' || selectedInkIds().length > 0,
       previewStroke: previewStrokeRef.current ?? (penPtsRef.current.length ? penPtsRef.current : null),
       previewStrokeWidth: loadToolColors().strokeWidth,
       previewStrokeColor: loadToolColors().stroke,
@@ -1014,17 +1084,41 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && activeTool() === 'subselect') {
       const doc = screenToDoc(vpRef.current, sx, sy)
-      const anchor = hitInkAnchor(doc.x, doc.y, 8 / vpRef.current.zoom)
+      const rad = 8 / vpRef.current.zoom
+      const handle = hitInkHandle(doc.x, doc.y, rad)
+      if (handle) {
+        subAnchorRef.current = {
+          kind: 'handle',
+          id: handle.id,
+          index: handle.index,
+          which: handle.which,
+          last: doc,
+          mirror: !e.altKey,
+        }
+        return
+      }
+      const anchor = hitInkAnchor(doc.x, doc.y, rad)
       if (anchor) {
-        subAnchorRef.current = anchor
+        selectAnchors([anchor], e.shiftKey)
+        clearSelection()
+        if (e.altKey) {
+          convertAnchors('smooth')
+          subAnchorRef.current = { kind: 'pull', id: anchor.id, index: anchor.index, which: 'out', last: doc, mirror: true }
+        } else {
+          subAnchorRef.current = { kind: 'point', id: anchor.id, index: anchor.index, last: doc, mirror: false }
+        }
+        scheduleRedraw()
         return
       }
       const hit = hitInk(doc.x, doc.y)
       if (hit) {
         selectInk([hit.id])
         clearSelection()
+        const it = listInk().find((x) => x.id === hit.id)
+        if (it) selectAnchors(it.points.map((_, i) => ({ id: hit.id, index: i })))
       } else {
-        clearInkSelection()
+        subMarqueeRef.current = doc
+        marqueeRef.current = null
       }
       scheduleRedraw()
       return

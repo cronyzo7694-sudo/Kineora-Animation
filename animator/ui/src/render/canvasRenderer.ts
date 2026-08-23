@@ -77,12 +77,37 @@ export interface RenderState {
   /** Path / text objects authored by the remaining tools (UI ink store). */
   inkItems?: InkItem[]
   inkSelected?: number[]
+  /** Subselection (A): highlight these anchors + draw Bezier handles. */
+  inkAnchors?: Array<{ id: number; index: number }>
+  showInkAnchors?: boolean
   previewStroke?: InkPt[] | null
   previewStrokeWidth?: number
   previewStrokeColor?: string | null
   previewFill?: string | null
   previewClosed?: boolean
   previewText?: { x: number; y: number; text: string; size: number; fill: string } | null
+}
+
+export function pathD(pts: InkPt[], closed: boolean): string {
+  if (pts.length === 0) return ''
+  const parts = [`M${pts[0].x} ${pts[0].y}`]
+  const n = pts.length
+  const last = closed ? n : n - 1
+  for (let i = 0; i < last; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % n]
+    if (a.outX != null || b.inX != null) {
+      const c1x = a.outX ?? a.x
+      const c1y = a.outY ?? a.y
+      const c2x = b.inX ?? b.x
+      const c2y = b.inY ?? b.y
+      parts.push(`C${c1x} ${c1y} ${c2x} ${c2y} ${b.x} ${b.y}`)
+    } else {
+      parts.push(`L${b.x} ${b.y}`)
+    }
+  }
+  if (closed) parts.push('Z')
+  return parts.join(' ')
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -162,7 +187,7 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
     drawRectItem(ctx, vp, it, off, style)
   }
 
-  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview)
+  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview, undefined, s.inkAnchors, s.showInkAnchors)
   if (s.previewStroke && s.previewStroke.length > 0) {
     drawPolyline(
       ctx,
@@ -328,7 +353,7 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
       continue
     }
     if (it.points.length < 2) continue
-    const d = it.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ') + (it.closed ? ' Z' : '')
+    const d = pathD(it.points, it.closed)
     const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
     const fill = it.fill && it.closed ? it.fill : 'none'
     const stroke = it.stroke ?? 'none'
@@ -450,11 +475,22 @@ function drawInkItems(
   selectedIds: number[],
   preview: { x: number; y: number } | null,
   background?: string,
+  inkAnchors?: Array<{ id: number; index: number }>,
+  showAnchors?: boolean,
 ): void {
   const sel = new Set(selectedIds)
+  const picked = new Set((inkAnchors ?? []).map((a) => `${a.id}:${a.index}`))
   for (const it of items) {
     const off = preview && sel.has(it.id) ? preview : { x: 0, y: 0 }
-    const pts = it.points.map((p) => ({ x: p.x + off.x, y: p.y + off.y }))
+    const pts = it.points.map((p) => ({
+      ...p,
+      x: p.x + off.x,
+      y: p.y + off.y,
+      inX: p.inX != null ? p.inX + off.x : undefined,
+      inY: p.inY != null ? p.inY + off.y : undefined,
+      outX: p.outX != null ? p.outX + off.x : undefined,
+      outY: p.outY != null ? p.outY + off.y : undefined,
+    }))
     if (it.kind === 'text') {
       const p = docToScreen(vp, pts[0]?.x ?? 0, pts[0]?.y ?? 0)
       ctx.save()
@@ -466,17 +502,38 @@ function drawInkItems(
       const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
       drawPolyline(ctx, vp, pts, it.stroke, sw, it.fill, it.closed)
     }
-    if (sel.has(it.id)) {
-      for (const p of pts) {
+    if (sel.has(it.id) || showAnchors) {
+      pts.forEach((p, i) => {
+        const hot = picked.has(`${it.id}:${i}`)
         const s = docToScreen(vp, p.x, p.y)
-        ctx.fillStyle = '#ffffff'
+        if (hot && (p.inX != null || p.outX != null)) {
+          ctx.strokeStyle = '#c9a227'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          if (p.inX != null && p.inY != null) {
+            const h = docToScreen(vp, p.inX, p.inY)
+            ctx.moveTo(s.x, s.y)
+            ctx.lineTo(h.x, h.y)
+            ctx.fillStyle = '#c9a227'
+            ctx.fillRect(h.x - 3, h.y - 3, 6, 6)
+          }
+          if (p.outX != null && p.outY != null) {
+            const h = docToScreen(vp, p.outX, p.outY)
+            ctx.moveTo(s.x, s.y)
+            ctx.lineTo(h.x, h.y)
+            ctx.fillStyle = '#c9a227'
+            ctx.fillRect(h.x - 3, h.y - 3, 6, 6)
+          }
+          ctx.stroke()
+        }
+        ctx.fillStyle = hot ? '#0a7cff' : '#ffffff'
         ctx.strokeStyle = SELECTION_STROKE
         ctx.lineWidth = 1
         ctx.beginPath()
-        ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2)
+        ctx.rect(s.x - 3.5, s.y - 3.5, 7, 7)
         ctx.fill()
         ctx.stroke()
-      }
+      })
     }
   }
 }

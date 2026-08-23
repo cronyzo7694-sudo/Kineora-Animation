@@ -1,8 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
+  addAnchorOnSegment,
   addInk,
   arrangeInk,
+  convertAnchors,
   deleteInkIds,
+  deleteSelectedAnchors,
+  moveAnchors,
+  selectAnchors,
   distToSegment,
   hitInk,
   inkUndo,
@@ -96,6 +101,32 @@ describe('inkStore', () => {
     expect(listInk().map((it) => it.id)).toEqual([b, c, a])
     expect(inkUndo()).toBe(true)
     expect(listInk().map((it) => it.id)).toEqual([c, b, a])
+  })
+
+  it('subselect: move / add / delete / smooth anchors', () => {
+    const id = addInk({
+      kind: 'pen',
+      points: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 40, y: 0 },
+      ],
+      closed: false,
+      fill: null,
+      stroke: '#000',
+      strokeWidth: 1,
+    })
+    selectAnchors([{ id, index: 1 }])
+    expect(moveAnchors([{ id, index: 1 }], 0, 10)).toBe(true)
+    expect(listInk()[0].points[1].y).toBe(10)
+    expect(addAnchorOnSegment(id, 0, 0.5)).toBe(true)
+    expect(listInk()[0].points).toHaveLength(4)
+    selectAnchors([{ id, index: 1 }])
+    expect(convertAnchors('smooth')).toBe(true)
+    expect(listInk()[0].points[1].outX).toBeDefined()
+    selectAnchors([{ id, index: 1 }])
+    expect(deleteSelectedAnchors()).toBe(true)
+    expect(listInk()[0].points.length).toBe(3)
   })
 
   it('point-in-poly and simplify', () => {

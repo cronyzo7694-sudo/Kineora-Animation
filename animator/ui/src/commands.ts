@@ -44,7 +44,7 @@ import {
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
 import { formatAutosaveInterval, loadAutosavePrefs, toggleAutosaveEnabled } from './autosavePrefs'
-import { inkCanRedo, inkCanUndo, selectedInkIds } from './editor/inkStore'
+import { deleteInkIds, deleteSelectedAnchors, inkCanRedo, inkCanUndo, selectedAnchors, selectedInkIds } from './editor/inkStore'
 import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
   closeActiveDocument,
@@ -829,9 +829,21 @@ export const commands: Command[] = [
     shortcut: 'Delete',
     status: 'FUNCTIONAL',
     source: '[SYS-03 H02 §6.5 / AMB-S03-004] edit.delete() — Delete/Backspace; not Clear Frames',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
-    whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
+    enabled: (c) =>
+      selectedAnchors().length > 0 ||
+      selectedInkIds().length > 0 ||
+      (engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0),
+    whyDisabled: (c) =>
+      engineOk(c) || selectedInkIds().length || selectedAnchors().length ? 'nothing selected' : NOT_ATTACHED,
     run: (c) => {
+      if (selectedAnchors().length > 0) {
+        c.notify(deleteSelectedAnchors() ? 'anchor deleted' : 'need at least 2 points on a path')
+        return
+      }
+      if (selectedInkIds().length > 0) {
+        c.notify(deleteInkIds(selectedInkIds()) ? 'delete: done' : 'delete: nothing selected')
+        return
+      }
       if (!engineOk(c)) return c.notify(`delete: ${NOT_ATTACHED}`)
       c.notify(deleteSelection() ? 'delete: done' : 'delete: nothing selected')
     },

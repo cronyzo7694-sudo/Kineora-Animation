@@ -174,6 +174,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
               </>
             )}
             <SelectionActions notify={notify} />
+            <SubselectFields notify={notify} />
           </div>
         )}
 

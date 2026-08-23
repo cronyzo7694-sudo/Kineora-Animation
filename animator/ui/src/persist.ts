@@ -80,6 +80,24 @@ export function stampFormatVersion(json: string): string | null {
   return JSON.stringify(doc)
 }
 
+/** Extra project field for UI ink (Pen/Pencil/Brush/Text). serde ignores it. */
+export const INK_FIELD = 'kineoraInk'
+
+export function embedInk(json: string, ink: unknown): string | null {
+  const doc = parseObject(json)
+  if (!doc) return null
+  doc[INK_FIELD] = ink
+  return JSON.stringify(doc)
+}
+
+export function extractInk(raw: string): { content: string; ink: unknown | null } {
+  const doc = parseObject(raw)
+  if (!doc) return { content: raw, ink: null }
+  const ink = INK_FIELD in doc ? doc[INK_FIELD] : null
+  if (INK_FIELD in doc) delete doc[INK_FIELD]
+  return { content: JSON.stringify(doc), ink }
+}
+
 /**
  * PURE migration step chain (eng 13: `migrate(from,to)` pure). Returns the
  * migrated document object, or null when no migration path exists (from >

@@ -14,7 +14,8 @@ import {
   type RecoveryCandidate,
 } from './autosave'
 import { RecoveryDialog } from './components/RecoveryDialog'
-import { platform, type Identity, type ShellStatus } from './platform'
+import { platform, registerSaveNamePicker, type Identity, type ShellStatus } from './platform'
+import { SaveAsDialog } from './components/SaveAsDialog'
 import { bus } from './bus'
 import { outputInfo, outputWarn, outputError } from './outputLog'
 import {
@@ -117,6 +118,7 @@ export default function App() {
   const [newOpen, setNewOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
+  const [saveAsDlg, setSaveAsDlg] = useState<{ suggested: string; resolve: (n: string | null) => void } | null>(null)
   const [closeReq, setCloseReq] = useState<(CloseConfirmationRequest & { proceed: () => void; dirtyIds: number[] }) | null>(null)
   // H07 §6 — SEQUENTIAL Close All: the per-document guard (one dirty doc at a
   // time). Resolves the in-flight closeAllDocuments() promise.
@@ -827,6 +829,18 @@ export default function App() {
       <NewDocumentDialog open={newOpen} onClose={() => setNewOpen(false)} onCreate={(s) => getCommand('file.new')?.run(ctx, s)} />
       <TemplateGalleryDialog open={templateOpen} onClose={() => setTemplateOpen(false)} onCreateFromTemplate={(n) => getCommand('file.newFromTemplate')?.run(ctx, n)} />
       <SaveTemplateDialog open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} onSave={(n) => getCommand('file.saveAsTemplate')?.run(ctx, n)} />
+      <SaveAsDialog
+        open={!!saveAsDlg}
+        suggested={saveAsDlg?.suggested ?? 'kineora-project'}
+        onCancel={() => {
+          saveAsDlg?.resolve(null)
+          setSaveAsDlg(null)
+        }}
+        onConfirm={(name) => {
+          saveAsDlg?.resolve(name)
+          setSaveAsDlg(null)
+        }}
+      />
       <CloseConfirmationDialog request={closeReq} busy={guardBusy} onSave={onCloseSave} onDiscard={onCloseDiscard} onCancel={() => setCloseReq(null)} />
       {/* SYS-28 T12–T14 — launch recovery prompt (Accept → T13, Discard → T14) */}
       <RecoveryDialog

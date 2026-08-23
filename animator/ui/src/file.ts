@@ -14,7 +14,8 @@ import { platform } from './platform'
 // SYS-28 boundary (H10 §5.1/§5.2 — the handoff seams below call INTO these;
 // SYS-02 still owns every trigger + UI outcome; INV-PERS-1 preserved):
 import { onManualSaveSuccess } from './autosave'
-import { prepareForLoad, stampFormatVersion } from './persist'
+import { embedInk, extractInk, prepareForLoad, stampFormatVersion } from './persist'
+import { restoreInk, serializeInk } from './editor/inkStore'
 import {
   activeDocId,
   closeDoc,
@@ -107,6 +108,8 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
   if (!Number.isFinite(w) || w < 2) return notify('new: width must be ≥ 2')
   if (!Number.isFinite(h) || h < 2) return notify('new: height must be ≥ 2')
   if (!Number.isFinite(f)) return notify('new: frame rate must be 1–120')
+  const prev = activeDocId()
+  if (prev) inkBags.set(prev, serializeInk())
   const id = newDocFull({
     ...settings,
     fps: Math.min(120, Math.max(1, Math.round(f))),
@@ -115,6 +118,8 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
     createdAt: nowSec(),
   })
   if (id === 0) return notify('new: failed to create document')
+  inkBags.set(id, [])
+  restoreInk([])
   // H02 §14 (ST1): open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })
@@ -127,6 +132,31 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
 // that path without re-prompting (SYS-02 P-1). Paths are SESSION state (the
 // browser has no path; recent files remain the durable record).
 const docPaths = new Map<number, string>()
+const inkBags = new Map<number, ReturnType<typeof serializeInk>>()
+
+function parkActiveInk(): void {
+  const id = activeDocId()
+  if (id) inkBags.set(id, serializeInk())
+}
+
+function applyDocInk(id: number): void {
+  restoreInk(inkBags.get(id) ?? [])
+}
+
+function rememberInk(id: number, payload: unknown): void {
+  const items = parseInkPayload(payload)
+  inkBags.set(id, items)
+  restoreInk(items)
+}
+
+function parseInkPayload(payload: unknown): ReturnType<typeof serializeInk> {
+  if (!payload || typeof payload !== 'object') return []
+  const items = (payload as { items?: unknown }).items
+  if (!Array.isArray(items)) return []
+  return items.filter((it) => it && typeof it === 'object' && Array.isArray((it as { points?: unknown }).points)) as ReturnType<
+    typeof serializeInk
+  >
+}
 
 function setDocPath(docId: number, path: string): void {
   if (path) docPaths.set(docId, path)
@@ -139,6 +169,7 @@ export function docPath(docId: number): string | undefined {
 /** Test-only: clear the session path map (jsdom has no session boundary). */
 export function __resetDocPathsForTests(): void {
   docPaths.clear()
+  inkBags.clear()
 }
 
 /** SYS-28 recovery seam (H10 §5.4 / H00 T13): bind a RECOVERED document to
@@ -183,6 +214,7 @@ export function openDocument(notify: Notify): void {
     // SYS-28 READ BOUNDARY (H10 §5.2: validate → migrate BEFORE the engine
     // parse). A newer-version file is REFUSED (H10 §6 unmigratable → refuse);
     // corrupt = the same H06 error outcome as before (CASE A/B unchanged).
+    parkActiveInk()
     const prepared = prepareForLoad(opened.content)
     if (!prepared.ok) {
       notify(
@@ -192,11 +224,13 @@ export function openDocument(notify: Notify): void {
       )
       return
     }
-    const id = openDocJson(prepared.content, opened.name)
+    const peeled = extractInk(prepared.content)
+    const id = openDocJson(peeled.content, opened.name)
     if (id === 0) {
       notify('open failed: invalid or corrupt project file')
       return
     }
+    rememberInk(id, peeled.ink)
     setDocPath(id, opened.path)
     addRecent(opened.name, prepared.content, opened.path)
     // H02 §14 (ST2): open-set change FIRST, then the active pointer.
@@ -247,6 +281,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     notify('save: serialization failed')
     return false
   }
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk() }) ?? stamped
 
   const docId = activeDocId()
   let title = st.doc_title ?? ''
@@ -291,7 +326,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
         saveError('Save blocked: that file is already open as another document — choose a different path')
         return false
       }
-      if (!(await platform.writeProject(path, title, stamped))) {
+      if (!(await platform.writeProject(path, title, withInk))) {
         saveError()
         return false
       }
@@ -302,7 +337,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
       title = titleFromSavedPath(path, title)
     } else {
       // Pathless fallback (H05 F3: downloadBlob = dev-only gap).
-      const res = await platform.saveProjectAs(title, stamped)
+      const res = await platform.saveProjectAs(title, withInk)
       if (res === 'cancelled') {
         saveCancelled()
         return false
@@ -318,14 +353,14 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     // Titled + known session path → overwrite in place (P-1: no prompt).
     // Works for a desktop filesystem path AND a browser File-System-Access
     // session token — the adapter owns the write.
-    if (!(await platform.writeProject(knownPath, title, stamped))) {
+    if (!(await platform.writeProject(knownPath, title, withInk))) {
       saveError()
       return false
     }
   } else {
     // Titled but no session path (browser download-only previous save, or
     // the session map was dropped on reload) — honest pathless re-download.
-    if (!(await platform.writeProject(null, title, stamped))) {
+    if (!(await platform.writeProject(null, title, withInk))) {
       saveError()
       return false
     }
@@ -339,7 +374,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
   setDocTitle(docId, title)
   markClean()
   bus.emit('saving:changed', { state: 'saved', time: new Date().toLocaleTimeString() })
-  addRecent(title, stamped, docPath(docId))
+  addRecent(title, withInk, docPath(docId))
   // SYS-28 INV-AS-1 (H10 §5.3): a successful MANUAL save supersedes the
   // `.autosave` slot — MOD-AUTOSAVE clears it (the slot only ever holds
   // changes NEWER than the last manual save). Fire-and-forget: slot upkeep
@@ -359,7 +394,9 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
 export function switchActiveDocument(id: number, notify: Notify): void {
   if (id === 0) return
   if (id === activeDocId()) return
+  parkActiveInk()
   if (setActiveDoc(id)) {
+    applyDocInk(id)
     bus.emit('activeDoc:changed', { docId: id })
     notify(`switched to "${statusJson()?.doc_title ?? id}"`)
   } else {
@@ -385,8 +422,10 @@ export function closeDocumentById(id: number, notify: Notify): void {
     return
   }
   docPaths.delete(id)
+  inkBags.delete(id)
   bus.emit('openSet:changed', { change: 'removed', docId: id })
   if (wasActive) {
+    applyDocInk(activeDocId())
     // The engine already selected the successor (or the no-document state).
     bus.emit('activeDoc:changed', { docId: activeDocId() })
   }
@@ -537,11 +576,14 @@ export async function openFromRecent(entry: RecentEntry, notify: Notify): Promis
     )
     return
   }
-  const id = openDocJson(prepared.content, entry.title)
+  const peeled = extractInk(prepared.content)
+  parkActiveInk()
+  const id = openDocJson(peeled.content, entry.title)
   if (id === 0) {
     notify(`recent "${entry.title}": invalid project data`)
     return
   }
+  rememberInk(id, peeled.ink)
   if (entry.path) setDocPath(id, entry.path)
   addRecent(entry.title, prepared.content, entry.path)
   // H02 §14: open-set change FIRST, then the active pointer.
@@ -576,9 +618,11 @@ export function saveTemplate(name: string, notify: Notify): void {
   if (!clean) return notify('save template: a name is required')
   const json = projectJson()
   if (!json) return notify('save template: no document to save')
+  const stamped = stampFormatVersion(json) ?? json
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk() }) ?? stamped
   const tpls: Record<string, TemplateRecord> = {}
   for (const t of listTemplates()) tpls[t.name] = t
-  tpls[clean] = { name: clean, savedAt: Date.now(), json }
+  tpls[clean] = { name: clean, savedAt: Date.now(), json: withInk }
   try {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(tpls))
     notify(`template "${clean}" saved`)
@@ -607,10 +651,13 @@ export function createFromTemplate(name: string, notify: Notify): void {
   } catch {
     // fall through — the engine parse below reports invalid data honestly
   }
+  const peeled = extractInk(json)
+  parkActiveInk()
   // AMB-H01-003 (provisional = UNTITLED): empty title → the engine assigns
   // the doc its OWN Untitled-N display title, never the template's name.
-  const id = openDocJson(json, '')
+  const id = openDocJson(peeled.content, '')
   if (id === 0) return notify(`template "${name}": invalid template data`)
+  rememberInk(id, peeled.ink)
   // H02 §14 (ST1 family — New-from-Template = New): open-set FIRST, then active.
   bus.emit('openSet:changed', { change: 'added', docId: id })
   bus.emit('activeDoc:changed', { docId: id })

@@ -2,7 +2,16 @@
 // refusal paths, checksum. Pure unit tests: no engine, no platform.
 import { describe, expect, it } from 'vitest'
 
-import { CURRENT_FORMAT_VERSION, checksumHex, migrate, prepareForLoad, stampFormatVersion } from './persist'
+import {
+  CURRENT_FORMAT_VERSION,
+  INK_FIELD,
+  checksumHex,
+  embedInk,
+  extractInk,
+  migrate,
+  prepareForLoad,
+  stampFormatVersion,
+} from './persist'
 
 const LEGACY = '{"settings":{"width":1920.0},"scenes":[],"nodes":{},"next_id":1}'
 
@@ -96,6 +105,33 @@ describe('SYS-28 persist — prepareForLoad (read path: validate → migrate)', 
       const second = stampFormatVersion(loaded.content)!
       expect(second).toBe(first)
     }
+  })
+})
+
+describe('SYS-28 persist — kineoraInk embed/extract (Save / Open)', () => {
+  const ink = { version: 1, items: [{ id: 1_000_000, kind: 'pen', points: [{ x: 1, y: 2 }], closed: false, fill: null, stroke: '#000', strokeWidth: 2 }] }
+
+  it('embeds ink as a top-level field without dropping settings', () => {
+    const stamped = stampFormatVersion(LEGACY)!
+    const out = embedInk(stamped, ink)
+    expect(out).not.toBeNull()
+    const doc = JSON.parse(out!)
+    expect(doc[INK_FIELD]).toEqual(ink)
+    expect(doc.settings.width).toBe(1920)
+    expect(doc.formatVersion).toBe(CURRENT_FORMAT_VERSION)
+  })
+
+  it('extracts ink and peels it from the engine payload', () => {
+    const stamped = stampFormatVersion(LEGACY)!
+    const withInk = embedInk(stamped, ink)!
+    const peeled = extractInk(withInk)
+    expect(peeled.ink).toEqual(ink)
+    expect(JSON.parse(peeled.content)[INK_FIELD]).toBeUndefined()
+    expect(JSON.parse(peeled.content).settings.width).toBe(1920)
+  })
+
+  it('extracts null ink from a file without the field', () => {
+    expect(extractInk(LEGACY).ink).toBeNull()
   })
 })
 

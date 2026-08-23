@@ -72,6 +72,23 @@ export function resetInkForTests(): void {
   redoStack.length = 0
 }
 
+/** Snapshot for project save / tab switch (deep clone). */
+export function serializeInk(): InkItem[] {
+  return snapshot()
+}
+
+/** Replace the live ink layer without an undo step (load / tab switch). */
+export function restoreInk(next: InkItem[]): void {
+  items = next.map((it) => ({ ...it, points: it.points.map((p) => ({ ...p })) }))
+  let max = ID_BASE
+  for (const it of items) if (it.id >= max) max = it.id + 1
+  nextId = max
+  selected = []
+  undoStack.length = 0
+  redoStack.length = 0
+  emit()
+}
+
 export function addInk(partial: Omit<InkItem, 'id'>): number {
   pushUndo()
   const id = nextId++

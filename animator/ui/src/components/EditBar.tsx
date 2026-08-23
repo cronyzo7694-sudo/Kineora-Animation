@@ -23,8 +23,8 @@ export function EditBar({ ctx, scene }: Props) {
   const rootEnabled = root && (root.enabled ? root.enabled(ctx) : true)
 
   return (
-    <div data-testid="edit-bar" aria-label="Edit bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 12px', background: '#161616', borderBottom: '1px solid #2a2a2a', fontSize: 12, color: '#999' }}>
-      <span data-testid="breadcrumb" style={{ color: '#8ef' }}>
+    <div data-testid="edit-bar" aria-label="Edit bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 12px', background: '#141414', borderBottom: '1px solid #252525', fontSize: 11, color: '#888' }}>
+      <span data-testid="breadcrumb" style={{ color: '#9ec8f0' }}>
         {scene}
         {depth > 0 ? ` ▸ symbol (depth ${depth})` : ''}
       </span>

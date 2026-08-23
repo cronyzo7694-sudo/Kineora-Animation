@@ -31,6 +31,7 @@ import {
   selectInk,
   selectedInkIds,
   setInkPoint,
+  updateInk,
   simplifyPolyline,
   subscribeInk,
   type InkPt,
@@ -741,6 +742,29 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     // changes to the Paint Bucket tool" (fill) / "Ink Bottle tool" (stroke).
     if (e.button === 0 && (activeTool() === 'bucket' || activeTool() === 'ink' || activeTool() === 'eyedropper')) {
       const doc = screenToDoc(vpRef.current, sx, sy)
+      const inkHit = hitInk(doc.x, doc.y)
+      if (inkHit) {
+        const colors = loadToolColors()
+        if (activeTool() === 'bucket') {
+          if (colors.fill) {
+            updateInk(inkHit.id, { fill: colors.fill })
+            notify?.(`filled with ${colors.fill}`)
+          } else notify?.('paint bucket: fill color is None')
+        } else if (activeTool() === 'ink') {
+          updateInk(inkHit.id, colors.stroke === null ? { stroke: null } : { stroke: colors.stroke, strokeWidth: colors.strokeWidth })
+          notify?.(colors.stroke ? `stroke ${colors.stroke}` : 'stroke removed')
+        } else {
+          setToolColors({
+            fill: inkHit.fill,
+            stroke: inkHit.stroke,
+            strokeWidth: inkHit.strokeWidth || loadToolColors().strokeWidth,
+          })
+          onToolChange?.('bucket')
+          notify?.(`picked up ${inkHit.fill || inkHit.stroke || 'none'} → Paint Bucket`)
+        }
+        scheduleRedraw()
+        return
+      }
       const hit = selectAt(doc.x, doc.y)
       const target = statusJson()?.selection ?? []
       if (!hit || target.length === 0) {

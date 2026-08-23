@@ -693,14 +693,22 @@ fn b1_hidden_folder_hides_nested_child_even_without_cascade() {
     );
     let items = s.evaluate(1);
     let fills: Vec<_> = items.iter().map(|it| it.fill.as_str()).collect();
-    assert_eq!(fills, vec!["#aabbcc"], "child of hidden folder must not render");
+    assert_eq!(
+        fills,
+        vec!["#aabbcc"],
+        "child of hidden folder must not render"
+    );
     assert!(
         !s.select_at(50.0, 50.0),
         "child of hidden folder is not hittable"
     );
     s.clear_selection();
     s.select_all();
-    assert_eq!(s.selection.len(), 1, "Select-All skips ancestor-hidden child");
+    assert_eq!(
+        s.selection.len(),
+        1,
+        "Select-All skips ancestor-hidden child"
+    );
     assert!(!s.export_svg(1).contains("#112233"));
 }
 
@@ -800,6 +808,31 @@ fn b4_duplicate_folder_copies_subtree_independently() {
     s.redo();
     assert_eq!(s.doc.scene(0).unwrap().layers.len(), before + 2);
     assert!(s.doc.nodes.contains_key(&copy_node));
+}
+
+#[test]
+fn header_set_all_visible_is_one_undo() {
+    let mut s = three_layer_session();
+    let n = s.history.undo_len();
+    assert!(s.set_all_layers_visible(false));
+    assert_eq!(s.history.undo_len(), n + 1, "header hide-all = ONE undo");
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| !l.visible));
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.visible));
+    assert!(!s.set_all_layers_visible(true), "already-all-visible is a no-op");
+}
+
+#[test]
+fn header_set_all_locked_and_outline_are_one_undo() {
+    let mut s = three_layer_session();
+    assert!(s.set_all_layers_locked(true));
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.locked));
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| !l.locked));
+    assert!(s.set_all_layers_outline(true));
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.outline));
+    s.undo();
+    assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| !l.outline));
 }
 
 #[test]

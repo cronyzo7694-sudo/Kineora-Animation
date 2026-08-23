@@ -69,6 +69,8 @@ export interface RenderState {
   gridSize?: number
   rulers?: boolean
   preview?: 'full' | 'outline'
+  /** Editor-only onion ghosts (Blueprint 15.2). Never passed to renderContent. */
+  onionGhosts?: Array<{ items: RectItemJson[]; tint: string; alpha: number; outlines: boolean }>
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -115,6 +117,16 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
   const preview = s.previewDelta ?? null
   const selected = new Set(s.selectedIds ?? [])
   const pv = s.colorPreview?.item ?? null
+
+  // Ghost pass UNDER the current frame (15.2.2). Export never sees this field.
+  for (const g of s.onionGhosts ?? []) {
+    for (const it of g.items) {
+      const style: ItemStyle = g.outlines
+        ? { fill: 'rgba(0,0,0,0)', stroke: g.tint, strokeWidth: 1 }
+        : { fill: tintFill(it.fill, g.tint, g.alpha), stroke: it.stroke ? tintFill(it.stroke, g.tint, g.alpha) : null, strokeWidth: it.stroke_width }
+      drawRectItem(ctx, vp, it, { x: 0, y: 0 }, style)
+    }
+  }
 
   for (const it of s.items) {
     const off = preview && selected.has(it.id) ? preview : { x: 0, y: 0 }
@@ -164,6 +176,33 @@ interface ItemStyle {
   fill: string
   stroke: string | null
   strokeWidth: number
+}
+
+/** Mix a fill toward `tint` and bake `alpha` into rgba (no ctx.globalAlpha). */
+export function tintFill(src: string, tint: string, alpha: number): string {
+  const [sr, sg, sb] = parseColor(src)
+  const [tr, tg, tb] = parseColor(tint)
+  const r = Math.round(sr * (1 - 0.55) + tr * 0.55)
+  const g = Math.round(sg * (1 - 0.55) + tg * 0.55)
+  const b = Math.round(sb * (1 - 0.55) + tb * 0.55)
+  const a = Math.max(0, Math.min(1, alpha))
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+function parseColor(c: string): [number, number, number] {
+  const s = c.trim()
+  if (s.startsWith('#') && (s.length === 7 || s.length === 4)) {
+    if (s.length === 4) {
+      const r = parseInt(s[1] + s[1], 16)
+      const g = parseInt(s[2] + s[2], 16)
+      const b = parseInt(s[3] + s[3], 16)
+      return [r, g, b]
+    }
+    return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)]
+  }
+  const m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])]
+  return [180, 180, 180]
 }
 
 function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt, style: ItemStyle): void {

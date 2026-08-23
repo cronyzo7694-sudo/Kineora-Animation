@@ -1141,8 +1141,10 @@ impl Session {
             .copied()
             .filter(
                 |id| match node_layer_index(&self.doc, self.active_scene, self.playhead, *id) {
-                    Some(lidx) => self.doc.layer_effective_visible(self.active_scene, lidx)
-                        && self.doc.layer_effective_unlocked(self.active_scene, lidx),
+                    Some(lidx) => {
+                        self.doc.layer_effective_visible(self.active_scene, lidx)
+                            && self.doc.layer_effective_unlocked(self.active_scene, lidx)
+                    }
                     None => false,
                 },
             )
@@ -2008,6 +2010,61 @@ impl Session {
 
     pub fn toggle_other_layers_outline(&mut self, exclude: usize) -> bool {
         self.batch_flag_toggle(exclude, LayerFlagKind::Outline)
+    }
+
+    /// Adobe header-column click: SET the flag on EVERY layer as ONE undo
+    /// (helpx.adobe.com/animate/using/timeline-layers.html — "click the eye
+    /// icon to hide all layers"). Distinct from Alt+click "toggle others".
+    pub fn set_all_layers_visible(&mut self, visible: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Visible, visible)
+    }
+
+    pub fn set_all_layers_locked(&mut self, locked: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Locked, locked)
+    }
+
+    pub fn set_all_layers_outline(&mut self, outline: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Outline, outline)
+    }
+
+    fn set_all_flags(&mut self, kind: LayerFlagKind, after_val: bool) -> bool {
+        let Some(sc) = self.doc.scene(self.active_scene) else {
+            return false;
+        };
+        if sc.layers.is_empty() {
+            return false;
+        }
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for l in sc.layers.iter() {
+            let cur = match kind {
+                LayerFlagKind::Visible => l.visible,
+                LayerFlagKind::Locked => l.locked,
+                LayerFlagKind::Outline => l.outline,
+            };
+            if cur == after_val {
+                continue;
+            }
+            before.push((l.id, cur));
+            after.push((l.id, after_val));
+        }
+        if before.is_empty() {
+            return false;
+        }
+        let cmd = SetLayerFlags {
+            scene: self.active_scene,
+            kind,
+            before,
+            after,
+        };
+        self.exec(Box::new(cmd));
+        if kind == LayerFlagKind::Visible || kind == LayerFlagKind::Locked {
+            self.prune_selection_by_layer_state();
+            self.history
+                .seal_last_post_selection(self.selection.clone());
+        }
+        self.log(&format!("layer:all-{kind:?}={after_val}"));
+        true
     }
 
     /// Duplicate a layer ABOVE the source: deep copy of frames AND content

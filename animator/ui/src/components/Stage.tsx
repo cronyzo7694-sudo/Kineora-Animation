@@ -16,6 +16,8 @@ import {
 } from '../engine/client'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
+import { loadOnionPrefs, subscribeOnionPrefs } from '../onionPrefs'
+import { collectGhosts } from '../onion'
 import { createViewport, docToScreen, fitViewport, panBy, screenToDoc, zoomAt, type Viewport } from '../render/viewport'
 import { pastDragThreshold, screenDeltaToDoc, normalizeRect, buildRect, isValidRect, type DocRect } from '../editor/gesture'
 import {
@@ -118,6 +120,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
   }, [])
 
   useEffect(() => subscribeViewPrefs(() => scheduleRedraw()), [])
+  useEffect(() => subscribeOnionPrefs(() => scheduleRedraw()), [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -382,6 +385,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
 
     const overlay = pending ? null : overlayFromStatus()
     const view = loadViewPrefs()
+    const onion = loadOnionPrefs()
 
     const state: RenderState = {
       background: status.background ?? '#ffffff',
@@ -401,6 +405,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview }: Pr
       gridSize: view.gridSize,
       rulers: view.rulers,
       preview: view.preview,
+      onionGhosts: onion.on && engine.kind === 'ok' ? collectGhosts(evaluate, onion, playhead, status.duration ?? 1) : undefined,
     }
     render(ctx, vpRef.current, state, viewW, viewH)
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -823,6 +823,40 @@ export function toggleOtherLayersOutline(exclude: number): boolean {
   return ok
 }
 
+/** Header-column SET-all (Adobe) — ONE undo when the wasm facade exists. */
+export function setAllLayersVisible(visible: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_visible) return false
+  const before = layerFlagsSnapshot('visible')
+  const ok = mod.kineora_set_all_layers_visible(visible)
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'visible')
+  }
+  return ok
+}
+
+export function setAllLayersLocked(locked: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_locked) return false
+  const before = layerFlagsSnapshot('locked')
+  const ok = mod.kineora_set_all_layers_locked(locked)
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'locked')
+  }
+  return ok
+}
+
+export function setAllLayersOutline(outline: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_outline) return false
+  const before = layerFlagsSnapshot('outline')
+  const ok = mod.kineora_set_all_layers_outline(outline)
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'outline')
+  }
+  return ok
+}
+
 /** Duplicate a layer above the source — deep copy of frames + content
  *  (Part 20.1 / F-20-01). Returns the new layer's index, or -1 if the engine
  *  is absent / 0 if the duplicate was blocked (0 is never a valid result). */

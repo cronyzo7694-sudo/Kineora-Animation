@@ -1027,8 +1027,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }}
         />
       )}
-      <div style={{ position: 'absolute', bottom: 4, left: 8, color: '#888', fontSize: 12, pointerEvents: 'none' }}>
-        tool: <span data-testid="tool-readout">{spaceHeld ? 'hand (space)' : tool}</span> · zoom: <span data-testid="zoom-readout">{zoomReadout}</span> · pan: <span data-testid="pan-readout">{panReadout}</span> · stage: <span data-testid="stage-readout">{stageW}×{stageH}</span>
+      <div style={{ position: 'absolute', bottom: 6, right: 8, color: '#8a8a8a', fontSize: 10, pointerEvents: 'none', background: 'rgba(16,16,16,0.72)', border: '1px solid #2a2a2a', borderRadius: 3, padding: '2px 7px', fontVariantNumeric: 'tabular-nums' }}>
+        <span data-testid="tool-readout">{spaceHeld ? 'hand (space)' : tool}</span>
+        {' · '}
+        <span data-testid="zoom-readout">{zoomReadout}</span>
+        {' · '}
+        <span data-testid="pan-readout">{panReadout}</span>
+        {' · '}
+        <span data-testid="stage-readout">{stageW}×{stageH}</span>
       </div>
     </div>
   )

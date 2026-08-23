@@ -713,7 +713,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                   {id.replace('timeline-', '')}
                 </label>
               ))}
-              <button type="button" data-testid="timeline-customize-reset" onClick={() => setHiddenBtns(new Set())} style={{ marginTop: 4, fontSize: 11, background: '#333', color: '#ddd', border: '1px solid #555', borderRadius: 2, cursor: 'pointer' }}>Reset</button>
+              <button type="button" data-testid="timeline-customize-reset" onClick={() => setHiddenBtns(new Set(['timeline-emf', 'timeline-camera', 'timeline-parenting', 'timeline-mute']))} style={{ marginTop: 4, fontSize: 11, background: '#333', color: '#ddd', border: '1px solid #555', borderRadius: 2, cursor: 'pointer' }}>Reset</button>
             </div>
           )}
         </span>

@@ -205,7 +205,13 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
           cursor: isComingSoon ? 'not-allowed' : 'pointer',
           padding: 0,
           opacity: isComingSoon ? 0.5 : 1,
-          transition: 'all 0.12s',
+          transition: 'background 0.1s, color 0.1s',
+        }}
+        onMouseOver={(e) => {
+          if (!active && !isComingSoon) (e.currentTarget as HTMLButtonElement).style.background = '#2a2a2a'
+        }}
+        onMouseOut={(e) => {
+          if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
         }}
       >
         {t.icon}

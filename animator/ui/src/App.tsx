@@ -671,8 +671,8 @@ export default function App() {
           onSaveNew={() => saveWorkspace('')}
           onReset={resetWorkspace}
         />
-        <span style={{ color: '#8ef', fontSize: 14, fontWeight: 800, letterSpacing: 1 }}>KINEORA ANIMATION</span>
-        <span style={{ color: '#666', fontSize: 11, margin: '0 12px' }}>v{VERSION}</span>
+        <span style={{ color: '#7eb8ff', fontSize: 12, fontWeight: 700, letterSpacing: 0.8, marginLeft: 10 }}>Kineora</span>
+        <span style={{ color: '#555', fontSize: 10, margin: '0 10px' }}>{VERSION}</span>
         {status && (
           <span data-testid="header-doc-title" title={status.dirty ? 'unsaved changes' : 'saved'} style={{ color: '#aaa', fontSize: 12, marginRight: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {status.doc_title}
@@ -684,9 +684,9 @@ export default function App() {
           aria-label="Reset workspace layout"
           title="Reset workspace layout to defaults (Window ▸ Reset Workspace)"
           onClick={resetWorkspace}
-          style={{ padding: '2px 10px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#ddd', cursor: 'pointer', fontSize: 11 }}
+          style={{ padding: 0, width: 22, height: 20, borderRadius: 3, border: '1px solid #3a3a3a', background: '#1e1e1e', color: '#888', cursor: 'pointer', fontSize: 12 }}
         >
-          ⟲ Reset Workspace
+          ⟲
         </button>
       </div>
       {/* Document tabs (SYS-02 multi-document) */}

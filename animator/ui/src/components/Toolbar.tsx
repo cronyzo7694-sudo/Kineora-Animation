@@ -120,7 +120,7 @@ export function Toolbar({ controls, ctx }: { controls: Control[]; ctx: AppContex
   }
 
   return (
-    <div ref={barRef} role="toolbar" aria-label="Tools" style={{ display: 'flex', gap: GAP, padding: 8, borderBottom: '1px solid #333', background: '#1e1e1e', alignItems: 'center' }}>
+    <div ref={barRef} role="toolbar" aria-label="Tools" style={{ display: 'flex', gap: GAP, padding: '4px 8px', borderBottom: '1px solid #2a2a2a', background: '#191919', alignItems: 'center' }}>
       {visible.map((c, i) => btn(c, i))}
       {hidden && (
         <div ref={wrapRef} style={{ position: 'relative', marginLeft: 2 }}>

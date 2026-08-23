@@ -18,7 +18,7 @@ interface Props {
  */
 export function PanelHeader({ id, title, collapsed, onToggleCollapse, onClose, children }: Props) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderBottom: collapsed ? 'none' : '1px solid #333', flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderBottom: collapsed ? 'none' : '1px solid #2a2a2a', flexShrink: 0, background: '#1a1a1a' }}>
       <button
         data-testid={`T-panel-collapse-${id}`}
         aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}

@@ -121,11 +121,16 @@ export function restoreInk(next: InkItem[]): void {
   emit()
 }
 
-export function addInk(partial: Omit<InkItem, 'id'>): number {
+/** Adobe Pencil/Object Drawing: strokes are not selected by default after draw. */
+export function addInk(partial: Omit<InkItem, 'id'>, opts?: { select?: boolean }): number {
   pushUndo()
   const id = nextId++
   items = [...items, { ...partial, id }]
-  selected = [id]
+  if (opts?.select === false) {
+    selected = selected.filter((s) => s !== id)
+  } else {
+    selected = [id]
+  }
   emit()
   bus.emit('document:changed', { type: 'draw', targets: [id] })
   return id

@@ -130,6 +130,25 @@ describe('inkStore', () => {
     expect(listInk()[0].points.length).toBe(3)
   })
 
+  it('pencil can be added without selecting (Adobe draw)', () => {
+    const id = addInk(
+      {
+        kind: 'pencil',
+        points: [
+          { x: 0, y: 0 },
+          { x: 20, y: 4 },
+        ],
+        closed: false,
+        fill: null,
+        stroke: '#000',
+        strokeWidth: 2,
+      },
+      { select: false },
+    )
+    expect(selectedInkIds()).not.toContain(id)
+    expect(hitInk(10, 2)?.id).toBe(id)
+  })
+
   it('text hit and move stay on the glyphs', () => {
     addInk({
       kind: 'text',

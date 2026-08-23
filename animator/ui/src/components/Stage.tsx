@@ -792,17 +792,22 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
                 : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
           const size = o.inkSize
           const sw = sg.kind === 'brush' ? Math.max(8, size) : Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth)
-          addInk({
-            kind: sg.kind,
-            points: pts,
-            closed: false,
-            fill: null,
-            stroke: colors.stroke ?? '#111111',
-            strokeWidth: sw,
-            ...(sg.kind === 'pencil'
-              ? { strokeDash: dashForStyle(o.pencilStyle, sw), lineCap: o.pencilCap || 'round', lineJoin: 'round' as const }
-              : {}),
-          })
+          addInk(
+            {
+              kind: sg.kind,
+              points: pts,
+              closed: false,
+              fill: null,
+              stroke: colors.stroke ?? '#111111',
+              strokeWidth: sw,
+              ...(sg.kind === 'pencil'
+                ? { strokeDash: dashForStyle(o.pencilStyle, sw), lineCap: o.pencilCap || 'round', lineJoin: 'round' as const }
+                : {}),
+            },
+            // Adobe: pencil stroke is not selected after draw — V-tool picks it up.
+            { select: sg.kind !== 'pencil' },
+          )
+          if (sg.kind === 'pencil') clearInkSelection()
         }
       }
 

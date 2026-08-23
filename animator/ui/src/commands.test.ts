@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   commands,
   eventToCanonical,
   findCommandByEvent,
   findShortcutInvocation,
   getCommand,
+  makeCommandContext,
   shortcutDisplayFor,
   shortcutToCanonical,
   validateCommands,
@@ -64,6 +65,22 @@ describe('command registry integrity (zero dead buttons)', () => {
       }
       const cmd = getCommand(c.id)
       expect(cmd, `toolbar control ${c.id} has no command`).toBeTruthy()
+    }
+  })
+
+  it('A6.7 registers only canonical ai.panel.toggle with no keyboard shortcut', () => {
+    const toggleAiPanel = vi.fn()
+    const command = getCommand('ai.panel.toggle')
+    expect(command).toMatchObject({
+      id: 'ai.panel.toggle',
+      category: 'window',
+      status: 'FUNCTIONAL',
+    })
+    expect(command?.shortcut).toBeUndefined()
+    command?.run(makeCommandContext({ notify: vi.fn(), toggleAiPanel }))
+    expect(toggleAiPanel).toHaveBeenCalledTimes(1)
+    for (const forbidden of ['ai.panel.show', 'ai.panel.hide', 'ai.mode.ask', 'ai.mode.preview', 'ai.mode.apply']) {
+      expect(getCommand(forbidden)).toBeUndefined()
     }
   })
 

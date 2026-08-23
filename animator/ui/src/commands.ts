@@ -97,6 +97,8 @@ export interface CommandContext {
   notify: (msg: string) => void
   setTool: (tool: string) => void
   togglePanel: (id: string) => void
+  /** D-0010/A6.7 self-contained overlay; deliberately outside panelLayout. */
+  toggleAiPanel: () => void
   panels: Record<string, boolean>
   openExport: () => void
   openDocumentSettings: () => void
@@ -1884,6 +1886,16 @@ export const commands: Command[] = [
     },
   },
 
+  // ——— Kineora AI (D-0010 / A6.7 approved overlay exception) ———
+  {
+    id: 'ai.panel.toggle',
+    label: 'Kineora AI',
+    category: 'window',
+    status: 'FUNCTIONAL',
+    source: '[D-0010 / A6.7 APPROVED] self-contained App overlay; no panelLayout integration',
+    run: (c) => c.toggleAiPanel(),
+  },
+
   // ——— Window (Part 01 §1.2.10 / SYS-01 §15) ———
   // ONE commandId per semantic action: panel.show(id) / panel.hide(id).
   {
@@ -2223,6 +2235,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     engine: { kind: 'error', detail: 'not provided' },
     setTool: () => {},
     togglePanel: () => {},
+    toggleAiPanel: () => {},
     panels: {},
     openExport: () => {},
     openDocumentSettings: () => {},

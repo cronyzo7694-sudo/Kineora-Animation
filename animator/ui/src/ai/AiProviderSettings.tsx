@@ -32,6 +32,8 @@ export interface AiProviderSettingsProps {
   vault?: KeyVault
   store?: ReturnType<typeof createProviderStore>
   adapters?: Record<ProviderType, ProviderAdapter>
+  /** Shared A6 panel header/footer refresh after consent/key-only changes. */
+  onStateChange?: () => void
   /** Defaults to localStorage (for consent + stores when not injected). */
   storage?: StorageLike
 }
@@ -124,6 +126,7 @@ export function AiProviderSettings(props: AiProviderSettingsProps) {
       setKeyInput('')
     }
     resetForm()
+    props.onStateChange?.()
   }
 
   async function onTestConnection(): Promise<void> {
@@ -176,6 +179,7 @@ export function AiProviderSettings(props: AiProviderSettingsProps) {
           onClick={() => {
             grantConsent(storage)
             setConsented(true)
+            props.onStateChange?.()
           }}
         >
           Samajh gaya — AI setup karo
@@ -212,6 +216,7 @@ export function AiProviderSettings(props: AiProviderSettingsProps) {
                   vault.remove(c.id)
                   store.remove(c.id)
                   if (editingId === c.id) resetForm()
+                  props.onStateChange?.()
                 }}
               >
                 Delete
@@ -317,7 +322,13 @@ export function AiProviderSettings(props: AiProviderSettingsProps) {
           {testing ? 'Testing…' : 'Test connection'}
         </button>
         {editingId && (
-          <button data-testid="ai-delete-key" onClick={() => editingId && vault.remove(editingId)}>
+          <button
+            data-testid="ai-delete-key"
+            onClick={() => {
+              if (editingId) vault.remove(editingId)
+              props.onStateChange?.()
+            }}
+          >
             Delete key
           </button>
         )}

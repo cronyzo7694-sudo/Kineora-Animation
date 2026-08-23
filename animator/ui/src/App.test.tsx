@@ -72,6 +72,44 @@ describe('app shell', () => {
   })
 })
 
+describe('A6.7 Kineora AI overlay', () => {
+  it('canonical App control opens/closes/reopens the self-contained overlay', () => {
+    render(<App />)
+    expect(screen.queryByTestId('ai-panel')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ai-panel-button'))
+    expect(screen.getByTestId('ai-panel')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ai-close'))
+    expect(screen.queryByTestId('ai-panel')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ai-panel-button'))
+    expect(screen.getByTestId('ai-panel')).toBeInTheDocument()
+  })
+
+  it('overlay does not alter panelLayout/workspace-rendered editor regions', () => {
+    render(<App />)
+    const dock = screen.getByTestId('right-dock')
+    const before = dock.getAttribute('style')
+    fireEvent.click(screen.getByTestId('ai-panel-button'))
+    expect(screen.getByTestId('ai-panel')).toHaveStyle('position: fixed')
+    expect(screen.getByTestId('right-dock').getAttribute('style')).toBe(before)
+    expect(screen.getByTestId('timeline-chrome')).toBeInTheDocument()
+    expect(screen.getByTestId('stage-canvas')).toBeInTheDocument()
+  })
+
+  it('composer focus suppresses editor shortcuts; shortcuts resume after blur/close', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByTestId('ai-panel-button'))
+    const composer = screen.getByTestId('ai-composer')
+    composer.focus()
+    fireEvent.keyDown(composer, { key: 'z', ctrlKey: true })
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument()
+    fireEvent.blur(composer)
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Undo: engine not attached')
+    fireEvent.click(screen.getByTestId('ai-close'))
+    expect(document.activeElement).not.toBe(composer)
+  })
+})
+
 describe('workspace panel resizing (C-06 pnl.resize)', () => {
   beforeEach(() => {
     try {

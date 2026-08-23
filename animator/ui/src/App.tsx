@@ -72,6 +72,8 @@ import { CloseConfirmationDialog, type CloseConfirmationRequest } from './compon
 import { FindReplaceDialog } from './components/FindReplaceDialog'
 import type { CloseAllDecision } from './file'
 import type { ColorPreview } from './render/canvasRenderer'
+import { AiPanel } from './ai/AiPanel'
+import { createAiRuntime, type AiRuntime } from './ai/runtime'
 
 const VERSION = '0.2'
 
@@ -89,6 +91,10 @@ const AUTOSAVE_DEPS: AutosaveDeps = {
 export default function App() {
   // ——— boot: load workspace prefs (layout + visibility + collapse + name) ———
   const initialPrefs = useRef(loadWorkspacePrefs())
+  const aiRuntimeRef = useRef<AiRuntime | null>(null)
+  if (!aiRuntimeRef.current) aiRuntimeRef.current = createAiRuntime()
+  const aiRuntime = aiRuntimeRef.current
+  const [aiOpen, setAiOpen] = useState(false)
   const [tool, setToolState] = useState('select')
   const [toast, setToast] = useState('')
   const [toasts, setToasts] = useState<string[]>([])
@@ -496,6 +502,7 @@ export default function App() {
     notify,
     setTool,
     togglePanel,
+    toggleAiPanel: () => setAiOpen((open) => !open),
     panels,
     openExport: () => setExportOpen(true),
     openDocumentSettings: () => setDocSettingsOpen(true),
@@ -672,6 +679,15 @@ export default function App() {
           </span>
         )}
         <button
+          data-testid="ai-panel-button"
+          aria-label="Toggle Kineora AI"
+          title="Kineora AI"
+          onClick={() => getCommand('ai.panel.toggle')?.run(ctx)}
+          style={{ padding: '2px 10px', marginRight: 6, borderRadius: 4, border: '1px solid #35708a', background: aiOpen ? '#18465c' : '#1d2d35', color: '#9ee8ff', cursor: 'pointer', fontSize: 11 }}
+        >
+          AI
+        </button>
+        <button
           data-testid="reset-workspace"
           aria-label="Reset workspace layout"
           title="Reset workspace layout to defaults (Window ▸ Reset Workspace)"
@@ -791,6 +807,13 @@ export default function App() {
         />
       )}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
+      {aiOpen && (
+        <AiPanel
+          runtime={aiRuntime}
+          documentId={status?.doc_id ?? null}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
       <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />
       <SymbolDialog

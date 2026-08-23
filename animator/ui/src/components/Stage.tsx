@@ -93,7 +93,7 @@ import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 import { dashForStyle, processPencil } from '../editor/pencil'
-import { brushDocSize, brushRibbon, clipPtsToRect, constrainBrush } from '../editor/brush'
+import { brushDocSize, constrainBrush } from '../editor/brush'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -570,8 +570,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }
           sg.pts = [sg.pts[0], end]
         } else {
+          let next = { ...doc }
+          if (sg.kind === 'brush' && e.shiftKey && sg.pts[0]) next = constrainBrush(sg.pts[0], next)
           const last = sg.pts[sg.pts.length - 1]
-          if (!last || Math.hypot(doc.x - last.x, doc.y - last.y) >= 1.2) sg.pts.push(doc)
+          if (!last || Math.hypot(next.x - last.x, next.y - last.y) >= 1.2) sg.pts.push(next)
         }
         previewStrokeRef.current = sg.pts.slice()
         scheduleRedraw()
@@ -747,7 +749,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const sg = strokeRef.current
       strokeRef.current = null
       previewStrokeRef.current = null
-      if (sg && sg.pts.length >= 2) {
+      if (sg && (sg.pts.length >= 2 || (sg.kind === 'brush' && sg.pts.length >= 1))) {
         const colors = loadToolColors()
         if (sg.kind === 'eraser') {
           const hitIds = new Set<number>()
@@ -785,40 +787,36 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           notify?.(hits.length + ids.length ? `lasso: ${hits.length + ids.length} selected` : 'lasso: nothing inside')
         } else if (sg.kind === 'brush') {
           const o = loadToolOptions()
-          const fill = colors.fill
-          if (!fill) {
-            notify?.('brush: Fill color is None')
+          const bg = statusJson()?.background ?? '#ffffff'
+          // Adobe Brush paints with Fill Color. White-on-white is invisible on
+          // the default stage, so authoring uses contrastOn (same as Text).
+          const paint = contrastOn(colors.fill, bg)
+          const start = sg.pts[0]
+          const hit = start ? hitInk(start.x, start.y) : null
+          const mode = o.brushMode || 'normal'
+          if (mode === 'selection' && selectedInkIds().length === 0) {
+            notify?.('Paint Selection: select a fill first')
+          } else if ((mode === 'fills' || mode === 'inside') && !(hit && (hit.closed || hit.kind === 'brush') && hit.fill)) {
+            notify?.(mode === 'fills' ? 'Paint Fills: start on a fill' : 'Paint Inside: start inside a fill')
           } else {
-            const start = sg.pts[0]
-            const hit = start ? hitInk(start.x, start.y) : null
-            const mode = o.brushMode || 'normal'
-            if ((mode === 'fills' || mode === 'inside') && !(hit && hit.closed && hit.fill)) {
-              notify?.(mode === 'fills' ? 'Paint Fills: start on a fill' : 'Paint Inside: start inside a fill')
-            } else if (mode === 'selection' && selectedInkIds().length === 0) {
-              notify?.('Paint Selection: select a fill first')
-            } else {
-              const rad = brushDocSize(o.inkSize, vpRef.current.zoom, o.brushZoomWithStage !== false) / 2
-              let ribbon = brushRibbon(sg.pts, rad, o.brushShape || 'circle', o.brushAngle ?? 0, o.brushSmooth ?? 50)
-              if (mode === 'inside' && hit) ribbon = clipPtsToRect(ribbon, inkBounds(hit))
-              if (mode === 'selection') {
-                const ids = selectedInkIds()
-                const boxes = listInk().filter((it) => ids.includes(it.id)).map(inkBounds)
-                if (boxes.length) {
-                  const x0 = Math.min(...boxes.map((b) => b.x))
-                  const y0 = Math.min(...boxes.map((b) => b.y))
-                  const x1 = Math.max(...boxes.map((b) => b.x + b.w))
-                  const y1 = Math.max(...boxes.map((b) => b.y + b.h))
-                  ribbon = clipPtsToRect(ribbon, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
-                }
-              }
-              if (ribbon.length >= 3) {
-                addInk(
-                  { kind: 'brush', points: ribbon, closed: true, fill, stroke: null, strokeWidth: 0 },
-                  { select: !!o.brushObject, z: mode === 'behind' ? 'back' : 'front' },
-                )
-                if (!o.brushObject) clearInkSelection()
-              }
-            }
+            const size = brushDocSize(Math.max(8, o.inkSize), vpRef.current.zoom, o.brushZoomWithStage !== false)
+            let pts = sg.pts.length === 1 ? [sg.pts[0], { x: sg.pts[0].x + 0.5, y: sg.pts[0].y }] : processPencil(sg.pts, 'smooth', o.brushSmooth ?? 50)
+            if (pts.length < 2) pts = [sg.pts[0], sg.pts[sg.pts.length - 1] ?? sg.pts[0]]
+            const cap = o.brushShape === 'square' || o.brushShape === 'rect' || o.brushShape === 'diamond' ? 'square' : 'round'
+            addInk(
+              {
+                kind: 'brush',
+                points: pts,
+                closed: false,
+                fill: null,
+                stroke: paint,
+                strokeWidth: size,
+                lineCap: cap,
+                lineJoin: 'round',
+              },
+              { select: !!o.brushObject, z: mode === 'behind' ? 'back' : 'front' },
+            )
+            if (!o.brushObject) clearInkSelection()
           }
         } else {
           const o = loadToolOptions()

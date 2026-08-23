@@ -54,7 +54,7 @@ function hint(tool: string): string {
     case 'pencil':
       return 'Adobe Pencil (Y). Tools options: Straighten / Smooth / Ink. Smooth slider 0–100 (disabled in other modes). Straighten snaps 45° and can recognize oval / rectangle / triangle. Stroke color, weight, style (solid/dash/dot) and cap apply on release.'
     case 'brush':
-      return 'Adobe Brush (B) paints a FILL (helpx Paint with the Brush tool). Fill color, not stroke. Modes: Normal / Fills / Behind / Selection / Inside. Size, shape, angle, smoothing, Zoom size with Stage. Shift-drag = H/V. Object Drawing ON = select after paint. Pressure only with a stylus.'
+      return 'Adobe Brush (B): drag to paint a thick mark using Fill Color (visible even on a white stage). Size slider = tip. Circle tip = round; square/rect/diamond = square cap. Shift = H/V. Smoothing 0–100. Object Drawing ON keeps the mark selected.'
     case 'text':
       return 'Click the Stage to type. Enter commits, Shift+Enter = new line, Esc cancels. Double-click existing text to edit. Character (family, size, B/I/U, tracking) and Paragraph (align) apply to the next field — and to selected text in Properties.'
     case 'bucket':

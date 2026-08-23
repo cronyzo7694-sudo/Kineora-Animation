@@ -523,6 +523,7 @@ function drawPolyline(
   strokeWidth: number,
   fill: string | null,
   closed: boolean,
+  style?: { dash?: number[]; cap?: CanvasLineCap; join?: CanvasLineJoin },
 ): void {
   if (pts.length === 0) return
   ctx.save()
@@ -551,9 +552,11 @@ function drawPolyline(
   if (stroke) {
     ctx.strokeStyle = stroke
     ctx.lineWidth = Math.max(1, strokeWidth * vp.zoom)
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
+    ctx.lineCap = style?.cap ?? 'round'
+    ctx.lineJoin = style?.join ?? 'round'
+    if (style?.dash && style.dash.length) ctx.setLineDash(style.dash.map((n) => n * vp.zoom))
     ctx.stroke()
+    ctx.setLineDash([])
   }
   ctx.restore()
 }

@@ -41,6 +41,7 @@ export const menus: MenuDef[] = [
       sep,
       { type: 'command', id: 'file.save' },
       { type: 'command', id: 'file.saveAs' },
+      { type: 'command', id: 'file.autoSave' },
       { type: 'command', id: 'file.saveAsTemplate' },
       sep,
       {

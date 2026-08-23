@@ -43,6 +43,7 @@ import {
   statusJson,
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
+import { formatAutosaveInterval, loadAutosavePrefs, toggleAutosaveEnabled } from './autosavePrefs'
 import { deleteInkIds, inkCanRedo, inkCanUndo, selectedInkIds } from './editor/inkStore'
 import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
@@ -101,6 +102,7 @@ export interface CommandContext {
   panels: Record<string, boolean>
   openExport: () => void
   openDocumentSettings: () => void
+  openPreferences: () => void
   openShortcuts: () => void
   openAbout: () => void
   openSymbolDialog: (mode: 'convert' | 'new') => void
@@ -626,6 +628,18 @@ export const commands: Command[] = [
     run: (c) => void saveDocument(c.notify, { saveAs: true }),
   },
   {
+    id: 'file.autoSave',
+    label: 'Auto-Save',
+    category: 'file',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT + ADOBE] Auto-save interval / crash recovery slot (W11) — never overwrites last manual save',
+    checked: () => loadAutosavePrefs().enabled,
+    run: (c) => {
+      const next = toggleAutosaveEnabled()
+      c.notify(next.enabled ? `auto-save: on (${formatAutosaveInterval(next.intervalSec)})` : 'auto-save: off')
+    },
+  },
+  {
     id: 'file.saveAsTemplate',
     label: 'Save as Template…',
     category: 'file',
@@ -994,10 +1008,9 @@ export const commands: Command[] = [
     label: 'Preferences…',
     category: 'edit',
     shortcut: 'Ctrl+U',
-    status: 'DEFERRED',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2',
-    reason: 'preferences editor is a future feature',
-    run: () => {},
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.2 — Auto-Save prefs (app, not document)',
+    run: (c) => c.openPreferences(),
   },
   {
     id: 'help.shortcuts',
@@ -2317,6 +2330,7 @@ export function makeCommandContext(partial: Partial<CommandContext> & Pick<Comma
     panels: {},
     openExport: () => {},
     openDocumentSettings: () => {},
+    openPreferences: () => {},
     openShortcuts: () => {},
     openAbout: () => {},
     openSymbolDialog: () => {},

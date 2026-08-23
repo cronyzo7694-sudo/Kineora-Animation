@@ -62,6 +62,7 @@ import { ShortcutsDialog } from './components/ShortcutsDialog'
 import { AboutDialog } from './components/AboutDialog'
 import { HelpDialog } from './components/HelpDialog'
 import { DocumentSettingsDialog } from './components/DocumentSettingsDialog'
+import { PreferencesDialog } from './components/PreferencesDialog'
 import { GoToFrameDialog } from './components/GoToFrameDialog'
 import { EditBar } from './components/EditBar'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
@@ -107,6 +108,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [help, setHelp] = useState<{ open: boolean; section: 'docs' | 'troubleshoot' }>({ open: false, section: 'docs' })
   const [docSettingsOpen, setDocSettingsOpen] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const [gotoOpen, setGotoOpen] = useState(false)
   const [findReplaceOpen, setFindReplaceOpen] = useState(false)
   const [symbolDialog, setSymbolDialog] = useState<{ open: boolean; mode: SymbolDialogMode }>({ open: false, mode: 'convert' })
@@ -513,6 +515,7 @@ export default function App() {
     panels,
     openExport: () => setExportOpen(true),
     openDocumentSettings: () => setDocSettingsOpen(true),
+    openPreferences: () => setPrefsOpen(true),
     openShortcuts: () => setShortcutsOpen(true),
     openAbout: () => setAboutOpen(true),
     openSymbolDialog: (mode) => setSymbolDialog({ open: true, mode }),
@@ -571,6 +574,8 @@ export default function App() {
       'edit.selectAll',
       'edit.deselectAll',
       'modify.document',
+      'edit.preferences',
+      'file.autoSave',
       'modify.convertSymbol',
       'insert.newSymbol',
       'panel.show',
@@ -829,6 +834,7 @@ export default function App() {
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} engine={engine} />
       <HelpDialog open={help.open} section={help.section} onClose={() => setHelp((h) => ({ ...h, open: false }))} />
       <DocumentSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} notify={notify} />
+      <PreferencesDialog open={prefsOpen} onClose={() => setPrefsOpen(false)} notify={notify} />
       <GoToFrameDialog
         open={gotoOpen}
         onClose={() => setGotoOpen(false)}

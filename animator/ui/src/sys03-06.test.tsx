@@ -106,6 +106,8 @@ describe('SYS-03/04/06 command registry', () => {
       'modify.arrangeBackward',
       'modify.arrangeBack',
       'modify.align',
+      'edit.preferences',
+      'file.autoSave',
     ]) {
       expect(getCommand(id)?.status, id).toBe('FUNCTIONAL')
     }
@@ -118,9 +120,8 @@ describe('SYS-03/04/06 command registry', () => {
     }
   })
 
-  it('shape/boolean/group/find/prefs stay DEFERRED (unspecified or owned elsewhere)', () => {
+  it('shape/boolean/group stay DEFERRED (unspecified or owned elsewhere)', () => {
     for (const id of [
-      'edit.preferences',
       'view.guides',
       'view.snapping',
       'insert.motionTween',

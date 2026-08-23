@@ -4,6 +4,8 @@ import { selectedInkIds, subscribeInk } from '../editor/inkStore'
 import type { EngineStatus } from '../controlRegistry'
 import type { StatusJson } from '../engine/wasmTypes'
 import { useBus } from '../useBus'
+import { formatAutosaveInterval, loadAutosavePrefs, subscribeAutosavePrefs } from '../autosavePrefs'
+import { getLastAutosaveAt, subscribeLastAutosave } from '../autosave'
 
 interface Props {
   engine: EngineStatus
@@ -17,6 +19,33 @@ interface Props {
 const cell: React.CSSProperties = { whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }
 const label = { color: '#777' } as const
 const dim = '#666'
+
+function AutosaveCell() {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const a = subscribeAutosavePrefs(() => tick((n) => n + 1))
+    const b = subscribeLastAutosave(() => tick((n) => n + 1))
+    return () => {
+      a()
+      b()
+    }
+  }, [])
+  const prefs = loadAutosavePrefs()
+  const at = getLastAutosaveAt()
+  const when = at
+    ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null
+  const text = !prefs.enabled
+    ? 'autosave off'
+    : when
+      ? `autosave ${when}`
+      : `autosave ${formatAutosaveInterval(prefs.intervalSec)}`
+  return (
+    <span data-testid="st-autosave" style={{ ...cell, opacity: prefs.enabled ? 1 : 0.45 }} title="File ▸ Auto-Save · Edit ▸ Preferences">
+      <span style={{ color: prefs.enabled ? '#8ec8ff' : dim }}>{text}</span>
+    </span>
+  )
+}
 
 function SnapCellInner() {
   const [mode, setMode] = useState<string | null>(null)

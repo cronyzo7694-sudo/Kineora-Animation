@@ -44,6 +44,7 @@ import {
 } from './autosave'
 import { bus } from './bus'
 import { checksumHex, stampFormatVersion } from './persist'
+import { patchAutosavePrefs, resetAutosavePrefsForTests } from './autosavePrefs'
 
 const deps = (over: Partial<AutosaveDeps> = {}): AutosaveDeps => ({
   getDocPath: () => undefined,
@@ -72,6 +73,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   localStorage.removeItem(BROWSER_DEV_SLOT_KEY)
   localStorage.removeItem(HANDLED_SLOT_KEY)
+  resetAutosavePrefsForTests()
   platformMock.platform.isDesktop.mockReturnValue(false)
   clientMock.statusJson.mockReturnValue({ doc_id: 1, doc_title: 'My Project', dirty: true, doc_count: 1, playhead: 1 })
   clientMock.activeDocId.mockReturnValue(1)
@@ -134,6 +136,15 @@ describe('SYS-28 autosave — debounced slot writes (eng 13, H10 §5.3)', () => 
     }
     expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).not.toBeNull()
     expect(elapsed).toBeLessThanOrEqual(AUTOSAVE_MAX_INTERVAL_MS + 1000)
+  })
+
+  it('does not write when Auto-Save is turned off', async () => {
+    patchAutosavePrefs({ enabled: false })
+    dispose = initAutosave(deps())
+    bus.emit('document:changed', { type: 'draw', targets: [] })
+    vi.advanceTimersByTime(AUTOSAVE_DEBOUNCE_MS + 10)
+    await flushAsync()
+    expect(localStorage.getItem(BROWSER_DEV_SLOT_KEY)).toBeNull()
   })
 
   it('never autosaves a CLEAN document', async () => {

@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
 import { setDocumentSettings, statusJson } from '../engine/client'
+import {
+  AUTOSAVE_INTERVAL_PRESETS,
+  formatAutosaveInterval,
+  loadAutosavePrefs,
+  patchAutosavePrefs,
+} from '../autosavePrefs'
 
 interface Props {
   open: boolean
@@ -17,6 +23,8 @@ export function DocumentSettingsDialog({ open, onClose, notify }: Props) {
   const [h, setH] = useState('1080')
   const [fps, setFps] = useState('24')
   const [bg, setBg] = useState('#ffffff')
+  const [asOn, setAsOn] = useState(true)
+  const [asSec, setAsSec] = useState(30)
 
   useEffect(() => {
     if (!open) return
@@ -25,6 +33,9 @@ export function DocumentSettingsDialog({ open, onClose, notify }: Props) {
     setH(String(st?.doc_height ?? 1080))
     setFps(String(st?.fps ?? 24))
     setBg(st?.background ?? '#ffffff')
+    const as = loadAutosavePrefs()
+    setAsOn(as.enabled)
+    setAsSec(as.intervalSec)
   }, [open])
 
   useEffect(() => {

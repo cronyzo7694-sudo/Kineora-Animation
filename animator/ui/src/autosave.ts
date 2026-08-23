@@ -49,8 +49,10 @@ import { bus } from './bus'
 import { platform } from './platform'
 import { activeDocId, markClean, openDocJson, projectJson, statusJson } from './engine/client'
 import { checksumHex, prepareForLoad, stampFormatVersion } from './persist'
+import { autosaveMaxIntervalMs, loadAutosavePrefs, subscribeAutosavePrefs } from './autosavePrefs'
 
 export const AUTOSAVE_DEBOUNCE_MS = 2_000
+/** Default cap when prefs are at factory (30s). Tests use this constant. */
 export const AUTOSAVE_MAX_INTERVAL_MS = 30_000
 /** Browser dev-harness slot (AS-D5). */
 export const BROWSER_DEV_SLOT_KEY = 'kineora.autosave.dev'
@@ -186,6 +188,24 @@ let depsRef: AutosaveDeps | null = null
  *  without probing the disk (AS-D3a: clear only a slot that exists; a save
  *  must never CREATE a stray blank `.autosave` file). */
 const writtenSlots = new Set<string>()
+let lastAutosaveAt = 0
+const lastListeners = new Set<() => void>()
+
+export function getLastAutosaveAt(): number {
+  return lastAutosaveAt
+}
+
+export function subscribeLastAutosave(fn: () => void): () => void {
+  lastListeners.add(fn)
+  return () => {
+    lastListeners.delete(fn)
+  }
+}
+
+function markLastAutosave(ts: number): void {
+  lastAutosaveAt = ts
+  for (const fn of [...lastListeners]) fn()
+}
 
 function clearPending(): void {
   if (pending?.timer) clearTimeout(pending.timer)
@@ -218,11 +238,16 @@ async function flushAutosave(): Promise<void> {
     title: st.doc_title ?? 'Untitled',
     content,
   }
-  await writeSlot({ path: isDesktop ? path : undefined }, JSON.stringify(envelope))
+  const ok = await writeSlot({ path: isDesktop ? path : undefined }, JSON.stringify(envelope))
   if (isDesktop && path) writtenSlots.add(autosaveSlotPath(path))
+  if (ok) markLastAutosave(envelope.savedAt)
 }
 
 function schedule(): void {
+  if (!loadAutosavePrefs().enabled) {
+    clearPending()
+    return
+  }
   const now = Date.now()
   const docId = activeDocId()
   if (docId === 0) return
@@ -234,9 +259,10 @@ function schedule(): void {
   }
   const p = pending
   if (p.timer) clearTimeout(p.timer)
-  // eng 13: 2s after the LAST change, but never later than 30s after the
-  // FIRST unsaved-to-slot change.
-  const deadline = Math.min(p.lastChangeAt + AUTOSAVE_DEBOUNCE_MS, p.firstChangeAt + AUTOSAVE_MAX_INTERVAL_MS)
+  // 2s after the LAST change, but never later than the user interval after
+  // the FIRST unsaved-to-slot change (eng 13 default = 30s).
+  const cap = autosaveMaxIntervalMs()
+  const deadline = Math.min(p.lastChangeAt + AUTOSAVE_DEBOUNCE_MS, p.firstChangeAt + cap)
   p.timer = setTimeout(() => {
     void flushAutosave()
   }, Math.max(0, deadline - now))
@@ -254,7 +280,11 @@ export function initAutosave(deps: AutosaveDeps): () => void {
   const offActive = bus.on('activeDoc:changed', () => {
     if (pending && pending.docId !== activeDocId()) clearPending()
   })
-  disposers = [offDoc, offActive]
+  const offPrefs = subscribeAutosavePrefs(() => {
+    if (!loadAutosavePrefs().enabled) clearPending()
+    else if (pending) schedule()
+  })
+  disposers = [offDoc, offActive, offPrefs]
   return () => {
     disposers.forEach((d) => d())
     disposers = []

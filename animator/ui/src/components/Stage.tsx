@@ -219,8 +219,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const t = activeTool()
     return t === 'select' || t === 'transform'
   }
-  /** Adobe: scale/rotate handles belong to Free Transform, not the black arrow. */
-  const showTransformHandles = () => activeTool() === 'transform'
+  /** Selection + Free Transform: 8 scale squares + a rotate knob on the box. */
+  const showTransformHandles = () => {
+    const t = activeTool()
+    return t === 'select' || t === 'transform'
+  }
 
   const scheduleRedraw = () => {
     if (rafRef.current == null) {
@@ -288,14 +291,6 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const dlt = previewRef.current
     const dx = dlt?.x ?? 0
     const dy = dlt?.y ?? 0
-    if (!showTransformHandles()) {
-      return {
-        box: translatePts(box, dx, dy),
-        handles: [] as Array<[string, Pt]>,
-        rotateHandle: translatePt(center, dx, dy),
-        center: translatePt(center, dx, dy),
-      }
-    }
     const handles = handlePositions({ box, center, aabb: geom.aabb })
     const hs = (Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>).map(
       ([k, p]) => [k, translatePt(p, dx, dy)] as [string, Pt],
@@ -306,6 +301,29 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       rotateHandle: translatePt(handles.rotate, dx, dy),
       center: translatePt(center, dx, dy),
     }
+  }
+
+  /** Live overlay while a scale/rotate handle is being dragged. */
+  const overlayFromPending = (details: SelDetail[], pending: Map<number, AbsTransformOut> | null) => {
+    if (!pending || pending.size === 0 || details.length === 0) return null
+    const live: SelDetail[] = details.map((d) => {
+      const t = pending.get(d.id)
+      if (!t) return d
+      return {
+        ...d,
+        x: t.x,
+        y: t.y,
+        w: d.base_w * t.scale_x,
+        h: d.base_h * t.scale_y,
+        scale_x: t.scale_x,
+        scale_y: t.scale_y,
+        rotation: t.rotation,
+      }
+    })
+    const geom = selectionGeometry(live)
+    const handles = handlePositions(geom)
+    const hs = (Object.entries(handles).filter(([k]) => k !== 'rotate') as Array<[string, Pt]>)
+    return { box: geom.box, handles: hs, rotateHandle: handles.rotate, center: geom.center }
   }
 
   // ——— view commands (Part 01 §1.2.3 / Part 29 §29.9) ———
@@ -790,7 +808,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         })
       : items
 
-    const overlay = pending ? null : overlayFromStatus()
+    const overlay = overlayFromPending(status.selection_details ?? [], pending) ?? overlayFromStatus()
     const view = loadViewPrefs()
     const onion = loadOnionPrefs()
 
@@ -1014,23 +1032,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && isSelectLike()) {
       const doc = screenToDoc(vpRef.current, sx, sy)
-      const inkHit = hitInk(doc.x, doc.y)
-      if (inkHit) {
-        if (e.shiftKey || e.ctrlKey || e.metaKey) selectInk([inkHit.id], true)
-        else {
-          selectInk([inkHit.id])
-          clearSelection()
-        }
-        selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
-        previewRef.current = null
-        scheduleRedraw()
-        return
-      }
-      clearInkSelection()
-
-      // 1) handle hit-test → arm transform gesture (Free Transform only)
       const status = statusJson()
       const details = status?.selection_details ?? []
+
+      // 1) Grab a resize / rotate handle on the selected box first.
       if (showTransformHandles() && details.length > 0) {
         const geom = selectionGeometry(details)
         const handles = handlePositions(geom)
@@ -1045,6 +1050,20 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           pendingRef.current = null
           return
         }
+      }
+
+      const inkHit = hitInk(doc.x, doc.y)
+      if (inkHit) {
+        const alreadyInk = selectedInkIds().includes(inkHit.id)
+        if (e.shiftKey || e.ctrlKey || e.metaKey) selectInk([inkHit.id], true)
+        else if (!alreadyInk) {
+          selectInk([inkHit.id])
+          clearSelection()
+        }
+        selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+        previewRef.current = null
+        scheduleRedraw()
+        return
       }
 
       // 2) Shift / Ctrl / Cmd → add or remove (Adobe additive select)

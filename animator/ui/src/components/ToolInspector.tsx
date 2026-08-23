@@ -64,7 +64,7 @@ function hint(tool: string): string {
     case 'transform':
       return 'Select an object, then drag handles to scale or the circle to rotate.'
     case 'select':
-      return 'Click to select, Shift/Ctrl-click to add, drag empty to marquee. Drag a selection to move. Arrow keys nudge (Shift = 10 px). Snap and Contact options below.'
+      return 'Click to select. Drag a corner/edge square to resize, the top circle to rotate freely. Drag inside the box to move. Shift/Ctrl-click adds. Properties also has 90° rotate / flip.'
     default:
       return 'Click an object to inspect its position, size, fill and stroke.'
   }

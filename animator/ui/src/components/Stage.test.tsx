@@ -354,6 +354,16 @@ describe('Stage transform + multi-selection gestures', () => {
     selectAtMock.mockReturnValue(true)
   })
 
+  it('Selection tool: drag a corner handle resizes (transformSelection)', async () => {
+    renderStage('select')
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 0, clientY: 0 })
+    fireEvent.mouseMove(window, { clientX: 20, clientY: 20 })
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(transformSelectionMock).toHaveBeenCalledTimes(1))
+    expect(moveSelectionMock).not.toHaveBeenCalled()
+  })
+
   it('drag on a corner handle commits exactly ONE transformSelection command', async () => {
     renderStage('transform')
     const canvas = screen.getByTestId('stage-canvas')

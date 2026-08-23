@@ -541,6 +541,7 @@ function drawInkItems(
   background?: string,
   inkAnchors?: Array<{ id: number; index: number }>,
   showAnchors?: boolean,
+  extras?: RenderState['objExtras'],
 ): void {
   const sel = new Set(selectedIds)
   const picked = new Set((inkAnchors ?? []).map((a) => `${a.id}:${a.index}`))

@@ -16,9 +16,11 @@ export type ShapeId =
   | 'pentagon'
   | 'hexagon'
   | 'octagon'
+  | 'polygon'
   | 'star4'
   | 'star5'
   | 'star6'
+  | 'polystar'
   | 'arrow'
   | 'chevron'
   | 'cross'
@@ -47,6 +49,7 @@ export const BUILTIN_SHAPES: ShapeDef[] = [
   { id: 'pentagon', label: 'Pentagon', group: 'poly' },
   { id: 'hexagon', label: 'Hexagon', group: 'poly' },
   { id: 'octagon', label: 'Octagon', group: 'poly' },
+  { id: 'polygon', label: 'Polygon', group: 'poly' },
   { id: 'star4', label: '4-Point Star', group: 'star' },
   { id: 'star5', label: '5-Point Star', group: 'star' },
   { id: 'star6', label: '6-Point Star', group: 'star' },

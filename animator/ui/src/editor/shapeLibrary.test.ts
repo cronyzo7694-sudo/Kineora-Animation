@@ -6,6 +6,8 @@ describe('shapeLibrary', () => {
     expect(unitPath('hexagon').length).toBe(6)
     expect(unitPath('star5').length).toBe(10)
     expect(unitPath('triangle').length).toBe(3)
+    expect(unitPath('polygon', { sides: 7 }).length).toBe(7)
+    expect(unitPath('polystar', { sides: 6 }).length).toBe(12)
   })
 
   it('places a triangle in a document box', () => {

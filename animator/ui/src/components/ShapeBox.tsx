@@ -6,22 +6,62 @@ import {
   saveCustomShape,
   shapeLabel,
   subscribeCustomShapes,
+  unitPath,
   type ShapeId,
 } from '../editor/shapeLibrary'
 import { listInk, selectedInkIds } from '../editor/inkStore'
 import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOptions'
 
 const cell: CSSProperties = {
-  width: 34,
-  height: 28,
+  width: 36,
+  height: 32,
   borderRadius: 4,
   border: '1px solid #444',
   background: '#191919',
   color: '#ddd',
   fontSize: 9,
   cursor: 'pointer',
-  padding: 0,
+  padding: 2,
   overflow: 'hidden',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+}
+
+function pathD(id: string, sides: number, inner: number, corner: number): string {
+  const pts = unitPath(id, { sides, inner, corner })
+  if (pts.length === 0) return ''
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${(p.x * 20).toFixed(2)} ${(p.y * 16).toFixed(2)}`).join(' ') + ' Z'
+}
+
+function ShapeIcon({
+  id,
+  sides,
+  inner,
+  corner,
+  active,
+}: {
+  id: string
+  sides: number
+  inner: number
+  corner: number
+  active: boolean
+}) {
+  const stroke = active ? '#cfe4ff' : '#d8d8d8'
+  const fill = active ? 'rgba(90,143,192,0.45)' : 'rgba(220,220,220,0.12)'
+  if (id === 'oval' || id === 'ring') {
+    return (
+      <svg viewBox="0 0 20 16" width="28" height="22" aria-hidden="true">
+        <ellipse cx="10" cy="8" rx="8" ry="6" fill={fill} stroke={stroke} strokeWidth="1.2" />
+        {id === 'ring' && <ellipse cx="10" cy="8" rx="4" ry="3" fill="none" stroke={stroke} strokeWidth="1.2" />}
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 20 16" width="28" height="22" aria-hidden="true">
+      <path d={pathD(id, sides, inner, corner)} fill={fill} stroke={stroke} strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
 /** Adobe Rectangle-tool flyout + extra presets + custom (saved paths). */
@@ -46,6 +86,9 @@ export function ShapeBox({ notify }: { notify: (msg: string) => void }) {
       <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
         Shape box
       </div>
+      <div data-testid="shape-current" style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 6 }}>
+        {shapeLabel(opts.shapePreset || 'rect')}
+      </div>
       {groups.map((g) => (
         <div key={g.title} style={{ marginBottom: 6 }}>
           <div style={{ color: '#666', fontSize: 10, marginBottom: 3 }}>{g.title}</div>
@@ -62,10 +105,15 @@ export function ShapeBox({ notify }: { notify: (msg: string) => void }) {
                   ...cell,
                   borderColor: opts.shapePreset === s.id ? '#5a8fc0' : '#444',
                   background: opts.shapePreset === s.id ? '#243656' : '#191919',
-                  color: opts.shapePreset === s.id ? '#cfe4ff' : '#ddd',
                 }}
               >
-                {s.label.split(' ')[0].slice(0, 6)}
+                <ShapeIcon
+                  id={s.id}
+                  sides={opts.polySides}
+                  inner={opts.starInner}
+                  corner={opts.cornerRadius}
+                  active={opts.shapePreset === s.id}
+                />
               </button>
             ))}
           </div>
@@ -80,15 +128,20 @@ export function ShapeBox({ notify }: { notify: (msg: string) => void }) {
                 <button
                   type="button"
                   data-testid={`shape-custom-${s.id}`}
+                  title={s.name}
                   onClick={() => pick(`custom:${s.id}` as ShapeId)}
                   style={{
                     ...cell,
-                    width: 'auto',
-                    padding: '0 6px',
                     borderColor: opts.shapePreset === `custom:${s.id}` ? '#5a8fc0' : '#444',
                   }}
                 >
-                  {s.name}
+                  <ShapeIcon
+                    id={`custom:${s.id}`}
+                    sides={opts.polySides}
+                    inner={opts.starInner}
+                    corner={opts.cornerRadius}
+                    active={opts.shapePreset === `custom:${s.id}`}
+                  />
                 </button>
                 <button
                   type="button"

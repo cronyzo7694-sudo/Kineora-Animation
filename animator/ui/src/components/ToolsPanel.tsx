@@ -192,6 +192,8 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
             return
           }
           onPick(t.id)
+          if (t.id === 'rect') setToolOptions({ shapePreset: 'rect' })
+          if (t.id === 'oval') setToolOptions({ shapePreset: 'oval' })
         }}
         style={{
           width: 32,

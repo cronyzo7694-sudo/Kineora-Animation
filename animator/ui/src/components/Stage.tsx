@@ -539,7 +539,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           square: e.shiftKey,
           fromCenter: e.altKey,
         })
-        const preset = loadToolOptions().shapePreset || rg.shape
+        const raw = loadToolOptions().shapePreset
+        const preset = !raw || raw === 'rect' ? rg.shape : raw
         if (isEngineShape(preset)) {
           rectPreviewRef.current = { ...box, shape: preset }
           previewStrokeRef.current = null
@@ -741,7 +742,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             stroke = '#111111'
             sw = Math.max(sw || 0, 1)
           }
-          const preset = loadToolOptions().shapePreset || rg.shape
+          const raw = loadToolOptions().shapePreset
+          const preset = !raw || raw === 'rect' || raw === 'oval' ? rg.shape : raw
           if (isEngineShape(preset)) {
             const id = drawShape(preset, rp.x, rp.y, rp.w, rp.h, fill, stroke, sw)
             if (id === 0 && engine.kind === 'ok' && notify) {

@@ -37,6 +37,10 @@ export function defaultToolOptions(): ToolOptions {
     snapToObjects: true,
     snapToPixels: false,
     contactSensitive: true,
+    shapePreset: 'rect',
+    polySides: 5,
+    starInner: 0.45,
+    cornerRadius: 20,
   }
 }
 

@@ -128,20 +128,20 @@ const icons = {
 /** Selection area */
 export const TOOLS_AREA_SELECT: ToolDef[] = [
   { id: 'select', label: 'Selection Tool', shortcut: 'V', icon: icons.select },
-  { id: 'subselect', label: 'Subselection Tool', shortcut: 'A', icon: icons.subselect, comingSoon: true },
+  { id: 'subselect', label: 'Subselection Tool', shortcut: 'A', icon: icons.subselect },
   { id: 'transform', label: 'Free Transform Tool', shortcut: 'Q', icon: icons.transform },
-  { id: 'lasso', label: 'Lasso Tool', shortcut: 'L', icon: icons.lasso, comingSoon: true },
+  { id: 'lasso', label: 'Lasso Tool', shortcut: 'L', icon: icons.lasso },
 ]
 
 /** Drawing area */
 export const TOOLS_AREA_DRAW: ToolDef[] = [
-  { id: 'pen', label: 'Pen Tool', shortcut: 'P', icon: icons.pen, comingSoon: true },
-  { id: 'text', label: 'Text Tool', shortcut: 'T', icon: icons.text, comingSoon: true },
-  { id: 'line', label: 'Line Tool', shortcut: 'N', icon: icons.line, comingSoon: true },
+  { id: 'pen', label: 'Pen Tool', shortcut: 'P', icon: icons.pen },
+  { id: 'text', label: 'Text Tool', shortcut: 'T', icon: icons.text },
+  { id: 'line', label: 'Line Tool', shortcut: 'N', icon: icons.line },
   { id: 'rect', label: 'Rectangle Tool', shortcut: 'R', icon: icons.rect },
   { id: 'oval', label: 'Oval Tool', shortcut: 'O', icon: icons.oval },
-  { id: 'pencil', label: 'Pencil Tool', shortcut: 'Y', icon: icons.pencil, comingSoon: true },
-  { id: 'brush', label: 'Brush Tool', shortcut: 'B', icon: icons.brush, comingSoon: true },
+  { id: 'pencil', label: 'Pencil Tool', shortcut: 'Y', icon: icons.pencil },
+  { id: 'brush', label: 'Brush Tool', shortcut: 'B', icon: icons.brush },
 ]
 
 /** Painting area */
@@ -149,7 +149,7 @@ export const TOOLS_AREA_PAINT: ToolDef[] = [
   { id: 'bucket', label: 'Paint Bucket Tool', shortcut: 'K', icon: icons.bucket },
   { id: 'ink', label: 'Ink Bottle Tool', shortcut: 'S', icon: icons.ink },
   { id: 'eyedropper', label: 'Eyedropper Tool', shortcut: 'I', icon: icons.eyedropper },
-  { id: 'eraser', label: 'Eraser Tool', shortcut: 'E', icon: icons.eraser, comingSoon: true },
+  { id: 'eraser', label: 'Eraser Tool', shortcut: 'E', icon: icons.eraser },
 ]
 
 export const TOOLS_AREA: ToolDef[] = [...TOOLS_AREA_SELECT, ...TOOLS_AREA_DRAW, ...TOOLS_AREA_PAINT]
@@ -218,7 +218,7 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
       data-testid="tools-panel"
       aria-label="Tools"
       style={{
-        width: 42,
+        width: 36,
         flexShrink: 0,
         background: '#1e1e1e',
         borderRight: '1px solid #2a2a2a',
@@ -228,22 +228,24 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
         gap: 1,
         padding: '6px 0',
         position: 'relative',
-        overflowY: 'auto',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_SELECT.map(button)}</div>
-      <div data-testid="tools-divider" style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_DRAW.map(button)}</div>
-      <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_PAINT.map(button)}</div>
-      <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{VIEW_AREA.map(button)}</div>
+      <div data-testid="tools-scroll" style={{ overflowY: 'auto', flex: '1 1 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, width: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_SELECT.map(button)}</div>
+        <div data-testid="tools-divider" style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_DRAW.map(button)}</div>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_PAINT.map(button)}</div>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{VIEW_AREA.map(button)}</div>
+      </div>
 
-      <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
-      <ToolColors vertical />
-
-      <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
-      <ToolOptions tool={tool} vertical />
+      <div data-testid="tools-pinned" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <ToolColors vertical />
+        <div style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
+        <ToolOptions tool={tool} vertical />
+      </div>
 
       {hover && (
         <div

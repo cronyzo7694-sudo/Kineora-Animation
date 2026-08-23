@@ -10,6 +10,7 @@
 import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
 import { docRectToScreen, docToScreen } from './viewport'
+import type { InkItem, InkPt } from '../editor/inkStore'
 
 export interface Pt {
   x: number
@@ -72,6 +73,15 @@ export interface RenderState {
   preview?: 'full' | 'outline'
   /** Editor-only onion ghosts (Blueprint 15.2). Never passed to renderContent. */
   onionGhosts?: Array<{ items: RectItemJson[]; tint: string; alpha: number; outlines: boolean }>
+  /** Path / text objects authored by the remaining tools (UI ink store). */
+  inkItems?: InkItem[]
+  inkSelected?: number[]
+  previewStroke?: InkPt[] | null
+  previewStrokeWidth?: number
+  previewStrokeColor?: string | null
+  previewFill?: string | null
+  previewClosed?: boolean
+  previewText?: { x: number; y: number; text: string; size: number; fill: string } | null
 }
 
 export const SELECTION_STROKE = '#0a7cff'
@@ -149,6 +159,27 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
         }
       : base
     drawRectItem(ctx, vp, it, off, style)
+  }
+
+  drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview)
+  if (s.previewStroke && s.previewStroke.length > 0) {
+    drawPolyline(
+      ctx,
+      vp,
+      s.previewStroke,
+      s.previewStrokeColor ?? '#111111',
+      s.previewStrokeWidth ?? 2,
+      s.previewFill ?? null,
+      !!s.previewClosed,
+    )
+  }
+  if (s.previewText) {
+    const p = docToScreen(vp, s.previewText.x, s.previewText.y)
+    ctx.save()
+    ctx.fillStyle = s.previewText.fill
+    ctx.font = `${s.previewText.size * vp.zoom}px system-ui, sans-serif`
+    ctx.fillText(s.previewText.text, p.x, p.y)
+    ctx.restore()
   }
 
   // marquee (editor-only)
@@ -335,6 +366,76 @@ function drawRulers(ctx: CanvasRenderingContext2D, vp: Viewport, stageW: number,
   }
   ctx.stroke()
   ctx.restore()
+}
+
+function drawPolyline(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  pts: InkPt[],
+  stroke: string | null,
+  strokeWidth: number,
+  fill: string | null,
+  closed: boolean,
+): void {
+  if (pts.length === 0) return
+  ctx.save()
+  ctx.beginPath()
+  const a = docToScreen(vp, pts[0].x, pts[0].y)
+  ctx.moveTo(a.x, a.y)
+  for (let i = 1; i < pts.length; i++) {
+    const p = docToScreen(vp, pts[i].x, pts[i].y)
+    ctx.lineTo(p.x, p.y)
+  }
+  if (closed) ctx.closePath()
+  if (fill) {
+    ctx.fillStyle = fill
+    ctx.fill()
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke
+    ctx.lineWidth = Math.max(1, strokeWidth * vp.zoom)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+function drawInkItems(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  items: InkItem[],
+  selectedIds: number[],
+  preview: { x: number; y: number } | null,
+): void {
+  const sel = new Set(selectedIds)
+  for (const it of items) {
+    const off = preview && sel.has(it.id) ? preview : { x: 0, y: 0 }
+    const pts = it.points.map((p) => ({ x: p.x + off.x, y: p.y + off.y }))
+    if (it.kind === 'text') {
+      const p = docToScreen(vp, pts[0]?.x ?? 0, pts[0]?.y ?? 0)
+      ctx.save()
+      ctx.fillStyle = it.fill || '#111111'
+      ctx.font = `${(it.fontSize ?? 18) * vp.zoom}px system-ui, sans-serif`
+      ctx.fillText(it.text || '', p.x, p.y)
+      ctx.restore()
+    } else {
+      const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+      drawPolyline(ctx, vp, pts, it.stroke, sw, it.fill, it.closed)
+    }
+    if (sel.has(it.id)) {
+      for (const p of pts) {
+        const s = docToScreen(vp, p.x, p.y)
+        ctx.fillStyle = '#ffffff'
+        ctx.strokeStyle = SELECTION_STROKE
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      }
+    }
+  }
 }
 
 function drawMarquee(ctx: CanvasRenderingContext2D, vp: Viewport, m: { x: number; y: number; w: number; h: number }): void {

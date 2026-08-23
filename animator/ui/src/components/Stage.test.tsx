@@ -36,10 +36,13 @@ vi.mock('../engine/client', () => ({
   placeSymbol: vi.fn((_s: number, _x: number, _y: number) => 3),
   swapInstance: vi.fn((_i: number, _s: number) => true),
   setNodeProps: vi.fn(),
+  clearSelection: vi.fn(),
+  deleteSelection: vi.fn(() => true),
 }))
 
 import { drawShape, moveSelection, placeSymbol, selectAt, selectInRect, selectToggleAt, setNodeProps, statusJson, swapInstance, transformSelection } from '../engine/client'
 import { Stage } from './Stage'
+import { listInk, resetInkForTests } from '../editor/inkStore'
 import { defaultToolColors, loadToolColors, resetToolColorsCacheForTests, setToolColors } from '../toolColors'
 import { resetToolOptionsForTests, setToolOptions } from '../toolOptions'
 
@@ -53,6 +56,7 @@ beforeEach(() => {
   window.localStorage.clear()
   resetToolColorsCacheForTests()
   resetToolOptionsForTests()
+  resetInkForTests()
 })
 
 const selectAtMock = vi.mocked(selectAt)

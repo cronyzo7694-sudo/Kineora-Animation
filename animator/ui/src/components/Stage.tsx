@@ -3,6 +3,8 @@ import { makeCommandContext, stageViewController } from '../commands'
 import { useShortcutScope } from '../shortcuts'
 import type { EngineStatus } from '../controlRegistry'
 import {
+  clearSelection,
+  deleteSelection,
   drawShape,
   evaluate,
   hasShapeDrawFacade,
@@ -16,6 +18,23 @@ import {
   swapInstance,
   transformSelection,
 } from '../engine/client'
+import {
+  addInk,
+  clearInkSelection,
+  deleteInkIds,
+  hitInk,
+  hitInkAnchor,
+  inkInPolygon,
+  inkInRect,
+  listInk,
+  moveInk,
+  selectInk,
+  selectedInkIds,
+  setInkPoint,
+  simplifyPolyline,
+  subscribeInk,
+  type InkPt,
+} from '../editor/inkStore'
 import { render, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
@@ -67,6 +86,13 @@ export function stageCursor(tool: string, zoomMode: 'in' | 'out' = 'in'): string
       return zoomMode === 'out' ? 'zoom-out' : 'zoom-in'
     case 'rect':
     case 'oval':
+    case 'line':
+    case 'pen':
+    case 'pencil':
+    case 'brush':
+    case 'eraser':
+    case 'lasso':
+    case 'text':
       return 'crosshair'
     case 'transform':
       return 'move'
@@ -127,6 +153,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const previewRef = useRef<{ x: number; y: number } | null>(null)
   const rectGestureRef = useRef<RectGesture | null>(null)
   const rectPreviewRef = useRef<(DocRect & { shape: 'rect' | 'oval' }) | null>(null)
+  const strokeRef = useRef<{ kind: 'line' | 'pencil' | 'brush' | 'eraser' | 'lasso'; pts: InkPt[] } | null>(null)
+  const penPtsRef = useRef<InkPt[]>([])
+  const subAnchorRef = useRef<{ id: number; index: number } | null>(null)
+  const previewStrokeRef = useRef<InkPt[] | null>(null)
   const transformRef = useRef<TransformGesture | null>(null)
   const pendingRef = useRef<Map<number, AbsTransformOut> | null>(null)
   const marqueeRef = useRef<DocRect | null>(null)
@@ -183,6 +213,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   useEffect(() => subscribeToolColors(() => scheduleRedraw()), [])
   useEffect(() => subscribeToolOptions(() => setZoomMode(loadToolOptions().zoomMode)), [])
   useEffect(() => subscribeOnionPrefs(() => scheduleRedraw()), [])
+  useEffect(() => subscribeInk(() => scheduleRedraw()), [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -309,6 +340,33 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         }
       }
 
+      if (subAnchorRef.current) {
+        setInkPoint(subAnchorRef.current.id, subAnchorRef.current.index, doc)
+        scheduleRedraw()
+        return
+      }
+
+      const sg = strokeRef.current
+      if (sg) {
+        if (sg.kind === 'line') {
+          let end = { ...doc }
+          if (e.shiftKey) {
+            const a = sg.pts[0]
+            const dx = Math.abs(doc.x - a.x)
+            const dy = Math.abs(doc.y - a.y)
+            if (dx > dy) end = { x: doc.x, y: a.y }
+            else end = { x: a.x, y: doc.y }
+          }
+          sg.pts = [sg.pts[0], end]
+        } else {
+          const last = sg.pts[sg.pts.length - 1]
+          if (!last || Math.hypot(doc.x - last.x, doc.y - last.y) >= 1.2) sg.pts.push(doc)
+        }
+        previewStrokeRef.current = sg.pts.slice()
+        scheduleRedraw()
+        return
+      }
+
       // shape-tool draw (Rectangle T2B.4 / Oval T2B.5 — shared drag gesture)
       const rg = rectGestureRef.current
       if (rg && (activeTool() === 'rect' || activeTool() === 'oval')) {
@@ -373,9 +431,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       if (ms) {
         if (mq) {
           selectInRect(mq.x, mq.y, mq.x + mq.w, mq.y + mq.h)
+          selectInk(inkInRect(mq.x, mq.y, mq.w, mq.h))
         } else {
           // click (no drag) on empty stage → clear selection (Phase-1 03.3.1)
           selectInRect(ms.x, ms.y, ms.x, ms.y)
+          clearInkSelection()
         }
       }
 
@@ -386,6 +446,43 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewRef.current = null
       if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
         moveSelection(p.x, p.y)
+        moveInk(selectedInkIds(), p.x, p.y)
+      }
+
+      subAnchorRef.current = null
+
+      const sg = strokeRef.current
+      strokeRef.current = null
+      previewStrokeRef.current = null
+      if (sg && sg.pts.length >= 2) {
+        const colors = loadToolColors()
+        if (sg.kind === 'eraser') {
+          const hitIds = new Set<number>()
+          for (const pt of sg.pts) {
+            const h = hitInk(pt.x, pt.y)
+            if (h) hitIds.add(h.id)
+          }
+          if (hitIds.size) deleteInkIds([...hitIds])
+          const last = sg.pts[sg.pts.length - 1]
+          if (selectAt(last.x, last.y)) deleteSelection()
+          notify?.('erased')
+        } else if (sg.kind === 'lasso') {
+          const ids = inkInPolygon(sg.pts)
+          selectInk(ids)
+          const xs = sg.pts.map((p) => p.x)
+          const ys = sg.pts.map((p) => p.y)
+          selectInRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))
+        } else {
+          const pts = sg.kind === 'line' ? sg.pts : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
+          addInk({
+            kind: sg.kind,
+            points: pts,
+            closed: false,
+            fill: null,
+            stroke: colors.stroke ?? '#111111',
+            strokeWidth: sg.kind === 'brush' ? Math.max(8, colors.strokeWidth * 4) : Math.max(1, colors.strokeWidth),
+          })
+        }
       }
 
       // commit shape draw — rebuild from last pointer + modifiers at release
@@ -429,20 +526,43 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       pendingRef.current = null
       marqueeStartRef.current = null
       marqueeRef.current = null
+      strokeRef.current = null
+      previewStrokeRef.current = null
+      subAnchorRef.current = null
       scheduleRedraw()
     }
 
     // Blueprint T2B.4: Esc discards an in-progress rect (no command, no undo).
     // Capture so we win over edit.exitOneLevel when a draw is live.
     const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Enter' && penPtsRef.current.length >= 2) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        const colors = loadToolColors()
+        addInk({
+          kind: 'pen',
+          points: penPtsRef.current.slice(),
+          closed: ev.shiftKey,
+          fill: ev.shiftKey ? colors.fill : null,
+          stroke: colors.stroke ?? '#111111',
+          strokeWidth: Math.max(1, colors.strokeWidth),
+        })
+        penPtsRef.current = []
+        previewStrokeRef.current = null
+        scheduleRedraw()
+        return
+      }
       if (ev.key !== 'Escape') return
-      if (!rectGestureRef.current && !zoomStartRef.current) return
+      if (!rectGestureRef.current && !zoomStartRef.current && !strokeRef.current && penPtsRef.current.length === 0) return
       ev.preventDefault()
       ev.stopPropagation()
       rectGestureRef.current = null
       rectPreviewRef.current = null
       zoomStartRef.current = null
       zoomMarqueeRef.current = null
+      strokeRef.current = null
+      previewStrokeRef.current = null
+      penPtsRef.current = []
       scheduleRedraw()
     }
 
@@ -552,6 +672,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       marquee: marqueeRef.current ?? zoomMarqueeRef.current,
       previewDelta: previewRef.current,
       previewRect: rectPreviewRef.current,
+      inkItems: listInk(),
+      inkSelected: selectedInkIds(),
+      previewStroke: previewStrokeRef.current ?? (penPtsRef.current.length ? penPtsRef.current : null),
+      previewStrokeWidth: loadToolColors().strokeWidth,
+      previewStrokeColor: loadToolColors().stroke,
       colorPreview,
       workArea: view.workArea,
       hideEdges: view.hideEdges,
@@ -664,8 +789,90 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       return
     }
 
+    if (e.button === 0 && (activeTool() === 'line' || activeTool() === 'pencil' || activeTool() === 'brush' || activeTool() === 'eraser' || activeTool() === 'lasso')) {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      strokeRef.current = { kind: activeTool() as 'line' | 'pencil' | 'brush' | 'eraser' | 'lasso', pts: [doc] }
+      previewStrokeRef.current = [doc]
+      return
+    }
+
+    if (e.button === 0 && activeTool() === 'text') {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      const typed = typeof window.prompt === 'function' ? window.prompt('Text:', 'Text') : 'Text'
+      if (typed && typed.trim()) {
+        const colors = loadToolColors()
+        addInk({
+          kind: 'text',
+          points: [doc],
+          closed: false,
+          fill: colors.fill ?? '#111111',
+          stroke: null,
+          strokeWidth: 0,
+          text: typed,
+          fontSize: 24,
+        })
+      }
+      scheduleRedraw()
+      return
+    }
+
+    if (e.button === 0 && activeTool() === 'pen') {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      const pts = penPtsRef.current
+      if (pts.length >= 3 && Math.hypot(doc.x - pts[0].x, doc.y - pts[0].y) < 10) {
+        const colors = loadToolColors()
+        addInk({
+          kind: 'pen',
+          points: pts.slice(),
+          closed: true,
+          fill: colors.fill,
+          stroke: colors.stroke ?? '#111111',
+          strokeWidth: Math.max(1, colors.strokeWidth),
+        })
+        penPtsRef.current = []
+        previewStrokeRef.current = null
+        scheduleRedraw()
+        return
+      }
+      pts.push(doc)
+      previewStrokeRef.current = pts.slice()
+      scheduleRedraw()
+      return
+    }
+
+    if (e.button === 0 && activeTool() === 'subselect') {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      const anchor = hitInkAnchor(doc.x, doc.y, 8 / vpRef.current.zoom)
+      if (anchor) {
+        subAnchorRef.current = anchor
+        return
+      }
+      const hit = hitInk(doc.x, doc.y)
+      if (hit) {
+        selectInk([hit.id])
+        clearSelection()
+      } else {
+        clearInkSelection()
+      }
+      scheduleRedraw()
+      return
+    }
+
     if (e.button === 0 && isSelectLike()) {
       const doc = screenToDoc(vpRef.current, sx, sy)
+      const inkHit = hitInk(doc.x, doc.y)
+      if (inkHit) {
+        if (e.shiftKey) selectInk([inkHit.id], true)
+        else {
+          selectInk([inkHit.id])
+          clearSelection()
+        }
+        selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
+        previewRef.current = null
+        scheduleRedraw()
+        return
+      }
+      clearInkSelection()
 
       // 1) handle hit-test → arm transform gesture
       const status = statusJson()

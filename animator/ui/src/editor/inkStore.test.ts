@@ -1,0 +1,89 @@
+import { describe, expect, it, beforeEach } from 'vitest'
+import {
+  addInk,
+  deleteInkIds,
+  distToSegment,
+  hitInk,
+  inkUndo,
+  listInk,
+  moveInk,
+  pointInPoly,
+  resetInkForTests,
+  selectedInkIds,
+  simplifyPolyline,
+} from './inkStore'
+
+beforeEach(() => resetInkForTests())
+
+describe('inkStore', () => {
+  it('adds a line and hits it', () => {
+    const id = addInk({
+      kind: 'line',
+      points: [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+      ],
+      closed: false,
+      fill: null,
+      stroke: '#000',
+      strokeWidth: 2,
+    })
+    expect(id).toBeGreaterThan(0)
+    expect(hitInk(20, 1)?.id).toBe(id)
+    expect(hitInk(20, 40)).toBeNull()
+  })
+
+  it('undo removes the last add', () => {
+    addInk({
+      kind: 'pencil',
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 10 },
+      ],
+      closed: false,
+      fill: null,
+      stroke: '#111',
+      strokeWidth: 1,
+    })
+    expect(listInk()).toHaveLength(1)
+    expect(inkUndo()).toBe(true)
+    expect(listInk()).toHaveLength(0)
+  })
+
+  it('move + delete selected', () => {
+    const id = addInk({
+      kind: 'line',
+      points: [
+        { x: 10, y: 10 },
+        { x: 20, y: 10 },
+      ],
+      closed: false,
+      fill: null,
+      stroke: '#111',
+      strokeWidth: 1,
+    })
+    moveInk(selectedInkIds(), 5, 0)
+    expect(listInk()[0].points[0].x).toBe(15)
+    expect(deleteInkIds([id])).toBe(true)
+    expect(listInk()).toHaveLength(0)
+  })
+
+  it('point-in-poly and simplify', () => {
+    expect(pointInPoly({ x: 1, y: 1 }, [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+    ])).toBe(true)
+    const s = simplifyPolyline(
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 0.01 },
+        { x: 10, y: 0 },
+      ],
+      0.5,
+    )
+    expect(s.length).toBe(2)
+    expect(distToSegment({ x: 0, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 10 })).toBe(0)
+  })
+})

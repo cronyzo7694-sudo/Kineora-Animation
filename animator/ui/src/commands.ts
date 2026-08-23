@@ -45,6 +45,7 @@ import {
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
 import { formatAutosaveInterval, loadAutosavePrefs, toggleAutosaveEnabled } from './autosavePrefs'
 import { deleteInkIds, deleteSelectedAnchors, inkCanRedo, inkCanUndo, selectedAnchors, selectedInkIds } from './editor/inkStore'
+import { anyLocked } from './editor/objectProps'
 import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
   closeActiveDocument,
@@ -836,6 +837,11 @@ export const commands: Command[] = [
     whyDisabled: (c) =>
       engineOk(c) || selectedInkIds().length || selectedAnchors().length ? 'nothing selected' : NOT_ATTACHED,
     run: (c) => {
+      const ids = [...(c.getStatus()?.selection ?? []), ...selectedInkIds()]
+      if (anyLocked(ids)) {
+        c.notify('locked object — unlock in Properties first')
+        return
+      }
       if (selectedAnchors().length > 0) {
         c.notify(deleteSelectedAnchors() ? 'anchor deleted' : 'need at least 2 points on a path')
         return

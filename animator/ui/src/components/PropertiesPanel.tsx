@@ -5,7 +5,8 @@ import { listInk, selectedInkIds, subscribeInk, updateInk } from '../editor/inkS
 import type { ColorPreview } from '../render/canvasRenderer'
 import type { SelDetailJson, StatusJson } from '../engine/wasmTypes'
 import { PanelHeader } from './PanelHeader'
-import { ToolInspector, toolLabel } from './ToolInspector'
+import { SubselectFields, ToolInspector, toolLabel } from './ToolInspector'
+import { getObjExtra, setObjExtra, setObjectsLocked, subscribeObjProps, type BlendMode } from '../editor/objectProps'
 
 interface Props {
   status: StatusJson | null
@@ -40,6 +41,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
   const attached = status !== null
   const [, setInkTick] = useState(0)
   useEffect(() => subscribeInk(() => setInkTick((n) => n + 1)), [])
+  useEffect(() => subscribeObjProps(() => setInkTick((n) => n + 1)), [])
   const inkSel = listInk().filter((it) => selectedInkIds().includes(it.id))
   const details: SelDetailJson[] = status?.selection_details ?? []
   const single = details.length === 1 ? details[0] : null
@@ -173,8 +175,9 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
                 />
               </>
             )}
+            <ObjectProtect ids={inkSel.map((it) => it.id)} notify={notify} />
             <SelectionActions notify={notify} />
-            <SubselectFields notify={notify} />
+            {tool === 'subselect' && <SubselectFields notify={notify} />}
           </div>
         )}
 
@@ -197,6 +200,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
                 Mixed selection — common fields only.
               </div>
             )}
+            <ObjectProtect ids={details.map((d) => d.id)} notify={notify} />
             <SectionTitle>Position &amp; Size</SectionTitle>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 8px' }}>
             <NumberField testId="prop-x" label="X" value={sharedX === null ? '' : fmt(sharedX)} onCommit={(n) => commitTransform('x', n)} />
@@ -304,6 +308,109 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
       </div>
       )}
     </aside>
+  )
+}
+
+
+function ObjectProtect({ ids, notify }: { ids: number[]; notify: (m: string) => void }) {
+  if (ids.length === 0) return null
+  const first = getObjExtra(ids[0])
+  const locked = ids.every((id) => !!getObjExtra(id).locked)
+  const opacity = first.opacity ?? 100
+  const blend = first.blend ?? 'normal'
+  const name = ids.length === 1 ? (first.name ?? '') : ''
+  return (
+    <div data-testid="obj-protect" style={{ marginBottom: 8 }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, margin: '4px 0 4px', borderBottom: '1px solid #333', paddingBottom: 2 }}>
+        Object
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Lock</span>
+        <input
+          type="checkbox"
+          data-testid="prop-lock"
+          checked={locked}
+          onChange={(e) => {
+            setObjectsLocked(ids, e.target.checked)
+            notify(e.target.checked ? 'object locked — cannot move or edit' : 'object unlocked')
+          }}
+        />
+      </label>
+      {ids.length === 1 && (
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+          <span style={{ color: '#999' }}>Name</span>
+          <input
+            data-testid="prop-obj-name"
+            value={name}
+            onChange={(e) => setObjExtra(ids[0], { name: e.target.value })}
+            style={{ width: 120, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+          />
+        </label>
+      )}
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Opacity %</span>
+        <input
+          data-testid="prop-opacity"
+          type="number"
+          min={0}
+          max={100}
+          value={opacity}
+          onChange={(e) => {
+            const n = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+            for (const id of ids) setObjExtra(id, { opacity: n })
+          }}
+          style={{ width: 64, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+        />
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+        <span style={{ color: '#999' }}>Blend</span>
+        <select
+          data-testid="prop-blend"
+          value={blend}
+          onChange={(e) => {
+            const b = e.target.value as BlendMode
+            for (const id of ids) setObjExtra(id, { blend: b })
+          }}
+          style={{ width: 120, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }}
+        >
+          <option value="normal">Normal</option>
+          <option value="multiply">Multiply</option>
+          <option value="screen">Screen</option>
+          <option value="overlay">Overlay</option>
+        </select>
+      </label>
+      {ids.length === 1 && (
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 6 }}>
+          <span style={{ color: '#999' }}>Image fill</span>
+          <input
+            data-testid="prop-fill-image"
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (!f) return
+              const r = new FileReader()
+              r.onload = () => {
+                setObjExtra(ids[0], { fillImage: String(r.result) })
+                notify('bitmap fill applied')
+              }
+              r.readAsDataURL(f)
+            }}
+            style={{ width: 130, fontSize: 10, color: '#aaa' }}
+          />
+        </label>
+      )}
+      {ids.length === 1 && first.fillImage ? (
+        <button
+          type="button"
+          data-testid="prop-clear-image"
+          onClick={() => setObjExtra(ids[0], { fillImage: null })}
+          style={{ fontSize: 11, background: '#2a2a2a', color: '#ddd', border: '1px solid #555', borderRadius: 3, padding: '2px 6px' }}
+        >
+          Clear image
+        </button>
+      ) : null}
+    </div>
   )
 }
 

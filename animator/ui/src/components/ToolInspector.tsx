@@ -198,3 +198,89 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
     </div>
   )
 }
+
+const smallBtn: CSSProperties = {
+  padding: '3px 7px',
+  borderRadius: 3,
+  border: '1px solid #555',
+  background: '#2a2a2a',
+  color: '#eee',
+  cursor: 'pointer',
+  fontSize: 11,
+}
+
+/** Adobe Subselection Properties — anchors only. Never throw (blank UI crash). */
+export function SubselectFields({ notify }: { notify: (msg: string) => void }) {
+  const [, tick] = useState(0)
+  useEffect(() => subscribeInk(() => tick((n) => n + 1)), [])
+  let pts: ReturnType<typeof selectedAnchors> = []
+  try {
+    pts = selectedAnchors()
+  } catch {
+    pts = []
+  }
+  const first = pts[0] ? listInk().find((it) => it.id === pts[0].id)?.points[pts[0].index] : null
+  return (
+    <div data-testid="subselect-props" style={{ marginTop: 8 }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+        Anchors
+      </div>
+      <div style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 6 }}>
+        {pts.length === 0 ? 'Click a path, then a square' : `${pts.length} point${pts.length === 1 ? '' : 's'}`}
+      </div>
+      {first && pts.length === 1 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+          <label style={{ color: '#999', fontSize: 11 }}>
+            X
+            <input
+              data-testid="sub-ax"
+              type="number"
+              value={Number.isFinite(first.x) ? Math.round(first.x * 100) / 100 : 0}
+              onChange={(e) => {
+                setAnchorXY(pts[0].id, pts[0].index, Number(e.target.value), first.y)
+                endInkEdit()
+              }}
+              style={{ width: '100%', background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px' }}
+            />
+          </label>
+          <label style={{ color: '#999', fontSize: 11 }}>
+            Y
+            <input
+              data-testid="sub-ay"
+              type="number"
+              value={Number.isFinite(first.y) ? Math.round(first.y * 100) / 100 : 0}
+              onChange={(e) => {
+                setAnchorXY(pts[0].id, pts[0].index, first.x, Number(e.target.value))
+                endInkEdit()
+              }}
+              style={{ width: '100%', background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, padding: '2px 4px' }}
+            />
+          </label>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <button type="button" data-testid="sub-smooth" style={smallBtn} onClick={() => notify(convertAnchors('smooth') ? 'smooth point' : 'select a point')}>
+          Smooth
+        </button>
+        <button type="button" data-testid="sub-corner" style={smallBtn} onClick={() => notify(convertAnchors('corner') ? 'corner point' : 'select a point')}>
+          Corner
+        </button>
+        <button
+          type="button"
+          data-testid="sub-add"
+          style={smallBtn}
+          onClick={() => {
+            const a = pts[0]
+            if (!a) return notify('select a point first')
+            notify(addAnchorOnSegment(a.id, a.index, 0.5) ? 'anchor added' : 'cannot add here')
+          }}
+        >
+          + Point
+        </button>
+        <button type="button" data-testid="sub-del" style={smallBtn} onClick={() => notify(deleteSelectedAnchors() ? 'anchor deleted' : 'need ≥2 points')}>
+          − Point
+        </button>
+      </div>
+    </div>
+  )
+}

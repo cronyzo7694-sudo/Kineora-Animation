@@ -86,6 +86,7 @@ import {
   type SelDetail,
 } from '../editor/transformMath'
 import type { RectItemJson } from '../engine/wasmTypes'
+import { anyLocked, getObjExtra, isObjectLocked } from '../editor/objectProps'
 
 interface Props {
   engine: EngineStatus
@@ -560,7 +561,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const pending = pendingRef.current
       pendingRef.current = null
       if (tg && pending && pending.size > 0) {
-        transformSelection([...pending.values()].map((t) => ({ ...t })))
+        if (anyLocked([...pending.keys()])) {
+          notify?.('locked object — unlock in Properties to transform')
+        } else {
+          transformSelection([...pending.values()].map((t) => ({ ...t })))
+        }
       }
 
       // commit marquee selection (or clear on a plain empty click)
@@ -596,6 +601,12 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const p = previewRef.current
       previewRef.current = null
       if (g?.dragging && p && !(p.x === 0 && p.y === 0)) {
+        const lockIds = [...(statusJson()?.selection ?? []), ...selectedInkIds()]
+        if (anyLocked(lockIds)) {
+          notify?.('locked object — unlock in Properties to move')
+          scheduleRedraw()
+          return
+        }
         const st = statusJson()
         const opts = loadToolOptions()
         const selectedBoxes = (st?.selection_rects ?? []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
@@ -907,7 +918,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       preview: view.preview,
       onionGhosts: onion.on && engine.kind === 'ok' ? collectGhosts(evaluate, onion, playhead, status.duration ?? 1) : undefined,
     }
-    render(ctx, vpRef.current, state, viewW, viewH)
+    try {
+      render(ctx, vpRef.current, state, viewW, viewH)
+    } catch (err) {
+      ctx.fillStyle = '#111'
+      ctx.fillRect(0, 0, viewW, viewH)
+      ctx.fillStyle = '#e66'
+      ctx.font = '12px system-ui, sans-serif'
+      ctx.fillText(err instanceof Error ? err.message : 'stage draw error', 12, 24)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine.kind, playhead, tick, redrawVersion, colorPreview])
 

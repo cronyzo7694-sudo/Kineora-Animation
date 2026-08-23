@@ -18,6 +18,7 @@ import { onManualSaveSuccess } from './autosave'
 import { openExternalLibraryFromContent } from './externalLibrary'
 import { embedInk, extractInk, prepareForLoad, stampFormatVersion } from './persist'
 import { restoreInk, serializeInk } from './editor/inkStore'
+import { restoreObjExtras, serializeObjExtras } from './editor/objectProps'
 import {
   activeDocId,
   closeDoc,
@@ -123,7 +124,9 @@ export function createDocument(settings: NewDocSettings, notify: Notify): void {
   })
   if (id === 0) return notify('new: failed to create document')
   inkBags.set(id, [])
+  objBags.set(id, {})
   restoreInk([])
+  restoreObjExtras({})
   rememberInkClean(id)
   // H02 §14 (ST1): open-set change FIRST, then the active pointer.
   bus.emit('openSet:changed', { change: 'added', docId: id })
@@ -140,20 +143,28 @@ const docPaths = new Map<number, string>()
 /** Saved display name (Adobe “the file has a name”) — independent of WASM title. */
 const sessionNames = new Map<number, string>()
 const inkBags = new Map<number, ReturnType<typeof serializeInk>>()
+const objBags = new Map<number, ReturnType<typeof serializeObjExtras>>()
 
 function parkActiveInk(): void {
   const id = activeDocId()
-  if (id) inkBags.set(id, serializeInk())
+  if (id) {
+    inkBags.set(id, serializeInk())
+    objBags.set(id, serializeObjExtras())
+  }
 }
 
 function applyDocInk(id: number): void {
   restoreInk(inkBags.get(id) ?? [])
+  restoreObjExtras(objBags.get(id) ?? {})
 }
 
 function rememberInk(id: number, payload: unknown): void {
   const items = parseInkPayload(payload)
   inkBags.set(id, items)
   restoreInk(items)
+  const obj = payload && typeof payload === 'object' ? (payload as { obj?: unknown }).obj : null
+  restoreObjExtras(obj)
+  objBags.set(id, serializeObjExtras())
 }
 
 function parseInkPayload(payload: unknown): ReturnType<typeof serializeInk> {
@@ -365,7 +376,7 @@ export async function saveDocument(notify: Notify, opts: { saveAs?: boolean } = 
     notify('save: serialization failed')
     return false
   }
-  const withInk = embedInk(stamped, { version: 1, items: serializeInk() }) ?? stamped
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk(), obj: serializeObjExtras() }) ?? stamped
 
   const docId = activeDocId()
   let title = namedTitle(docId, st.doc_title ?? '')
@@ -553,6 +564,7 @@ export function closeDocumentById(id: number, notify: Notify): void {
   docPaths.delete(id)
   sessionNames.delete(id)
   inkBags.delete(id)
+  objBags.delete(id)
   sessionSaved.delete(id)
   inkSaved.delete(id)
   bus.emit('openSet:changed', { change: 'removed', docId: id })
@@ -758,7 +770,7 @@ export function saveTemplate(name: string, notify: Notify): void {
   const json = projectJson()
   if (!json) return notify('save template: no document to save')
   const stamped = stampFormatVersion(json) ?? json
-  const withInk = embedInk(stamped, { version: 1, items: serializeInk() }) ?? stamped
+  const withInk = embedInk(stamped, { version: 1, items: serializeInk(), obj: serializeObjExtras() }) ?? stamped
   const tpls: Record<string, TemplateRecord> = {}
   for (const t of listTemplates()) tpls[t.name] = t
   tpls[clean] = { name: clean, savedAt: Date.now(), json: withInk }

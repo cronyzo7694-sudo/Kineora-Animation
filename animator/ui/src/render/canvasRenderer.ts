@@ -80,6 +80,7 @@ export interface RenderState {
   /** Subselection (A): highlight these anchors + draw Bezier handles. */
   inkAnchors?: Array<{ id: number; index: number }>
   showInkAnchors?: boolean
+  objExtras?: Record<number, { opacity?: number; blend?: string; fillImage?: string | null; locked?: boolean }>
   previewStroke?: InkPt[] | null
   previewStrokeWidth?: number
   previewStrokeColor?: string | null
@@ -184,7 +185,12 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
           strokeWidth: pv.strokeWidth ?? base.strokeWidth,
         }
       : base
-    drawRectItem(ctx, vp, it, off, style)
+    const extra = s.objExtras?.[it.id]
+    ctx.save()
+    if (extra?.opacity != null) ctx.globalAlpha = Math.max(0, Math.min(1, extra.opacity / 100))
+    if (extra?.blend && extra.blend !== 'normal') ctx.globalCompositeOperation = extra.blend as GlobalCompositeOperation
+    drawRectItem(ctx, vp, it, off, style, extra?.fillImage ?? null)
+    ctx.restore()
   }
 
   drawInkItems(ctx, vp, s.inkItems ?? [], s.inkSelected ?? [], preview, undefined, s.inkAnchors, s.showInkAnchors)
@@ -274,7 +280,14 @@ function parseColor(c: string): [number, number, number] {
   return [180, 180, 180]
 }
 
-function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJson, off: Pt, style: ItemStyle): void {
+function drawRectItem(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  it: RectItemJson,
+  off: Pt,
+  style: ItemStyle,
+  fillImage?: string | null,
+): void {
   const cx = it.x + it.w / 2 + off.x
   const cy = it.y + it.h / 2 + off.y
   const p = docToScreen(vp, cx, cy)
@@ -290,6 +303,16 @@ function drawRectItem(ctx: CanvasRenderingContext2D, vp: Viewport, it: RectItemJ
     ctx.ellipse(0, 0, Math.max(0, w / 2), Math.max(0, h / 2), 0, 0, Math.PI * 2)
     ctx.fillStyle = style.fill
     ctx.fill()
+    if (fillImage) {
+      const im = new Image()
+      im.src = fillImage
+      if (im.complete && im.naturalWidth > 0) {
+        ctx.save()
+        ctx.clip()
+        ctx.drawImage(im, -w / 2, -h / 2, w, h)
+        ctx.restore()
+      }
+    }
     if (style.stroke) {
       ctx.strokeStyle = style.stroke
       ctx.lineWidth = style.strokeWidth * vp.zoom

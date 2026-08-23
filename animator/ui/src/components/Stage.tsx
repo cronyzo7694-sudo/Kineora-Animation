@@ -96,6 +96,7 @@ import {
   appendPenPoint,
   clearPenDraft,
   constrain45,
+  isPenCloseHover,
   isPenDragging,
   penPoints,
   penPreviewPoints,
@@ -103,6 +104,7 @@ import {
   setPenCloseHover,
   setPenCursor,
   setPenDragging,
+  screenNear,
   subscribePenDraft,
   updateLastPenPoint,
 } from '../editor/penDraft'
@@ -236,6 +238,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   const marqueeRef = useRef<DocRect | null>(null)
   const marqueeStartRef = useRef<Pt | null>(null)
   const rafRef = useRef<number | null>(null)
+  const commitPenRef = useRef<(close: boolean) => boolean>(() => false)
+  const penDownRef = useRef<{ sx: number; sy: number } | null>(null)
   // ——— view tools (Adobe: Hand H / Zoom Z, helpx "Use the Stage and Tools
   // panel for Animate") ———
   // `spaceHeld` = the Spacebar override ("To temporarily switch between another
@@ -275,6 +279,28 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     }
   }
 
+  const commitPen = (close: boolean): boolean => {
+    const pts = penPoints()
+    if (pts.length < 2) return false
+    const colors = loadToolColors()
+    addInk({
+      kind: 'pen',
+      points: pts.map((p) => ({ ...p })),
+      closed: close,
+      fill: close ? colors.fill : null,
+      stroke: colors.stroke ?? '#111111',
+      strokeWidth: Math.max(1, colors.strokeWidth),
+    })
+    clearPenDraft()
+    penDownRef.current = null
+    setPenDragging(false)
+    previewStrokeRef.current = null
+    notify?.(close ? 'path closed' : 'path finished')
+    scheduleRedraw()
+    return true
+  }
+  commitPenRef.current = commitPen
+
   const applyViewport = (vp: Viewport) => {
     vpRef.current = vp
     setZoomLevel(vp.zoom)
@@ -303,7 +329,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   useEffect(() => subscribeFillImages(() => scheduleRedraw()), [])
   useEffect(() => subscribePenDraft(() => scheduleRedraw()), [])
   useEffect(() => {
-    registerPenFinisher((close) => commitPen(close))
+    registerPenFinisher((close) => commitPenRef.current(close))
     return () => registerPenFinisher(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -546,10 +572,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         return
       }
 
-      if (activeTool() === 'pen') {
+      if (activeTool() === 'pen' && (penPoints().length > 0 || penDownRef.current)) {
         let p = { ...doc }
         const draft = penPoints()
         if (e.shiftKey && draft.length > 0) p = constrain45(draft[draft.length - 1], p)
+        const arm = penDownRef.current
+        if (arm && !isPenDragging() && pastDragThreshold(sx - arm.sx, sy - arm.sy)) {
+          setPenDragging(true)
+        }
         if (isPenDragging() && draft.length > 0) {
           const last = draft[draft.length - 1]
           updateLastPenPoint({
@@ -560,7 +590,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           })
         } else {
           setPenCursor(p)
-          setPenCloseHover(draft.length >= 3 && Math.hypot(p.x - draft[0].x, p.y - draft[0].y) < 10)
+          setPenCloseHover(draft.length >= 2 && screenNear(p, draft[0], vpRef.current.zoom, 12))
         }
         scheduleRedraw()
         return
@@ -601,6 +631,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const up = (e: MouseEvent) => {
       panDragRef.current = null
       if (isPenDragging()) setPenDragging(false)
+      penDownRef.current = null
 
       // ——— Zoom tool commit (Adobe: click = zoom in, Alt/Option+click = zoom
       // out, drag = the dragged area fills the window) ———
@@ -879,10 +910,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         scheduleRedraw()
         return
       }
-      if (ev.key === 'Enter' && penPoints().length >= 2) {
+      if (!typing && (ev.key === 'Enter' || ev.key === 'NumpadEnter') && penPoints().length >= 2) {
         ev.preventDefault()
         ev.stopPropagation()
-        commitPen(ev.shiftKey)
+        commitPenRef.current(ev.shiftKey)
         return
       }
       if (ev.key !== 'Escape') return
@@ -1015,7 +1046,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         (penPoints().length ? penPreviewPoints(loadToolOptions().penRubberBand !== false) : null),
       previewStrokeWidth: loadToolColors().strokeWidth,
       previewStrokeColor: loadToolColors().stroke,
-      previewClosed: strokeRef.current?.kind === 'lasso',
+      previewClosed: strokeRef.current?.kind === 'lasso' || (penPoints().length >= 2 && isPenCloseHover()),
       previewFill: null,
       colorPreview,
       workArea: view.workArea,
@@ -1364,7 +1395,12 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     }
   }
 
-  const onDoubleClick = () => {
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (activeTool() === 'pen') {
+      e.preventDefault()
+      if (penPoints().length >= 2) commitPen(false)
+      return
+    }
     const wrap = wrapRef.current
     const status = statusJson()
     if (!wrap || !status) return

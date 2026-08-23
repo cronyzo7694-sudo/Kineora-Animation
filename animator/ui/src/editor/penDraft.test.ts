@@ -8,6 +8,7 @@ import {
   registerPenFinisher,
   requestPenFinish,
   resetPenDraftForTests,
+  screenNear,
   setPenCursor,
 } from './penDraft'
 
@@ -41,5 +42,10 @@ describe('penDraft', () => {
     expect(requestPenFinish(true)).toBe(true)
     expect(closed).toBe(true)
     expect(penPoints()).toHaveLength(0)
+  })
+
+  it('screenNear uses zoom so close-path works when zoomed out', () => {
+    expect(screenNear({ x: 0, y: 0 }, { x: 20, y: 0 }, 0.5, 12)).toBe(true)
+    expect(screenNear({ x: 0, y: 0 }, { x: 40, y: 0 }, 0.5, 12)).toBe(false)
   })
 })

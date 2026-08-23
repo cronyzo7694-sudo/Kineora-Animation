@@ -70,6 +70,12 @@ export function clearPenDraft(): void {
   emit()
 }
 
+/** True when two doc points are within `px` screen pixels at `zoom`. */
+export function screenNear(a: InkPt, b: InkPt, zoom: number, px = 12): boolean {
+  const z = zoom > 1e-6 ? zoom : 1
+  return Math.hypot(a.x - b.x, a.y - b.y) * z <= px
+}
+
 export function constrain45(from: InkPt, to: InkPt): InkPt {
   const dx = to.x - from.x
   const dy = to.y - from.y

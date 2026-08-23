@@ -87,7 +87,7 @@ function sanitizeLayout(raw: unknown): PanelLayout {
   if (isRecord(raw)) {
     const num = (k: string) => (typeof raw[k] === 'number' ? (raw[k] as number) : DEFAULT_LAYOUT[k as keyof PanelLayout])
     try {
-      return clampLayout({ layersW: num('layersW'), propsW: num('propsW'), timelineH: num('timelineH'), libraryH: num('libraryH'), debugH: num('debugH') })
+      return clampLayout({ layersW: num('layersW'), propsW: num('propsW'), timelineH: num('timelineH'), libraryH: num('libraryH'), debugH: num('debugH'), timelineNameW: num('timelineNameW') })
     } catch {
       /* fall through to default */
     }

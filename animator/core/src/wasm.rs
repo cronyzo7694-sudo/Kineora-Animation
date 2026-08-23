@@ -887,6 +887,22 @@ pub fn kineora_toggle_other_layers_outline(exclude: u32) -> bool {
     with_session(|s| s.toggle_other_layers_outline(exclude as usize)).unwrap_or(false)
 }
 
+/// Header-column SET-all (Adobe timeline eye/lock/outline header) — one undo.
+#[wasm_bindgen]
+pub fn kineora_set_all_layers_visible(visible: bool) -> bool {
+    with_session(|s| s.set_all_layers_visible(visible)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_all_layers_locked(locked: bool) -> bool {
+    with_session(|s| s.set_all_layers_locked(locked)).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn kineora_set_all_layers_outline(outline: bool) -> bool {
+    with_session(|s| s.set_all_layers_outline(outline)).unwrap_or(false)
+}
+
 /// Duplicate a layer above the source (deep copy of frames + content).
 /// Returns the new layer's index (0 on failure — a real layer never has idx 0
 /// after a successful duplicate because the copy sits above the source).

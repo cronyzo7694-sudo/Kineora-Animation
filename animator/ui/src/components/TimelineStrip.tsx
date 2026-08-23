@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { makeCommandContext, timelineViewController } from '../commands'
+import { getCommand, makeCommandContext, timelineViewController } from '../commands'
 import { useShortcutScope } from '../shortcuts'
-import { performAction, isLoopEnabled, setLoopEnabled } from '../engine/actions'
+import { performAction, isLoopEnabled, setLoopEnabled, playbackState, togglePlay } from '../engine/actions'
+import { useBus } from '../useBus'
 import {
   convertToBlankKeyframes,
   convertToKeyframes,
@@ -25,9 +26,19 @@ import {
 } from '../engine/client'
 import type { FrameMarkerJson, StatusJson, TweenJson } from '../engine/wasmTypes'
 import { ResizeHandle } from './ResizeHandle'
-import { TimelineChrome } from './timeline/TimelineChrome'
+import { TimelineChrome, CHROME_FLAG_W, CHROME_COLOR_W, CHROME_FLAGS_PAD } from './timeline/TimelineChrome'
 import { displayRows } from './timeline/timelineRows'
 import { TIMELINE_NAME_W, clamp } from '../panelLayout'
+import {
+  loadOnionPrefs,
+  setOnionAnchorRange,
+  setOnionPreset,
+  subscribeOnionPrefs,
+  toggleOnion,
+  toggleOnionOutlines,
+} from '../onionPrefs'
+import { onionRange } from '../onion'
+import { setAllLayersLocked, setAllLayersOutline, setAllLayersVisible } from '../engine/client'
 
 /** Base cell width in px at 1× timeline zoom (exported for tests). */
 export const CELL_W = 18
@@ -138,6 +149,12 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
   loopOnRef.current = loopOn
   const [easeDraft, setEaseDraft] = useState<number | null>(null)
   const [labelDraft, setLabelDraft] = useState<string | null>(null)
+  const [onionTick, setOnionTick] = useState(0)
+  const [activeOnly, setActiveOnly] = useState(false)
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [hiddenBtns, setHiddenBtns] = useState<Set<string>>(() => new Set())
+  const [markersOpen, setMarkersOpen] = useState(false)
+  useEffect(() => subscribeOnionPrefs(() => setOnionTick((n) => n + 1)), [])
   // idempotency guard for the ease commit (multiple release events per gesture
   // — pointerup/mouseup/keyup/blur — must produce ONE undoable command).
   const easeCommitRef = useRef<number | null>(null)
@@ -149,8 +166,18 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
   const playhead = status?.playhead ?? 1
   const layers = status?.layers ?? []
   layersRef.current = layers
-  const rows = displayRows(layers)
-  const activeLayerLocked = layers[status?.active_layer ?? 0]?.locked ?? false
+  const onion = loadOnionPrefs()
+  void onionTick
+  const allRows = displayRows(layers)
+  const rows = activeOnly ? allRows.filter((l) => l.active) : allRows
+  const activeLayer = layers[status?.active_layer ?? 0]
+  const activeIsFolder = activeLayer?.kind === 'folder'
+  const activeLayerLocked = (activeLayer?.locked ?? false) || !!activeIsFolder
+  const [, setPbTick] = useState(0)
+  useBus('playback:started', () => setPbTick((n) => n + 1))
+  useBus('playback:paused', () => setPbTick((n) => n + 1))
+  useBus('playback:stopped', () => setPbTick((n) => n + 1))
+  const pb = playbackState()
 
   // selected range + tween state (view state; the engine validates mutations)
   const selSorted = selLayer !== null ? [...selFrames].sort((a, b) => a - b) : []
@@ -497,17 +524,37 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
     grid.scrollLeft = Math.max(0, NAME_W + (playhead - 1) * cellW - grid.clientWidth / 2)
   }
 
+  const iconBtnStyle = (disabled: boolean, on = false): React.CSSProperties => ({
+    width: 22,
+    height: 20,
+    padding: 0,
+    borderRadius: 2,
+    border: 'none',
+    background: on ? '#2d5aa7' : 'transparent',
+    color: '#d0d0d0',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: 11,
+    lineHeight: '20px',
+    flexShrink: 0,
+    opacity: disabled ? 0.35 : 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  })
+
   const btn = (id: string, label: string, title: string, action: string) => {
     const disabled = !attached || activeLayerLocked
+    const reason = activeIsFolder ? 'folder — not a frame target' : activeLayerLocked ? 'layer locked — unlock to edit' : ''
     return (
       <button
         data-testid={id}
         data-locked={activeLayerLocked ? 'true' : 'false'}
+        className="tl-ico"
         aria-label={title}
-        title={activeLayerLocked ? `${title} (layer locked — unlock to edit)` : title}
+        title={reason ? `${title} (${reason})` : title}
         disabled={disabled}
         onClick={() => performAction(action, notify)}
-        style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12, opacity: disabled ? 0.5 : 1 }}
+        style={iconBtnStyle(disabled)}
       >
         {label}
       </button>
@@ -515,24 +562,20 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
   }
 
   const twBtnStyle = (disabled: boolean): React.CSSProperties => ({
-    padding: '2px 8px',
-    borderRadius: 4,
-    border: '1px solid #555',
-    background: '#2a2a2a',
-    color: '#eee',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    fontSize: 12,
-    opacity: disabled ? 0.5 : 1,
+    ...iconBtnStyle(disabled),
+    width: 'auto',
+    padding: '0 6px',
   })
 
-  const navBtn = (id: string, label: string, title: string, onClick: () => void) => (
+  const navBtn = (id: string, label: string, title: string, onClick: () => void, on = false, disabled = !attached) => (
     <button
       data-testid={id}
+      className="tl-ico"
       aria-label={title}
       title={title}
-      disabled={!attached}
+      disabled={disabled}
       onClick={onClick}
-      style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12, opacity: attached ? 1 : 0.5 }}
+      style={iconBtnStyle(disabled, on)}
     >
       {label}
     </button>
@@ -575,7 +618,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
         title={title}
         disabled={disabled}
         onClick={onClick}
-        style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12, opacity: disabled ? 0.5 : 1 }}
+        style={twBtnStyle(disabled)}
       >
         {label}
       </button>
@@ -584,49 +627,101 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
 
   const interval = rulerInterval(cellW)
 
+  const fps = status?.fps ?? 24
+  const elapsed = ((playhead - 1) / Math.max(1, fps)).toFixed(3)
+
   return (
-    <div data-testid="timeline" style={{ height: height ?? 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #333', background: '#1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
-        <span style={{ color: '#aaa', fontSize: 11, minWidth: 168 }}>
-          frame <strong data-testid="timeline-frame-readout" style={{ color: '#eee' }}>{playhead}</strong> / {Math.max(cells, playhead)}
-          <span data-testid="timeline-time-readout" style={{ color: '#888', marginLeft: 8 }}>
-            {(((playhead - 1) / Math.max(1, status?.fps ?? 24))).toFixed(3)}s
-          </span>
+    <div data-testid="timeline" style={{ height: height ?? 48 + RULER_H + Math.max(1, rows.length) * ROW_H + 8, borderTop: '1px solid #1a1a1a', background: '#2b2b2b', display: 'flex', flexDirection: 'column', flexShrink: 0, fontFamily: 'system-ui, Segoe UI, sans-serif' }}>
+      <style>{`
+        [data-testid="timeline"] button.tl-ico:hover:not(:disabled) { background: #3d3d3d; }
+        [data-testid="timeline"] button.tl-ico:disabled { cursor: not-allowed; }
+      `}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 6px', background: '#323232', borderBottom: '1px solid #1f1f1f', flexWrap: 'wrap', minHeight: 26 }}>
+        {navBtn('timeline-add-layer', '+', 'New layer', () => { const i = createLayer(); if (i >= 0) notify(`layer added (index ${i})`) })}
+        {navBtn('timeline-add-folder', '📁', 'New folder', () => { const i = createFolder(); if (i >= 0) notify(`folder added (index ${i})`) })}
+        {navBtn('timeline-dup-layer', '⧉', 'Duplicate active layer', () => { const a = layers.findIndex((l) => l.active); const i = a >= 0 ? duplicateLayer(a) : -1; notify(i > 0 ? `layer duplicated (index ${i})` : 'duplicate layer: failed') }, false, !attached || layers.length === 0)}
+        {navBtn('timeline-del-layer', '🗑', 'Delete active layer', () => { if (deleteLayer(layers.findIndex((l) => l.active))) notify('layer deleted') }, false, !attached || layers.length <= 1)}
+        <span style={{ width: 1, height: 14, background: '#4a4a4a', margin: '0 4px' }} />
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, color: '#bdbdbd', fontSize: 11, minWidth: 168, fontVariantNumeric: 'tabular-nums' }}>
+          <span title="Document frame rate"><strong style={{ color: '#f2f2f2', fontWeight: 600 }}>{fps.toFixed(2)}</strong> FPS</span>
+          <span title="Current frame"><strong data-testid="timeline-frame-readout" style={{ color: '#f2f2f2', fontWeight: 600 }}>{playhead}</strong> F</span>
+          <span data-testid="timeline-time-readout" title="Elapsed time (frame − 1) / fps" style={{ color: '#9a9a9a' }}>{elapsed}s</span>
         </span>
-        <button data-testid="timeline-add-layer" aria-label="Add layer" title="Add layer" disabled={!attached} onClick={() => { const i = createLayer(); if (i >= 0) notify(`layer added (index ${i})`) }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>+</button>
-        <button data-testid="timeline-add-folder" aria-label="Add folder" title="Add folder" disabled={!attached} onClick={() => { const i = createFolder(); if (i >= 0) notify(`folder added (index ${i})`) }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>📁</button>
-        <button data-testid="timeline-dup-layer" aria-label="Duplicate active layer" title="Duplicate active layer" disabled={!attached || layers.length === 0} onClick={() => { const a = layers.findIndex((l) => l.active); const i = a >= 0 ? duplicateLayer(a) : -1; notify(i > 0 ? `layer duplicated (index ${i})` : 'duplicate layer: failed') }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>⧉</button>
-        <button data-testid="timeline-del-layer" aria-label="Delete active layer" title="Delete active layer" disabled={!attached || layers.length <= 1} onClick={() => { if (deleteLayer(layers.findIndex((l) => l.active))) notify('layer deleted') }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: attached ? 'pointer' : 'not-allowed', fontSize: 12 }}>🗑</button>
+        <span style={{ width: 1, height: 14, background: '#4a4a4a', margin: '0 4px' }} />
         {navBtn('timeline-first', '⏮', 'Go to first frame (Home)', () => setPlayhead(1))}
+        {navBtn(
+          'timeline-play',
+          pb === 'PLAYING' ? '⏸' : '▶',
+          pb === 'PLAYING' ? 'Pause (Enter)' : 'Play (Enter)',
+          () => togglePlay(notify),
+          pb === 'PLAYING',
+        )}
         {navBtn('timeline-last', '⏭', 'Go to last frame (End)', () => setPlayhead(Math.max(1, status?.duration ?? 1)))}
         {navBtn('timeline-center', '◎', 'Center playhead', centerFrame)}
-        {btn('timeline.key', '◈ Key', 'Insert keyframe (F6)', 'timeline.keyframe')}
-        {btn('timeline.blank', '○ Blank', 'Insert blank keyframe (F7)', 'timeline.blank')}
-        {btn('timeline.clear', '✕ Clear', 'Clear keyframe (Shift+F6)', 'timeline.clear')}
-        {btn('timeline.insertframe', '＋ Frame', 'Insert frame (F5)', 'timeline.insertframe')}
-        {btn('timeline.deleteframe', '− Frame', 'Delete frame (Shift+F5)', 'timeline.deleteframe')}
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
+        <span style={{ width: 1, height: 14, background: '#4a4a4a', margin: '0 4px' }} />
+        {btn('timeline.key', '●', 'Insert keyframe (F6)', 'timeline.keyframe')}
+        {btn('timeline.blank', '○', 'Insert blank keyframe (F7)', 'timeline.blank')}
+        {btn('timeline.clear', '✕', 'Clear keyframe (Shift+F6)', 'timeline.clear')}
+        {btn('timeline.insertframe', '+', 'Insert frame (F5)', 'timeline.insertframe')}
+        {btn('timeline.deleteframe', '−', 'Delete frame (Shift+F5)', 'timeline.deleteframe')}
+        <span style={{ flex: 1, minWidth: 8 }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           {navBtn('timeline-zoom-out', '−', 'Timeline zoom out', zoomOut)}
-          <span data-testid="timeline-zoom-readout" style={{ color: '#888', fontSize: 11, minWidth: 34, textAlign: 'center' }}>{Math.round(zoomFactor * 100)}%</span>
+          <span data-testid="timeline-zoom-readout" style={{ color: '#9a9a9a', fontSize: 10, minWidth: 32, textAlign: 'center' }}>{Math.round(zoomFactor * 100)}%</span>
           {navBtn('timeline-zoom-in', '+', 'Timeline zoom in', zoomIn)}
         </span>
         <button
           data-testid="timeline-loop"
           data-on={loopOn ? 'true' : 'false'}
+          className="tl-ico"
           aria-label="Loop playback"
           title="Loop playback"
           onClick={toggleLoop}
-          style={{ padding: '2px 8px', borderRadius: 4, border: loopOn ? '1px solid #0a7cff' : '1px solid #555', background: loopOn ? '#0a3f7f' : '#2a2a2a', color: '#eee', cursor: 'pointer', fontSize: 12 }}
+          style={iconBtnStyle(false, loopOn)}
         >
-          ⟳ Loop
+          ⟳
         </button>
-        {activeLayerLocked && <span data-testid="timeline-locked-hint" style={{ color: '#e66', fontSize: 11 }}>🔒 layer locked</span>}
-        {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e66', fontSize: 11 }}>engine not attached</span>}
+        <span style={{ width: 1, height: 14, background: '#4a4a4a', margin: '0 4px' }} />
+        {!hiddenBtns.has('timeline-onion') && navBtn('timeline-onion', '▣', 'Onion Skin (O)', () => notify(toggleOnion().on ? 'onion skin: on' : 'onion skin: off'), onion.on)}
+        {!hiddenBtns.has('timeline-onion-outlines') && navBtn('timeline-onion-outlines', '▢', 'Onion Skin Outlines (Shift+O)', () => notify(toggleOnionOutlines().outlines ? 'onion outlines: on' : 'onion outlines: off'), onion.outlines)}
+        <span style={{ position: 'relative' }}>
+          {navBtn('timeline-onion-markers', '⚐', 'Modify onion markers', () => setMarkersOpen((v) => !v), markersOpen)}
+          {markersOpen && (
+            <div data-testid="timeline-onion-markers-menu" style={{ position: 'absolute', bottom: 22, left: 0, zIndex: 20, background: '#2a2a2a', border: '1px solid #555', borderRadius: 3, minWidth: 140, padding: 4 }}>
+              {([['2', 'Onion 2'], ['5', 'Onion 5'], ['all', 'Onion All']] as const).map(([k, lab]) => (
+                <button key={k} type="button" data-testid={`timeline-onion-preset-${k}`} onClick={() => { setOnionPreset(k, status?.duration ?? 1); setMarkersOpen(false); notify(`onion: ${lab}`) }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#ddd', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>{lab}</button>
+              ))}
+              <button type="button" data-testid="timeline-onion-preset-anchor" onClick={() => { setOnionAnchorRange(Math.max(1, playhead - 2), playhead + 2); setMarkersOpen(false); notify('onion: Anchor markers') }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#ddd', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>Anchor Markers</button>
+            </div>
+          )}
+        </span>
+        {!hiddenBtns.has('timeline-emf') && <button data-testid="timeline-emf" className="tl-ico" title="Edit Multiple Frames — AMB-TL-020 (write rules open)" aria-label="Edit Multiple Frames" disabled onClick={() => notify(getCommand('view.editMultipleFrames')?.reason ?? 'EMF deferred')} style={iconBtnStyle(true)}>✎</button>}
+        {!hiddenBtns.has('timeline-camera') && <button data-testid="timeline-camera" className="tl-ico" title="Add Camera — Part 16 / SYS-25 (no camera layer in this engine)" aria-label="Add Camera" disabled onClick={() => notify(getCommand('timeline.addCamera')?.reason ?? 'camera deferred')} style={iconBtnStyle(true)}>📷</button>}
+        {!hiddenBtns.has('timeline-mute') && <button data-testid="timeline-mute" className="tl-ico" title="Mute Sounds (Ctrl+Alt+M) — SYS-26 audio engine" aria-label="Mute Sounds" onClick={() => getCommand('control.mute')?.run(makeCommandContext({ notify, engine: attached ? { kind: 'ok', detail: '' } : { kind: 'error', detail: 'not attached' }, getStatus: () => statusRef.current }))} style={iconBtnStyle(!attached)}>🔇</button>}
+        {!hiddenBtns.has('timeline-parenting') && <button data-testid="timeline-parenting" className="tl-ico" title="Layer Parenting View — WISH W2 (folder parent_id is not transform parenting)" aria-label="Layer Parenting View" disabled onClick={() => notify(getCommand('timeline.parentingView')?.reason ?? 'parenting deferred')} style={iconBtnStyle(true)}>⛓</button>}
+        {!hiddenBtns.has('timeline-active-only') && navBtn('timeline-active-only', '☰', 'Active layer only', () => setActiveOnly((v) => !v), activeOnly)}
+        <span style={{ position: 'relative' }}>
+          {navBtn('timeline-customize', '⋯', 'Customize timeline toolbar', () => setCustomizeOpen((v) => !v), customizeOpen)}
+          {customizeOpen && (
+            <div data-testid="timeline-customize-panel" style={{ position: 'absolute', bottom: 22, right: 0, zIndex: 20, background: '#2a2a2a', border: '1px solid #555', borderRadius: 3, minWidth: 180, padding: 6 }}>
+              <div style={{ color: '#aaa', fontSize: 10, marginBottom: 4 }}>Show buttons</div>
+              {(['timeline-onion', 'timeline-onion-outlines', 'timeline-onion-markers', 'timeline-emf', 'timeline-camera', 'timeline-mute', 'timeline-parenting', 'timeline-active-only'] as const).map((id) => (
+                <label key={id} style={{ display: 'flex', gap: 6, alignItems: 'center', color: '#ddd', fontSize: 11, padding: '2px 0' }}>
+                  <input type="checkbox" checked={!hiddenBtns.has(id)} onChange={() => setHiddenBtns((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })} />
+                  {id.replace('timeline-', '')}
+                </label>
+              ))}
+              <button type="button" data-testid="timeline-customize-reset" onClick={() => setHiddenBtns(new Set())} style={{ marginTop: 4, fontSize: 11, background: '#333', color: '#ddd', border: '1px solid #555', borderRadius: 2, cursor: 'pointer' }}>Reset</button>
+            </div>
+          )}
+        </span>
+        {activeLayerLocked && <span data-testid="timeline-locked-hint" style={{ color: '#e88', fontSize: 10 }}>{activeIsFolder ? 'folder — not a frame target' : 'layer locked'}</span>}
+        {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e88', fontSize: 10 }}>engine not attached</span>}
       </div>
 
-      <div data-testid="timeline-sequence-row" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 12px', borderBottom: '1px solid #2a2a2a', flexWrap: 'wrap' }}>
-        <span style={{ color: '#888', fontSize: 11, minWidth: 120 }}>
-          frames: {selLayer !== null ? selFrames.size : 0} selected{selLayer !== null ? ` (${layers[selLayer]?.name ?? 'layer'})` : ''}
+      <div data-testid="timeline-sequence-row" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '1px 6px', background: '#2e2e2e', borderBottom: '1px solid #1f1f1f', flexWrap: 'wrap', minHeight: 22 }}>
+        <span style={{ color: '#808080', fontSize: 10, minWidth: 110 }}>
+          {selLayer !== null ? `${selFrames.size} selected (${layers[selLayer]?.name ?? 'layer'})` : 'no frames selected'}
         </span>
         {seqBtn('timeline-copy', 'Copy', 'Copy selected frames (to clipboard)', () => doRange(copyFrames, 'copy frames'))}
         {seqBtn('timeline-cut', 'Cut', 'Cut selected frames', () => doRange(cutFrames, 'cut frames'))}
@@ -659,6 +754,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
         )}
         <button
           data-testid="timeline-create-tween"
+          className="tl-ico"
           data-disabled={(!attached || selLayer === null || selKeyframes.length !== 2 || (selLayerObj?.locked ?? false)) ? 'true' : 'false'}
           aria-label="Create classic tween"
           title="Create classic tween between the two selected keyframes"
@@ -673,6 +769,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
         </button>
         <button
           data-testid="timeline-remove-tween"
+          className="tl-ico"
           data-disabled={(!attached || !selTween || (selLayerObj?.locked ?? false)) ? 'true' : 'false'}
           aria-label="Remove tween"
           title="Remove the classic tween in the selection"
@@ -716,8 +813,56 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
           }}
           style={{ width: nameW, flexShrink: 0, overflowY: 'auto', overflowX: 'hidden', borderRight: '1px solid #2a2a2a' }}
         >
-          <div style={{ height: RULER_H, borderBottom: '1px solid #2a2a2a', flexShrink: 0 }} aria-hidden />
-          <TimelineChrome status={status} notify={notify} variant="chrome" rowHeight={ROW_H} />
+          <div
+            data-testid="timeline-chrome-header"
+            style={{ height: RULER_H, borderBottom: '1px solid #1f1f1f', flexShrink: 0, display: 'flex', alignItems: 'center', background: '#333', paddingLeft: 4 }}
+          >
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              data-testid="timeline-header-eye"
+              title="Visibility column — click to hide/show ALL layers (one undo)"
+              aria-label="Hide or show all layers"
+              disabled={!attached}
+              onClick={() => {
+                const anyOn = layers.some((l) => l.visible)
+                const ok = setAllLayersVisible(!anyOn)
+                notify(ok ? (anyOn ? 'all layers hidden' : 'all layers shown') : 'hide/show all: rebuild wasm (kineora_set_all_layers_visible)')
+              }}
+              style={{ width: CHROME_FLAG_W, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8a8a', background: 'transparent', border: 'none', padding: 0, cursor: attached ? 'pointer' : 'default' }}
+            >
+              <svg width="11" height="11" viewBox="0 0 12 12"><path d="M1.5 6 C3 3.5 5 2.8 6 2.8 S9 3.5 10.5 6 C9 8.5 7 9.2 6 9.2 S3 8.5 1.5 6 Z M6 4.6 A1.4 1.4 0 1 1 6 7.4 A1.4 1.4 0 1 1 6 4.6" fill="none" stroke="currentColor" strokeWidth="1.2" /></svg>
+            </button>
+            <button
+              type="button"
+              data-testid="timeline-header-lock"
+              title="Lock column — click to lock/unlock ALL layers (one undo)"
+              aria-label="Lock or unlock all layers"
+              disabled={!attached}
+              onClick={() => {
+                const anyOn = layers.some((l) => l.locked)
+                const ok = setAllLayersLocked(!anyOn)
+                notify(ok ? (anyOn ? 'all layers unlocked' : 'all layers locked') : 'lock all: rebuild wasm (kineora_set_all_layers_locked)')
+              }}
+              style={{ width: CHROME_FLAG_W, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8a8a', background: 'transparent', border: 'none', padding: 0, cursor: attached ? 'pointer' : 'default' }}
+            >
+              <svg width="11" height="11" viewBox="0 0 12 12"><path d="M4 5.4 V3.8 A2 2 0 0 1 8 3.8 V5.4 M3.4 5.4 H8.6 V10.2 H3.4 Z" fill="none" stroke="currentColor" strokeWidth="1.2" /></svg>
+            </button>
+            <button
+              type="button"
+              data-testid="timeline-header-outline"
+              title="Outline column — click to outline ALL layers (one undo)"
+              aria-label="Outline all layers"
+              disabled={!attached}
+              onClick={() => {
+                const anyOn = layers.some((l) => l.outline)
+                const ok = setAllLayersOutline(!anyOn)
+                notify(ok ? (anyOn ? 'all outlines off' : 'all layers outline') : 'outline all: rebuild wasm (kineora_set_all_layers_outline)')
+              }}
+              style={{ width: CHROME_COLOR_W, height: 10, marginRight: CHROME_FLAGS_PAD, border: '1px solid #666', background: 'transparent', boxSizing: 'border-box', padding: 0, cursor: attached ? 'pointer' : 'default' }}
+            />
+          </div>
+          <TimelineChrome status={status} notify={notify} variant="chrome" rowHeight={ROW_H} onlyActive={activeOnly} />
         </div>
         <ResizeHandle
           testId="resize-timeline-name"
@@ -730,13 +875,40 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
         if (gridRef.current && chromeRef.current) chromeRef.current.scrollTop = gridRef.current.scrollTop
       }} style={{ position: 'relative', overflowX: 'auto', overflowY: 'auto', flex: 1, minWidth: 0 }}>
         <div style={{ width: totalWidth, position: 'relative', minHeight: '100%' }}>
-          <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #2a2a2a', cursor: 'pointer' }}>
+          <div data-testid="timeline-ruler" onMouseDown={onRulerDown} style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid #1f1f1f', cursor: 'pointer', background: '#333' }}>
+            {Array.from({ length: cells }, (_, i) => (
+              <span
+                key={`tick-${i + 1}`}
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  left: NAME_W + i * cellW,
+                  bottom: 0,
+                  width: 1,
+                  height: (i + 1) % interval === 1 || i === 0 ? 8 : 4,
+                  background: '#555',
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
             {Array.from({ length: Math.ceil(cells / interval) }, (_, i) => (i === 0 ? 1 : i * interval)).map((f) => (
-              <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * cellW, top: 3, color: f === playhead ? '#e33' : '#666', fontWeight: f === playhead ? 700 : 400, fontSize: 10 }}>
+              <span key={f} data-testid={`frame-num-${f}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * cellW + 2, top: 1, color: f === playhead ? '#ff4d4d' : '#9a9a9a', fontWeight: f === playhead ? 700 : 400, fontSize: 9 }}>
                 {f}
               </span>
             ))}
-            <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW, top: 0, width: cellW, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', pointerEvents: 'none' }} />
+            {Array.from({ length: Math.floor((cells - 1) / Math.max(1, fps)) + 1 }, (_, s) => {
+              const f = 1 + s * fps
+              if (f > cells) return null
+              return (
+                <span key={`sec-${s}`} data-testid={`ruler-sec-${s}`} style={{ position: 'absolute', left: NAME_W + (f - 1) * cellW + 2, bottom: 0, color: '#6a8aaa', fontSize: 8, pointerEvents: 'none' }}>
+                  {s}s
+                </span>
+              )
+            })}
+            {onion.on ? (
+              <OnionBand onion={onion} playhead={playhead} duration={Math.max(cells, status?.duration ?? 1)} cellW={cellW} frameFromClientX={frameFromClientX} />
+            ) : null}
+            <span data-testid="current-frame-indicator" style={{ position: 'absolute', left: NAME_W + (playhead - 1) * cellW, top: 0, width: cellW, height: '100%', boxShadow: 'inset 0 0 0 1px #e33', background: 'rgba(227,51,51,0.12)', pointerEvents: 'none' }} />
           </div>
 
           {rows.map((l) => {
@@ -744,16 +916,16 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
             const isFolder = l.kind === 'folder'
             const kinds = cellKinds(l.keyframes, cells)
             return (
-              <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #242424', background: l.active ? '#232f3d' : isFolder ? '#191919' : 'transparent' }}>
+              <div key={l.id} data-testid={`timeline-layer-${engineIndex}`} style={{ height: ROW_H, position: 'relative', borderBottom: '1px solid #1f1f1f', background: l.active ? '#24344a' : isFolder ? '#222' : '#2b2b2b' }}>
                 {isFolder ? (
-                  <div data-testid={`timeline-folder-strip-${engineIndex}`} aria-hidden style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(90deg, #1a1a1a 0 8px, #161616 8px 18px)' }} />
+                  <div data-testid={`timeline-folder-strip-${engineIndex}`} aria-hidden style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(90deg, #262626 0 8px, #222 8px 18px)' }} />
                 ) : (
                 <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}>
                   {kinds.map((kind, i) => {
                     const f = i + 1
                     const selected = selLayer === engineIndex && selFrames.has(f)
                     const tw = tweenAt(l, f)
-                    const bg = tw ? '#1d4e7f' : kind === 'held' ? '#333333' : 'transparent'
+                    const bg = tw ? '#4a7aaa' : kind === 'key' || kind === 'held' ? '#c4c4c4' : kind === 'blank' ? '#9a9a9a' : '#2b2b2b'
                     const marker = l.keyframes.find((m) => m.frame === f)
                     const label = marker?.label ?? undefined
                     // span edge = the LAST held cell of a span (next cell isn't held)
@@ -775,7 +947,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                         data-tween={tw ? 'true' : 'false'}
                         data-selected={selected ? 'true' : 'false'}
                         onMouseDown={(e) => onCellDown(e, engineIndex, f)}
-                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: '1px solid #2a2a2a', boxShadow: selected ? 'inset 0 0 0 1px #0a7cff' : 'none', color: '#8ec8ff', fontSize: 9, lineHeight: `${ROW_H}px`, textAlign: 'center' }}
+                        style={{ position: 'absolute', left: (f - 1) * cellW, top: 0, width: cellW, height: '100%', background: bg, borderRight: kind === 'empty' ? '1px solid #333' : '1px solid #b0b0b0', boxShadow: selected ? 'inset 0 0 0 1px #1473e6' : 'none', color: tw ? '#e8f2ff' : '#333', fontSize: 9, lineHeight: `${ROW_H}px`, textAlign: 'center' }}
                       >
                         {tw && f === tw.end ? '▶' : ''}
                         {(kind === 'key' || kind === 'blank') && (
@@ -785,7 +957,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                             data-label={label ?? ''}
                             title={label ? `label: ${label}` : undefined}
                             onMouseDown={(e) => onDotDown(e, engineIndex, f)}
-                            style={{ position: 'absolute', left: cellW / 2 - 4, top: ROW_H / 2 - 4, width: 8, height: 8, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#ddd', border: '1px solid #888', cursor: 'grab' }}
+                            style={{ position: 'absolute', left: cellW / 2 - 3, top: ROW_H / 2 - 3, width: 6, height: 6, borderRadius: '50%', background: kind === 'blank' ? 'transparent' : '#111', border: '1.5px solid #111', cursor: 'grab', boxSizing: 'border-box' }}
                           />
                         )}
                         {label && (
@@ -802,7 +974,7 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
                           <span
                             data-testid={`span-end-${engineIndex}-${f}`}
                             onMouseDown={(e) => anchor !== null && onSpanEdgeDown(e, engineIndex, anchor)}
-                            style={{ position: 'absolute', right: 0, top: 2, width: 5, height: ROW_H - 4, border: '1px solid #888', cursor: 'ew-resize', background: 'transparent' }}
+                            style={{ position: 'absolute', right: 1, top: 3, width: 5, height: ROW_H - 6, border: '1.5px solid #333', cursor: 'ew-resize', background: 'transparent', boxSizing: 'border-box' }}
                           />
                         )}
                       </div>
@@ -827,5 +999,45 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
       </div>
       </div>
     </div>
+  )
+}
+
+function OnionBand({
+  onion,
+  playhead,
+  duration,
+  cellW,
+  frameFromClientX,
+}: {
+  onion: ReturnType<typeof loadOnionPrefs>
+  playhead: number
+  duration: number
+  cellW: number
+  frameFromClientX: (x: number) => number
+}) {
+  const band = onionRange(onion, playhead, duration)
+  const left = NAME_W + (band.start - 1) * cellW
+  const width = Math.max(cellW, (band.end - band.start + 1) * cellW)
+  const onMarkerDown = (which: 'start' | 'end') => (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const move = (ev: MouseEvent) => {
+      const f = frameFromClientX(ev.clientX)
+      if (which === 'start') setOnionAnchorRange(f, Math.max(f, band.end))
+      else setOnionAnchorRange(Math.min(band.start, f), f)
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  return (
+    <>
+      <span data-testid="onion-band" style={{ position: 'absolute', left, top: 14, width, height: 6, background: 'rgba(80,140,220,0.35)', pointerEvents: 'none' }} />
+      <span data-testid="onion-marker-start" onMouseDown={onMarkerDown('start')} style={{ position: 'absolute', left: left - 3, top: 12, width: 6, height: 8, background: '#6af', cursor: 'ew-resize' }} />
+      <span data-testid="onion-marker-end" onMouseDown={onMarkerDown('end')} style={{ position: 'absolute', left: left + width - 3, top: 12, width: 6, height: 8, background: '#6af', cursor: 'ew-resize' }} />
+    </>
   )
 }

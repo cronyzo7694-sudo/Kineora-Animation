@@ -255,6 +255,9 @@ export interface KineoraWasm {
   kineora_toggle_other_layers_visible(exclude: number): boolean
   kineora_toggle_other_layers_locked(exclude: number): boolean
   kineora_toggle_other_layers_outline(exclude: number): boolean
+  kineora_set_all_layers_visible?(visible: boolean): boolean
+  kineora_set_all_layers_locked?(locked: boolean): boolean
+  kineora_set_all_layers_outline?(outline: boolean): boolean
   kineora_duplicate_layer(index: number): number
   kineora_move_layer(from: number, to: number): boolean
   kineora_patch_transforms(json: string): void

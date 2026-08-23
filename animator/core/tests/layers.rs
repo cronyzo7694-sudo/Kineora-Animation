@@ -819,7 +819,10 @@ fn header_set_all_visible_is_one_undo() {
     assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| !l.visible));
     s.undo();
     assert!(s.doc.scene(0).unwrap().layers.iter().all(|l| l.visible));
-    assert!(!s.set_all_layers_visible(true), "already-all-visible is a no-op");
+    assert!(
+        !s.set_all_layers_visible(true),
+        "already-all-visible is a no-op"
+    );
 }
 
 #[test]
@@ -864,7 +867,14 @@ fn reordering_a_folder_carries_its_children() {
     let other_id = s.doc.scene(0).unwrap().layers[0].id;
 
     assert!(s.move_layer(fi, 0));
-    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    let ids: Vec<_> = s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .map(|l| l.id)
+        .collect();
     assert_eq!(
         ids,
         vec![folder_id, child_id, other_id],
@@ -877,7 +887,14 @@ fn reordering_a_folder_carries_its_children() {
     );
 
     s.undo();
-    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    let ids: Vec<_> = s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .map(|l| l.id)
+        .collect();
     assert_eq!(ids, vec![other_id, folder_id, child_id], "undo is exact");
 }
 
@@ -901,7 +918,17 @@ fn a_folder_move_steps_over_its_own_subtree() {
     let bottom_id = s.doc.scene(0).unwrap().layers[0].id;
     let top_id = s.doc.scene(0).unwrap().layers[3].id;
 
-    assert!(s.move_layer(fi, 2), "move up steps over the folder's own child");
-    let ids: Vec<_> = s.doc.scene(0).unwrap().layers.iter().map(|l| l.id).collect();
+    assert!(
+        s.move_layer(fi, 2),
+        "move up steps over the folder's own child"
+    );
+    let ids: Vec<_> = s
+        .doc
+        .scene(0)
+        .unwrap()
+        .layers
+        .iter()
+        .map(|l| l.id)
+        .collect();
     assert_eq!(ids, vec![bottom_id, top_id, folder_id, child_id]);
 }

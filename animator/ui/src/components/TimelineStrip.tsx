@@ -152,7 +152,9 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
   const [onionTick, setOnionTick] = useState(0)
   const [activeOnly, setActiveOnly] = useState(false)
   const [customizeOpen, setCustomizeOpen] = useState(false)
-  const [hiddenBtns, setHiddenBtns] = useState<Set<string>>(() => new Set())
+  // Hide the honestly-deferred bekar buttons by default (EMF/camera/parenting)
+  // — they are still accessible via Customize, but don't clutter the default UI.
+  const [hiddenBtns, setHiddenBtns] = useState<Set<string>>(() => new Set(['timeline-emf', 'timeline-camera', 'timeline-parenting']))
   const [markersOpen, setMarkersOpen] = useState(false)
   useEffect(() => subscribeOnionPrefs(() => setOnionTick((n) => n + 1)), [])
   // idempotency guard for the ease commit (multiple release events per gesture

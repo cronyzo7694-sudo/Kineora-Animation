@@ -1,203 +1,148 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { loadToolColors, resetToolColors, setToolColors, subscribeToolColors, swapToolColors } from '../toolColors'
 
 /**
- * The Tools panel "colors area" (Blueprint Part 01 §1.3.1: "Stroke chip, Fill
- * chip, swap button, black&white, no-color — clicking a chip opens Color
- * picker (Part 23); default fill/stroke for new shapes").
- *
- * Layout contract (the rail carries BUTTONS ONLY):
- *   - Fill chip + Stroke chip + Black&White (reset) + Swap are buttons on the
- *     rail; clicking a chip opens its color popover (picker + No color).
- *   - The stroke WIDTH is numeric — numerics never live on the rail, so it
- *     opens in a popover from the "W" modifier button (or lives in the
- *     Properties panel), and feeds the Ink Bottle / shape tools.
- *
- * These swatches are AUTHORING state: they decide what the shape tools draw
- * and what the Paint Bucket / Ink Bottle apply. They never touch the document
- * by themselves, so they create no undo entry and never dirty a file.
+ * Tools panel colors area — Adobe-like overlapping fill/stroke swatches.
+ * Improved: clearer visual hierarchy, better tooltips, more polished.
  */
-
-type PopTarget = 'fill' | 'stroke' | 'width'
-
 export function ToolColors({ vertical = false }: { vertical?: boolean } = {}) {
   const [colors, setColors] = useState(loadToolColors)
-  const [open, setOpen] = useState<PopTarget | null>(null)
-  const [anchorTop, setAnchorTop] = useState(2)
-  const rootRef = useRef<HTMLDivElement | null>(null)
-
   useEffect(() => subscribeToolColors(() => setColors(loadToolColors())), [])
 
-  // Popover hygiene: outside pointer closes, Esc closes (capture so the stage
-  // never treats it as a draw-cancel while a color popover is open).
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(null)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      setOpen(null)
-    }
-    document.addEventListener('pointerdown', onPointer, true)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer, true)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [open])
-
-  const toggle = (target: PopTarget, el: HTMLElement) => {
-    const root = rootRef.current
-    if (root && vertical) {
-      setAnchorTop(Math.max(2, el.getBoundingClientRect().top - root.getBoundingClientRect().top))
-    }
-    setOpen((o) => (o === target ? null : target))
-  }
-
-  const chip = (target: 'fill' | 'stroke', label: string, value: string | null) => (
-    <button
-      key={target}
-      data-testid={`tool-${target}-chip`}
-      data-open={open === target ? 'true' : 'false'}
-      aria-label={`${label} color (click for picker)`}
-      aria-expanded={open === target}
-      title={`${label} color — click to change`}
-      onClick={(e) => toggle(target, e.currentTarget)}
-      style={{
-        position: 'relative',
-        width: 26,
-        height: 19,
-        padding: 0,
-        borderRadius: 3,
-        border: open === target ? '1px solid #5a8fc0' : '1px solid #666',
-        background: value ?? '#151515',
-        cursor: 'pointer',
-        overflow: 'hidden',
-      }}
-    >
+  const swatchBtn = (
+    testId: string,
+    label: string,
+    value: string | null,
+    onPick: (c: string) => void,
+    isFill: boolean,
+  ) => (
+    <span style={{ position: 'relative', display: 'inline-block' }} title={`${label} color — ${value ?? 'None'} (click to pick)`}>
+      <input
+        type="color"
+        data-testid={testId}
+        aria-label={`${label} color`}
+        value={value ?? (isFill ? '#ffffff' : '#000000')}
+        onChange={(e) => onPick(e.target.value)}
+        style={{
+          width: isFill ? 22 : 22,
+          height: isFill ? 22 : 22,
+          padding: 0,
+          border: isFill ? '2px solid #fff' : '1px solid #fff',
+          borderRadius: 3,
+          background: value ?? 'transparent',
+          cursor: 'pointer',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
+          position: isFill ? 'relative' : 'absolute',
+          left: isFill ? 0 : 10,
+          top: isFill ? 0 : 10,
+          zIndex: isFill ? 1 : 2,
+        }}
+      />
       {value === null && (
         <span
-          data-testid={`tool-${target}-none`}
+          data-testid={`${testId}-none`}
           aria-hidden
-          style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e66', fontSize: 15, lineHeight: 1 }}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            left: isFill ? 0 : 10,
+            top: isFill ? 0 : 10,
+            width: 22,
+            height: 22,
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#e66',
+            fontSize: 16,
+            fontWeight: 700,
+            lineHeight: 1,
+            background: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(229,85,85,0.2) 3px, rgba(229,85,85,0.2) 6px)',
+            borderRadius: 2,
+            zIndex: isFill ? 1 : 2,
+          }}
         >
           ╱
         </span>
       )}
-    </button>
+    </span>
   )
 
-  const small = (testId: string, label: string, title: string, onClick: (el: HTMLElement) => void) => (
-    <button
-      data-testid={testId}
-      aria-label={title}
-      title={title}
-      onClick={(e) => onClick(e.currentTarget)}
-      style={{
-        minWidth: 16,
-        height: 19,
-        padding: '0 3px',
-        borderRadius: 3,
-        border: '1px solid #555',
-        background: '#2a2a2a',
-        color: '#eee',
-        cursor: 'pointer',
-        fontSize: 11,
-        lineHeight: 1,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {label}
-    </button>
-  )
-
-  const popValue = open === 'fill' ? colors.fill : colors.stroke
+  if (vertical) {
+    return (
+      <div
+        data-testid="tool-colors"
+        aria-label="Tool colors"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '4px 0' }}
+      >
+        <div style={{ position: 'relative', width: 32, height: 32, marginBottom: 2 }}>
+          {swatchBtn('tool-fill', 'Fill', colors.fill, (c) => setToolColors({ fill: c }), true)}
+          {swatchBtn('tool-stroke', 'Stroke', colors.stroke, (c) => setToolColors({ stroke: c }), false)}
+        </div>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button data-testid="tool-fill-none-btn" title="Fill: no color (transparent)" aria-label="Fill none" onClick={() => setToolColors({ fill: null })} style={miniBtn}>∅F</button>
+          <button data-testid="tool-stroke-none-btn" title="Stroke: no color (no stroke)" aria-label="Stroke none" onClick={() => setToolColors({ stroke: null })} style={miniBtn}>∅S</button>
+        </div>
+        <label style={{ color: '#888', fontSize: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }} title="Stroke width in pixels">
+          <span>W</span>
+          <input
+            type="number"
+            data-testid="tool-stroke-width"
+            aria-label="Stroke width"
+            min={0}
+            step={1}
+            value={colors.strokeWidth}
+            onChange={(e) => setToolColors({ strokeWidth: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ width: 36, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, fontSize: 10, padding: '1px 3px', textAlign: 'center' }}
+          />
+        </label>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button data-testid="tool-colors-swap" title="Swap fill and stroke colors (like Adobe X)" onClick={() => swapToolColors()} style={miniBtn}>⇄</button>
+          <button data-testid="tool-colors-default" title="Default colors — black stroke, white fill (D)" onClick={() => resetToolColors()} style={miniBtn}>D</button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div
-      ref={rootRef}
-      data-testid="tool-colors"
-      aria-label="Tool colors"
-      style={
-        vertical
-          ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '2px 0', position: 'relative' }
-          : { display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px', position: 'relative' }
-      }
-    >
-      {chip('fill', 'Fill', colors.fill)}
-      {chip('stroke', 'Stroke', colors.stroke)}
-      <span style={{ display: 'inline-flex', gap: 3 }}>
-        {small('tool-colors-swap', '⇄', 'Swap fill and stroke colors', () => swapToolColors())}
-        {small('tool-colors-default', '⬛', 'Black & White (default: black stroke, white fill)', () => resetToolColors())}
-        {small('tool-stroke-width-btn', 'W', 'Stroke width… (opens the numeric field)', (el) => toggle('width', el))}
-      </span>
-
-      {open && (
-        <div
-          data-testid="tool-color-popover"
-          role="dialog"
-          aria-label={open === 'width' ? 'Stroke width' : open === 'fill' ? 'Fill color' : 'Stroke color'}
-          style={
-            vertical
-              ? { position: 'absolute', left: 'calc(100% + 6px)', top: anchorTop, zIndex: 40 }
-              : { position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40 }
-          }
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: '#1a1a1a',
-              border: '1px solid #444',
-              borderRadius: 5,
-              padding: 6,
-              boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {open === 'width' ? (
-              <label style={{ color: '#bbb', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                Stroke width
-                <input
-                  type="number"
-                  data-testid="tool-stroke-width"
-                  aria-label="Stroke width"
-                  min={0}
-                  step={1}
-                  value={colors.strokeWidth}
-                  onChange={(e) => setToolColors({ strokeWidth: Number(e.target.value) })}
-                  autoFocus
-                  style={{ width: 52, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, fontSize: 11, padding: '2px 4px' }}
-                />
-              </label>
-            ) : (
-              <>
-                <input
-                  type="color"
-                  data-testid={open === 'fill' ? 'tool-fill' : 'tool-stroke'}
-                  aria-label={open === 'fill' ? 'Fill color' : 'Stroke color'}
-                  value={popValue ?? '#000000'}
-                  onChange={(e) => (open === 'fill' ? setToolColors({ fill: e.target.value }) : setToolColors({ stroke: e.target.value }))}
-                  style={{ width: 40, height: 26, padding: 0, border: '1px solid #555', borderRadius: 3, background: '#111', cursor: 'pointer' }}
-                />
-                <button
-                  data-testid={open === 'fill' ? 'tool-fill-none-btn' : 'tool-stroke-none-btn'}
-                  aria-label={`${open === 'fill' ? 'Fill' : 'Stroke'}: no color`}
-                  onClick={() => (open === 'fill' ? setToolColors({ fill: null }) : setToolColors({ stroke: null }))}
-                  style={{ padding: '2px 6px', borderRadius: 3, border: '1px solid #555', background: '#2a2a2a', color: '#eee', cursor: 'pointer', fontSize: 11 }}
-                >
-                  ∅ No color
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+    <div data-testid="tool-colors" aria-label="Tool colors" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px' }}>
+      <div style={{ position: 'relative', width: 32, height: 22, display: 'inline-flex' }}>
+        {swatchBtn('tool-fill', 'Fill', colors.fill, (c) => setToolColors({ fill: c }), true)}
+        {swatchBtn('tool-stroke', 'Stroke', colors.stroke, (c) => setToolColors({ stroke: c }), false)}
+      </div>
+      <button data-testid="tool-fill-none-btn" title="Fill: no color" aria-label="Fill none" onClick={() => setToolColors({ fill: null })} style={btn}>∅F</button>
+      <button data-testid="tool-stroke-none-btn" title="Stroke: no color" aria-label="Stroke none" onClick={() => setToolColors({ stroke: null })} style={btn}>∅S</button>
+      <label style={{ color: '#888', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        W
+        <input
+          type="number"
+          data-testid="tool-stroke-width"
+          aria-label="Stroke width"
+          min={0}
+          step={1}
+          value={colors.strokeWidth}
+          onChange={(e) => setToolColors({ strokeWidth: Number(e.target.value) })}
+          style={{ width: 44, background: '#111', color: '#eee', border: '1px solid #444', borderRadius: 3, fontSize: 11, padding: '1px 3px' }}
+        />
+      </label>
+      <button data-testid="tool-colors-swap" title="Swap fill and stroke" onClick={() => swapToolColors()} style={btn}>⇄</button>
+      <button data-testid="tool-colors-default" title="Default colors" onClick={() => resetToolColors()} style={btn}>⭯</button>
     </div>
   )
+}
+
+const btn: React.CSSProperties = {
+  padding: '1px 5px',
+  borderRadius: 3,
+  border: '1px solid #444',
+  background: '#2a2a2a',
+  color: '#ddd',
+  cursor: 'pointer',
+  fontSize: 11,
+}
+const miniBtn: React.CSSProperties = {
+  ...btn,
+  padding: '1px 3px',
+  fontSize: 9,
+  minWidth: 18,
 }

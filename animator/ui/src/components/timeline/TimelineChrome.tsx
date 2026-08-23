@@ -32,9 +32,9 @@ interface Props {
 const DEFAULT_OUTLINE_COLOR = '#ff0000'
 
 /** Adobe-aligned flag columns (right of the name, next to the frame grid). */
-export const CHROME_FLAG_W = 18
-export const CHROME_COLOR_W = 8
-export const CHROME_FLAGS_PAD = 4
+export const CHROME_FLAG_W = 20
+export const CHROME_COLOR_W = 10
+export const CHROME_FLAGS_PAD = 6
 export const CHROME_FLAGS_W = CHROME_FLAG_W + CHROME_FLAG_W + CHROME_COLOR_W + CHROME_FLAGS_PAD
 
 /** The three per-row flag columns (F-07-02 layer row controls). */
@@ -48,10 +48,10 @@ function flagOf(l: LayerJson, kind: FlagKind): boolean {
 const FLASH_MS = 900
 
 /** Original geometric glyphs (Blueprint 34: never Adobe art). */
-function Glyph({ path, fill, size = 11 }: { path: string; fill?: string; size?: number }) {
+function Glyph({ path, fill, size = 12 }: { path: string; fill?: string; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden style={{ display: 'block', margin: '0 auto' }}>
-      <path d={path} fill={fill ?? 'none'} stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={path} fill={fill ?? 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
 }
@@ -63,43 +63,16 @@ const PATH_FOLDER = 'M2 3.2 H5 L6 4.4 H10 V9.4 H2 Z'
 
 /**
  * Layers panel (Part 20 / C-22) — a projection of the engine's real layer list.
- * Rows show eye/lock/outline/name + state indicators; clicking a row activates
- * the layer (view state, no undo); eye/lock/outline/reorder/rename/create/
- * duplicate/delete are undoable engine commands.
- *
- * F-07-02 interactions implemented here:
- *  - Alt+click on eye/lock/outline toggles that flag on every OTHER layer as
- *    ONE undo step (M.3 rescue: when every layer is hidden, Alt+click the eye
- *    shows ALL).
- *  - DRAG-THROUGH (E1/E2 "drag through the column = multiple"): pointer-down
- *    on a flag button then dragging vertically flips the same flag on every
- *    row the pointer enters (once per row per gesture; the row click that
- *    follows a drag is suppressed so the active layer never changes mid-drag).
- *  - Double-clicking the outline swatch edits the layer's outline color
- *    (E6 "Layer Properties"). Rows flash briefly when `layer:changed` fires
- *    (SYS-01 §27.1 / INT-0010 — the canonical layer-mutation event).
- *
- * Keyboard/accessibility: flag buttons toggle on Enter/Space (click with
- * `detail === 0` — the keyboard-activation path); pointer users toggle on
- * pointer-down for drag responsiveness.
- *
- * Visual layout matches Adobe Animate's modern timeline chrome
- * (helpx.adobe.com/animate/using/timeline-layers.html + 2019+ screenshots):
- * type icon + name + pencil on the left; eye / lock / outline-color on the
- * right. Hidden = red X in the eye column; locked = padlock in the lock
- * column; visible/unlocked cells stay empty (still clickable).
+ * Improved: Adobe-like polished rows, clearer eye/lock, better folder UX.
  */
 export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', onlyActive = false }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState<number | null>(null)
   const [colorEdit, setColorEdit] = useState<{ index: number; draft: string } | null>(null)
-  // rows that recently changed (layer:changed) — brief highlight
   const [flash, setFlash] = useState<Set<number>>(new Set())
   const flashTimer = useRef<number | undefined>(undefined)
-  // active drag-through session (column kind + per-layer gesture-start values)
   const dragRef = useRef<{ kind: FlagKind; initial: Map<number, boolean>; toggled: Set<number> } | null>(null)
-  // suppress the row-click that follows a pointer-down on a flag button
   const ignoreRowClickRef = useRef(false)
 
   const layers: LayerJson[] = status?.layers ?? []
@@ -109,8 +82,6 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
   const hiddenTid = (i: number) => (variant === 'chrome' ? `timeline-layer-hidden-${i}` : `layer-hidden-${i}`)
   const rowTid = (i: number) => (variant === 'chrome' ? `timeline-chrome-row-${i}` : `layer-row-${i}`)
 
-  // SYS-01 §27.1 / INT-0010: a layer mutation happened → flash the affected
-  // row(s) so the user sees exactly which layer changed (batch ops flash all).
   useEffect(() => {
     const off = bus.on('layer:changed', ({ layerId }) => {
       setFlash((prev) => new Set(prev).add(layerId))
@@ -163,14 +134,12 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
     setDragging(null)
   }
 
-  /** Apply one flag flip on the engine (single-layer command). */
   const applyFlag = (kind: FlagKind, engineIndex: number, next: boolean): void => {
     if (kind === 'visible') setLayerVisible(engineIndex, next)
     else if (kind === 'locked') setLayerLocked(engineIndex, next)
     else setLayerOutline(engineIndex, next)
   }
 
-  /** Alt+click "all others" batch (ONE undo step). */
   const batchFlag = (kind: FlagKind, engineIndex: number): void => {
     if (kind === 'visible') notify(toggleOtherLayersVisible(engineIndex) ? 'visibility toggled for other layers' : 'visibility toggle: no other layers')
     else if (kind === 'locked') notify(toggleOtherLayersLocked(engineIndex) ? 'lock toggled for other layers' : 'lock toggle: no other layers')
@@ -191,8 +160,6 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
     }
   }
 
-  /** pointer-down on a flag button: Alt → batch; otherwise start a drag
-   *  session and toggle THIS row immediately (responsive drag-through). */
   const onFlagPointerDown = (e: React.PointerEvent, kind: FlagKind, engineIndex: number) => {
     if (!attached) return
     e.stopPropagation()
@@ -214,8 +181,6 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
     window.addEventListener('keydown', onDragKey)
   }
 
-  /** pointer-enter during an active drag of the SAME column → flip that row
-   *  (once per gesture; value flips from its gesture-start state). */
   const onFlagPointerEnter = (kind: FlagKind, engineIndex: number) => {
     const s = dragRef.current
     if (!s || s.kind !== kind) return
@@ -225,8 +190,6 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
     applyFlag(kind, engineIndex, !(s.initial.get(id) ?? flagOf(layers[engineIndex], kind)))
   }
 
-  /** click on a flag button: consume the click that follows a pointer-down
-   *  drag; keyboard activation (detail === 0) toggles the flag. */
   const onFlagClick = (e: React.MouseEvent, kind: FlagKind, engineIndex: number) => {
     e.stopPropagation()
     if (ignoreRowClickRef.current) {
@@ -239,9 +202,6 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
     }
   }
 
-  // double-click the outline swatch = edit the layer's outline color
-  // (F-07-02 E6 "Layer Properties → outline color"). ONE command per editing
-  // session: draft while open, commit on blur; Esc cancels.
   const startColorEdit = (e: React.MouseEvent, engineIndex: number) => {
     e.stopPropagation()
     if (!guard('edit outline color')) return
@@ -260,24 +220,31 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
 
   const cancelColorEdit = () => setColorEdit(null)
 
-  const flagBtn = (on: boolean): React.CSSProperties => ({
+  const flagBtn = (on: boolean, isVisibleCol = false): React.CSSProperties => ({
     width: CHROME_FLAG_W,
-    height: 18,
+    height: 20,
     flexShrink: 0,
     padding: 0,
-    border: 'none',
-    borderRadius: 2,
-    background: 'transparent',
-    color: on ? '#e8e8e8' : '#5a5a5a',
+    border: '1px solid transparent',
+    borderRadius: 3,
+    background: on ? (isVisibleCol ? 'rgba(229,85,85,0.15)' : 'rgba(126,184,255,0.15)') : 'transparent',
+    color: on ? (isVisibleCol ? '#e55' : '#7eb8ff') : '#5a5a5a',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    transition: 'all 0.12s',
   })
 
   return (
-    <ul data-testid={variant === 'chrome' ? 'timeline-chrome' : 'layers-list'} style={{ listStyle: 'none', margin: 0, padding: variant === 'chrome' ? 0 : 4, overflow: 'visible', flex: 1 }}>
-        <style>{`li:hover .tl-flag-ghost { opacity: 0.75 !important; }`}</style>
+    <ul data-testid={variant === 'chrome' ? 'timeline-chrome' : 'layers-list'} style={{ listStyle: 'none', margin: 0, padding: 0, overflow: 'visible', flex: 1 }}>
+        <style>{`
+          li.tl-row:hover { background: #2a2a2a !important; }
+          li.tl-row[data-active=\"true\"]:hover { background: #335a9a !important; }
+          li.tl-row:hover .tl-flag-ghost { opacity: 0.85 !important; }
+          li.tl-row:hover .tl-nudge { opacity: 1 !important; }
+          .tl-flag-btn:hover { background: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.15) !important; }
+        `}</style>
         {rows.map((l) => {
           const active = l.active
           const depth = l.depth ?? 0
@@ -288,19 +255,21 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
           const rowStyle: React.CSSProperties = {
             display: 'flex',
             alignItems: 'center',
-            gap: 2,
-            padding: variant === 'chrome' ? '0 0 0 4px' : '2px 0 2px 4px',
-            height: rowHeight,
+            gap: 3,
+            padding: variant === 'chrome' ? '0 2px 0 6px' : '3px 4px 3px 6px',
+            height: rowHeight ?? 26,
             boxSizing: 'border-box',
             borderRadius: 0,
             cursor: 'pointer',
-            background: active ? '#2d5aa7' : dragging === l.engineIndex ? '#3a3a3a' : isFolder ? '#262626' : 'transparent',
-            border: 'none',
+            background: active ? '#2d5aa7' : dragging === l.engineIndex ? '#3a3a3a' : isFolder ? (l.collapsed ? '#252525' : '#222') : '#1e1e1e',
+            borderLeft: active ? '3px solid #7eb8ff' : '3px solid transparent',
+            borderBottom: '1px solid #252525',
             boxShadow: flashed ? 'inset 0 0 0 1px #7eb8ff' : 'none',
-            color: active ? '#fff' : '#d4d4d4',
-            fontSize: 11,
+            color: active ? '#fff' : isFolder ? '#c9c9c9' : '#d4d4d4',
+            fontSize: 12,
+            fontWeight: active ? 500 : 400,
             userSelect: 'none',
-            borderBottom: '1px solid #222',
+            transition: 'background 0.1s',
           }
           return (
             <li
@@ -308,9 +277,9 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
               data-testid={rowTid(l.engineIndex)}
               data-active={active ? 'true' : 'false'}
               data-changed={flashed ? 'true' : 'false'}
+              className="tl-row"
               draggable
               onDragStart={(e) => {
-                // column-drag-through gestures must never become row reorders
                 if ((e.target as HTMLElement).closest('[data-layer-col]')) return
                 setDragging(l.engineIndex)
               }}
@@ -332,26 +301,26 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                 setDraft(l.name)
               }}
             >
-              <span style={{ width: depth * 10, flexShrink: 0 }} data-testid={`layer-indent-${l.engineIndex}`} />
+              <span style={{ width: depth * 14, flexShrink: 0 }} data-testid={`layer-indent-${l.engineIndex}`} />
               {isFolder ? (
                 <button
                   data-testid={`layer-collapse-${l.engineIndex}`}
                   aria-label={l.collapsed ? `Expand ${l.name}` : `Collapse ${l.name}`}
-                  title={l.collapsed ? 'Expand folder' : 'Collapse folder'}
+                  title={l.collapsed ? 'Expand folder — click to show children' : 'Collapse folder — click to hide children'}
                   onClick={(e) => {
                     e.stopPropagation()
                     setFolderCollapsed(l.engineIndex, !l.collapsed)
                   }}
                   style={typeBtn}
                 >
-                  <span style={{ fontSize: 9, lineHeight: '12px', width: 8 }}>{l.collapsed ? '▸' : '▾'}</span>
-                  <Glyph path={PATH_FOLDER} fill="currentColor" size={11} />
+                  <span style={{ fontSize: 10, lineHeight: '12px', width: 10, color: '#888' }}>{l.collapsed ? '▸' : '▾'}</span>
+                  <Glyph path={PATH_FOLDER} fill={isFolder ? '#6a9eff' : 'currentColor'} size={13} />
                 </button>
               ) : (l.parent_id ?? 0) > 0 ? (
                 <button
                   data-testid={`layer-unnest-${l.engineIndex}`}
                   aria-label={`Remove ${l.name} from folder`}
-                  title="Move out of folder (F-20-05 left-edge un-nest)"
+                  title="Move out of folder (click to un-nest)"
                   onClick={(e) => {
                     e.stopPropagation()
                     if (setLayerParent(l.engineIndex, null)) notify('layer un-nested')
@@ -361,8 +330,8 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                   ↩
                 </button>
               ) : (
-                <span data-testid={`layer-type-${l.engineIndex}`} title="Normal layer" aria-hidden style={{ width: 16, flexShrink: 0, color: active ? '#cfe4ff' : '#8a8a8a' }}>
-                  <Glyph path={PATH_PAGE} size={11} />
+                <span data-testid={`layer-type-${l.engineIndex}`} title="Normal layer — contains artwork" aria-hidden style={{ width: 18, flexShrink: 0, color: active ? '#cfe4ff' : '#7a7a7a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Glyph path={PATH_PAGE} size={12} />
                 </span>
               )}
               {editing === l.engineIndex ? (
@@ -377,10 +346,10 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                     if (e.key === 'Escape') setEditing(null)
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  style={{ flex: 1, minWidth: 0, background: '#111', color: '#eee', border: '1px solid #7eb8ff', borderRadius: 2, padding: '1px 4px', fontSize: 11 }}
+                  style={{ flex: 1, minWidth: 0, background: '#111', color: '#eee', border: '1px solid #7eb8ff', borderRadius: 3, padding: '2px 6px', fontSize: 12 }}
                 />
               ) : (
-                <span data-testid={nameTid(l.engineIndex)} title={l.name} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span data-testid={nameTid(l.engineIndex)} title={`${l.name} — double-click to rename, drag to reorder`} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: 0.2 }}>
                   {l.name}
                 </span>
               )}
@@ -391,36 +360,37 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                   blockedActive
                     ? 'Active layer is locked or hidden — cannot edit'
                     : active
-                      ? 'Active layer — editable'
-                      : undefined
+                      ? 'Active layer — editable (pencil shows active)'
+                      : 'Click to make active'
                 }
-                style={{ width: 12, textAlign: 'center', color: blockedActive ? '#ffb4b4' : '#cfe4ff', fontSize: 10, flexShrink: 0 }}
+                style={{ width: 14, textAlign: 'center', color: blockedActive ? '#ff8a8a' : active ? '#7eb8ff' : 'transparent', fontSize: 11, flexShrink: 0 }}
               >
                 {blockedActive ? '⊘' : active ? '✎' : ''}
               </span>
 
-              <span data-testid={`layer-sel-${l.engineIndex}`} title="selected objects on this layer" style={{ width: 10, textAlign: 'center', color: '#9fd0ff', fontSize: 9, flexShrink: 0 }}>
+              <span data-testid={`layer-sel-${l.engineIndex}`} title={l.selected_objects > 0 ? `${l.selected_objects} object${l.selected_objects !== 1 ? 's' : ''} selected on this layer` : 'No selection on this layer'} style={{ width: 14, textAlign: 'center', color: l.selected_objects > 0 ? '#7eb8ff' : 'transparent', fontSize: 8, flexShrink: 0 }}>
                 {l.selected_objects > 0 ? '●' : ''}
               </span>
 
-              <button data-testid={`layer-up-${l.engineIndex}`} aria-label={`Move ${l.name} up`} title="Move layer up (front)" disabled={l.engineIndex >= layers.length - 1} onClick={(e) => { e.stopPropagation(); up(l.engineIndex) }} style={nudgeBtn}>▲</button>
-              <button data-testid={`layer-down-${l.engineIndex}`} aria-label={`Move ${l.name} down`} title="Move layer down (back)" disabled={l.engineIndex <= 0} onClick={(e) => { e.stopPropagation(); down(l.engineIndex) }} style={nudgeBtn}>▼</button>
+              <button data-testid={`layer-up-${l.engineIndex}`} aria-label={`Move ${l.name} up`} title="Move layer up (bring forward)" disabled={l.engineIndex >= layers.length - 1} onClick={(e) => { e.stopPropagation(); up(l.engineIndex) }} style={nudgeBtn} className="tl-nudge">▲</button>
+              <button data-testid={`layer-down-${l.engineIndex}`} aria-label={`Move ${l.name} down`} title="Move layer down (send backward)" disabled={l.engineIndex <= 0} onClick={(e) => { e.stopPropagation(); down(l.engineIndex) }} style={nudgeBtn} className="tl-nudge">▼</button>
 
               <button
                 data-testid={`layer-eye-${l.engineIndex}`}
                 data-layer-col
                 data-hidden={l.visible ? 'false' : 'true'}
                 aria-label={l.visible ? `Hide ${l.name}` : `Show ${l.name}`}
-                title={l.visible ? 'Hide layer (Alt: toggle all others; drag through column)' : 'Show layer (Alt: toggle all others; drag through column)'}
+                title={l.visible ? 'Hide layer — click to hide, Alt+click to hide others, drag through column to hide multiple' : 'Show layer — hidden layers are not rendered or exported'}
                 onPointerDown={(e) => onFlagPointerDown(e, 'visible', l.engineIndex)}
                 onPointerEnter={() => onFlagPointerEnter('visible', l.engineIndex)}
                 onClick={(e) => onFlagClick(e, 'visible', l.engineIndex)}
-                style={flagBtn(!l.visible)}
+                style={flagBtn(!l.visible, true)}
+                className="tl-flag-btn"
               >
                 {l.visible ? (
-                  <span className="tl-flag-ghost" style={{ opacity: 0.25 }}><Glyph path={PATH_EYE} size={11} /></span>
+                  <span className="tl-flag-ghost" style={{ opacity: 0.35 }}><Glyph path={PATH_EYE} size={12} /></span>
                 ) : (
-                  <span data-testid={hiddenTid(l.engineIndex)} title="Layer hidden (not rendered / not exported)" style={{ color: '#e55', fontSize: 11, fontWeight: 700, lineHeight: '12px' }}>
+                  <span data-testid={hiddenTid(l.engineIndex)} title="Layer hidden — not rendered, not exported" style={{ color: '#e55', fontSize: 12, fontWeight: 700, lineHeight: '12px' }}>
                     ✕
                   </span>
                 )}
@@ -430,20 +400,21 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                 data-layer-col
                 data-on={l.locked ? 'true' : 'false'}
                 aria-label={l.locked ? `Unlock ${l.name}` : `Lock ${l.name}`}
-                title={l.locked ? 'Unlock layer (Alt: toggle all others; drag through column)' : 'Lock layer (Alt: toggle all others; drag through column)'}
+                title={l.locked ? 'Unlock layer — locked layers cannot be edited' : 'Lock layer — click to lock, Alt+click to lock others, drag through column'}
                 onPointerDown={(e) => onFlagPointerDown(e, 'locked', l.engineIndex)}
                 onPointerEnter={() => onFlagPointerEnter('locked', l.engineIndex)}
                 onClick={(e) => onFlagClick(e, 'locked', l.engineIndex)}
                 style={flagBtn(l.locked)}
+                className="tl-flag-btn"
               >
-                {l.locked ? <Glyph path={PATH_LOCK} size={11} /> : <span className="tl-flag-ghost" style={{ opacity: 0.2 }}><Glyph path={PATH_LOCK} size={11} /></span>}
+                {l.locked ? <Glyph path={PATH_LOCK} size={12} /> : <span className="tl-flag-ghost" style={{ opacity: 0.25 }}><Glyph path={PATH_LOCK} size={12} /></span>}
               </button>
 
               {colorEdit && colorEdit.index === l.engineIndex ? (
                 <input
                   data-testid={`layer-outline-color-${l.engineIndex}`}
                   aria-label={`Outline color for ${l.name}`}
-                  title="Outline color (Esc cancels)"
+                  title="Outline color — pick a color, Esc to cancel"
                   type="color"
                   value={colorEdit.draft}
                   onChange={(e) => setColorEdit((c) => (c ? { ...c, draft: e.target.value } : c))}
@@ -453,7 +424,7 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                   }}
                   autoFocus
                   onClick={(e) => e.stopPropagation()}
-                  style={{ width: 22, height: 16, padding: 0, border: '1px solid #7eb8ff', borderRadius: 2, background: '#111', cursor: 'pointer', flexShrink: 0 }}
+                  style={{ width: 26, height: 18, padding: 0, border: '1px solid #7eb8ff', borderRadius: 3, background: '#111', cursor: 'pointer', flexShrink: 0 }}
                 />
               ) : (
                 <button
@@ -462,23 +433,24 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
                   data-outline={l.outline ? 'true' : 'false'}
                   data-color={outlineColor}
                   aria-label={l.outline ? `Turn off outline mode for ${l.name}` : `Turn on outline mode for ${l.name}`}
-                  title={`Outline mode (${outlineColor}) — double-click to change color; Alt: toggle all others; drag through column`}
+                  title={`Outline mode (${outlineColor}) — click to toggle outline-only view, double-click to change color, Alt+click for others`}
                   onPointerDown={(e) => onFlagPointerDown(e, 'outline', l.engineIndex)}
                   onPointerEnter={() => onFlagPointerEnter('outline', l.engineIndex)}
                   onClick={(e) => onFlagClick(e, 'outline', l.engineIndex)}
                   onDoubleClick={(e) => startColorEdit(e, l.engineIndex)}
                   style={{
                     width: CHROME_COLOR_W,
-                    height: 16,
+                    height: 18,
                     flexShrink: 0,
                     padding: 0,
                     marginRight: CHROME_FLAGS_PAD,
-                    borderRadius: 1,
-                    border: l.outline ? `1px solid ${outlineColor}` : '1px solid transparent',
+                    borderRadius: 3,
+                    border: l.outline ? `2px solid ${outlineColor}` : '1px solid #333',
                     background: outlineColor,
                     cursor: 'pointer',
-                    opacity: l.outline ? 1 : 0.85,
+                    opacity: l.outline ? 1 : 0.6,
                     boxSizing: 'border-box',
+                    boxShadow: l.outline ? `0 0 4px ${outlineColor}60` : 'none',
                   }}
                 />
               )}
@@ -490,5 +462,5 @@ export function TimelineChrome({ status, notify, rowHeight, variant = 'dock', on
 }
 
 
-const typeBtn: React.CSSProperties = { padding: 0, width: 22, height: 16, borderRadius: 2, border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexShrink: 0 }
-const nudgeBtn: React.CSSProperties = { padding: 0, width: 12, height: 14, borderRadius: 2, border: 'none', background: 'transparent', color: '#777', cursor: 'pointer', fontSize: 8, lineHeight: '14px', flexShrink: 0 }
+const typeBtn: React.CSSProperties = { padding: 0, width: 24, height: 18, borderRadius: 3, border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 2, flexShrink: 0 }
+const nudgeBtn: React.CSSProperties = { padding: 0, width: 14, height: 16, borderRadius: 3, border: 'none', background: 'transparent', color: '#555', cursor: 'pointer', fontSize: 9, lineHeight: '16px', flexShrink: 0, opacity: 0.4, transition: 'opacity 0.12s' }

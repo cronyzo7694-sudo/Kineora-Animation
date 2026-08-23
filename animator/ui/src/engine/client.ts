@@ -930,7 +930,7 @@ export function duplicateLayer(index: number): number {
 
 // ——— Object / document properties (Part 26) ———
 
-/** Edit transform fields at the current playhead (one undoable command). */
+/** Edit transform fields at the current playhead (one undoable /** Edit transform fields at the current playhead (one undoable command). */
 export function patchTransforms(patches: TransformPatchJson[]): void {
   if (!mod) return
   mod.kineora_patch_transforms(JSON.stringify(patches))
@@ -1049,8 +1049,17 @@ export function removeTransform(): boolean {
 }
 
 export function arrangeSelection(op: 'front' | 'forward' | 'back' | 'backward'): boolean {
-  const ok = mod?.kineora_arrange_selection?.(op) ?? false
-  if (ok) docChanged('transform')
+  let ok = false
+  if (mod?.kineora_arrange_selection) {
+    ok = mod.kineora_arrange_selection(op) ?? false
+    if (ok) docChanged('transform')
+  }
+  try {
+    const { arrangeInk, selectedInkIds } = require('../editor/inkStore') as typeof import('../editor/inkStore')
+    if (selectedInkIds().length > 0 && arrangeInk(selectedInkIds(), op)) ok = true
+  } catch {
+    /* ink store optional in isolated tests */
+  }
   return ok
 }
 

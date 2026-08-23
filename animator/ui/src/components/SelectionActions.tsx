@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
-import { flipSelection, removeTransform, rotateSelection, statusJson } from '../engine/client'
+import { arrangeSelection, flipSelection, removeTransform, rotateSelection, statusJson } from '../engine/client'
+import { selectedInkIds } from '../editor/inkStore'
 
 const btn: CSSProperties = {
   padding: '3px 7px',
@@ -16,7 +17,7 @@ const btn: CSSProperties = {
  * Used in Properties and next to the Selection tool options.
  */
 export function SelectionActions({ notify, compact = false }: { notify: (msg: string) => void; compact?: boolean }) {
-  const n = statusJson()?.selection?.length ?? 0
+  const n = (statusJson()?.selection?.length ?? 0) + selectedInkIds().length
   const go = (fn: () => boolean, ok: string) => {
     if (n === 0) {
       notify('select an object first')
@@ -58,6 +59,21 @@ export function SelectionActions({ notify, compact = false }: { notify: (msg: st
           Reset
         </button>
       )}
+      <span style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, width: '100%', marginTop: compact ? 2 : 4 }}>
+        Arrange
+      </span>
+      <button type="button" data-testid="sel-arr-front" title="Bring to Front (Ctrl+Shift+↑)" style={btn} onClick={() => go(() => arrangeSelection('front'), 'bring to front')}>
+        ⤒ Front
+      </button>
+      <button type="button" data-testid="sel-arr-forward" title="Bring Forward (Ctrl+↑)" style={btn} onClick={() => go(() => arrangeSelection('forward'), 'bring forward')}>
+        ↑ Up
+      </button>
+      <button type="button" data-testid="sel-arr-back" title="Send Backward (Ctrl+↓)" style={btn} onClick={() => go(() => arrangeSelection('backward'), 'send backward')}>
+        ↓ Down
+      </button>
+      <button type="button" data-testid="sel-arr-backmost" title="Send to Back (Ctrl+Shift+↓)" style={btn} onClick={() => go(() => arrangeSelection('back'), 'send to back')}>
+        ⤓ Back
+      </button>
     </div>
   )
 }

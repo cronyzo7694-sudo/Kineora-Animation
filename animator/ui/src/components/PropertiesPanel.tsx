@@ -173,6 +173,7 @@ export function PropertiesPanel({ status, tool = '', notify, width, onPreview, c
                 />
               </>
             )}
+            <SelectionActions notify={notify} />
           </div>
         )}
 

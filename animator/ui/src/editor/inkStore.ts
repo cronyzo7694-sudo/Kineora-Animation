@@ -133,6 +133,51 @@ export function clearInkSelection(): void {
   emit()
 }
 
+export type InkArrangeOp = 'front' | 'forward' | 'back' | 'backward'
+
+/**
+ * Adobe Arrange (same layer, back → front = array order).
+ * Bring to Front / Forward / Backward / Send to Back.
+ */
+export function arrangeInk(ids: number[], op: InkArrangeOp): boolean {
+  if (ids.length === 0 || items.length < 2) return false
+  const set = new Set(ids)
+  if (!items.some((it) => set.has(it.id))) return false
+  const before = items.map((it) => it.id).join(',')
+  const next = items.slice()
+  const isSel = (it: InkItem) => set.has(it.id)
+  let after: InkItem[]
+  if (op === 'front') {
+    after = [...next.filter((it) => !isSel(it)), ...next.filter(isSel)]
+  } else if (op === 'back') {
+    after = [...next.filter(isSel), ...next.filter((it) => !isSel(it))]
+  } else if (op === 'forward') {
+    for (let i = next.length - 1; i > 0; i--) {
+      if (isSel(next[i - 1]) && !isSel(next[i])) {
+        const t = next[i - 1]
+        next[i - 1] = next[i]
+        next[i] = t
+      }
+    }
+    after = next
+  } else {
+    for (let i = 0; i < next.length - 1; i++) {
+      if (isSel(next[i + 1]) && !isSel(next[i])) {
+        const t = next[i]
+        next[i] = next[i + 1]
+        next[i + 1] = t
+      }
+    }
+    after = next
+  }
+  if (after.map((it) => it.id).join(',') === before) return false
+  pushUndo()
+  items = after
+  emit()
+  bus.emit('document:changed', { type: 'transform', targets: ids })
+  return true
+}
+
 export function moveInk(ids: number[], dx: number, dy: number): void {
   if (ids.length === 0 || (dx === 0 && dy === 0)) return
   const set = new Set(ids)

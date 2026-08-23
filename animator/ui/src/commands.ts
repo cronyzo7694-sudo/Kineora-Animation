@@ -44,7 +44,7 @@ import {
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
 import { formatAutosaveInterval, loadAutosavePrefs, toggleAutosaveEnabled } from './autosavePrefs'
-import { deleteInkIds, inkCanRedo, inkCanUndo, selectedInkIds } from './editor/inkStore'
+import { inkCanRedo, inkCanUndo, selectedInkIds } from './editor/inkStore'
 import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
   closeActiveDocument,
@@ -219,6 +219,10 @@ export const debugViewController: { current: DebugViewController | null } = { cu
 // ---------------------------------------------------------------------------
 function engineOk(ctx: CommandContext): boolean {
   return ctx.engine.kind === 'ok'
+}
+
+function hasStageSelection(c: CommandContext): boolean {
+  return (c.getStatus()?.selection?.length ?? 0) > 0 || selectedInkIds().length > 0
 }
 const NOT_ATTACHED = 'engine not attached — build with `npm run wasm`'
 
@@ -1532,7 +1536,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+↑',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('front') ? 'bring to front' : 'arrange: nothing selected'),
   },
@@ -1543,7 +1547,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+↑',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('forward') ? 'bring forward' : 'arrange: nothing selected'),
   },
@@ -1554,7 +1558,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+↓',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('backward') ? 'send backward' : 'arrange: nothing selected'),
   },
@@ -1565,7 +1569,7 @@ export const commands: Command[] = [
     shortcut: 'Ctrl+Shift+↓',
     status: 'FUNCTIONAL',
     source: '[BLUEPRINT REQUIRED] Part 03',
-    enabled: (c) => engineOk(c) && (c.getStatus()?.selection?.length ?? 0) > 0,
+    enabled: (c) => engineOk(c) && hasStageSelection(c),
     whyDisabled: (c) => (engineOk(c) ? 'nothing selected' : NOT_ATTACHED),
     run: (c) => c.notify(arrangeSelection('back') ? 'send to back' : 'arrange: nothing selected'),
   },

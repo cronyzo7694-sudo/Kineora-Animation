@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
   addInk,
+  arrangeInk,
   deleteInkIds,
   distToSegment,
   hitInk,
@@ -66,6 +67,35 @@ describe('inkStore', () => {
     expect(listInk()[0].points[0].x).toBe(15)
     expect(deleteInkIds([id])).toBe(true)
     expect(listInk()).toHaveLength(0)
+  })
+
+  it('arrange bring-to-front / send-to-back / step', () => {
+    const stroke = (n: number) =>
+      addInk({
+        kind: 'pencil',
+        points: [
+          { x: n, y: 0 },
+          { x: n + 4, y: 0 },
+        ],
+        closed: false,
+        fill: null,
+        stroke: '#000',
+        strokeWidth: 1,
+      })
+    const a = stroke(0)
+    const b = stroke(10)
+    const c = stroke(20)
+    expect(listInk().map((it) => it.id)).toEqual([a, b, c])
+    expect(arrangeInk([a], 'front')).toBe(true)
+    expect(listInk().map((it) => it.id)).toEqual([b, c, a])
+    expect(arrangeInk([a], 'backward')).toBe(true)
+    expect(listInk().map((it) => it.id)).toEqual([b, a, c])
+    expect(arrangeInk([c], 'back')).toBe(true)
+    expect(listInk().map((it) => it.id)).toEqual([c, b, a])
+    expect(arrangeInk([c], 'forward')).toBe(true)
+    expect(listInk().map((it) => it.id)).toEqual([b, c, a])
+    expect(inkUndo()).toBe(true)
+    expect(listInk().map((it) => it.id)).toEqual([c, b, a])
   })
 
   it('point-in-poly and simplify', () => {

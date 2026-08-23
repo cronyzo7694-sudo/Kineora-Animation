@@ -92,6 +92,7 @@ import {
 import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
+import { processPencil } from '../editor/pencil'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -778,8 +779,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }
           notify?.(hits.length + ids.length ? `lasso: ${hits.length + ids.length} selected` : 'lasso: nothing inside')
         } else {
-          const pts = sg.kind === 'line' ? sg.pts : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
-          const size = loadToolOptions().inkSize
+          const o = loadToolOptions()
+          const pts =
+            sg.kind === 'line'
+              ? sg.pts
+              : sg.kind === 'pencil'
+                ? processPencil(sg.pts, o.pencilMode || 'smooth', o.pencilSmooth ?? 50)
+                : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
+          const size = o.inkSize
           addInk({
             kind: sg.kind,
             points: pts,

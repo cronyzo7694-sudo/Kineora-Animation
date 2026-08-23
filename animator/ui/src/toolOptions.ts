@@ -35,6 +35,10 @@ export interface ToolOptions {
   cornerRadius: number
   /** Adobe Pen: preview the next segment to the cursor (rubber-band). */
   penRubberBand: boolean
+  /** Adobe Pencil: Straighten / Smooth / Ink. */
+  pencilMode: 'straighten' | 'smooth' | 'ink'
+  /** Smooth amount 0–100 (Smooth mode). */
+  pencilSmooth: number
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -56,6 +60,8 @@ export function defaultToolOptions(): ToolOptions {
     starInner: 0.45,
     cornerRadius: 20,
     penRubberBand: true,
+    pencilMode: 'smooth',
+    pencilSmooth: 50,
   }
 }
 
@@ -85,6 +91,18 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
       typeof patch.fontSize === 'number' && Number.isFinite(patch.fontSize)
         ? Math.max(8, Math.min(200, patch.fontSize))
         : (state.fontSize ?? d.fontSize),
+    fontFamily: typeof patch.fontFamily === 'string' && patch.fontFamily ? patch.fontFamily : (state.fontFamily ?? d.fontFamily),
+    fontWeight: patch.fontWeight === 'bold' || patch.fontWeight === 'normal' ? patch.fontWeight : (state.fontWeight ?? d.fontWeight),
+    fontItalic: typeof patch.fontItalic === 'boolean' ? patch.fontItalic : (state.fontItalic ?? d.fontItalic),
+    fontUnderline: typeof patch.fontUnderline === 'boolean' ? patch.fontUnderline : (state.fontUnderline ?? d.fontUnderline),
+    textAlign:
+      patch.textAlign === 'left' || patch.textAlign === 'center' || patch.textAlign === 'right'
+        ? patch.textAlign
+        : (state.textAlign ?? d.textAlign),
+    letterSpacing:
+      typeof patch.letterSpacing === 'number' && Number.isFinite(patch.letterSpacing)
+        ? Math.max(-20, Math.min(80, patch.letterSpacing))
+        : (state.letterSpacing ?? d.letterSpacing),
     snapToObjects: typeof patch.snapToObjects === 'boolean' ? patch.snapToObjects : state.snapToObjects,
     snapToPixels: typeof patch.snapToPixels === 'boolean' ? patch.snapToPixels : state.snapToPixels,
     contactSensitive: typeof patch.contactSensitive === 'boolean' ? patch.contactSensitive : state.contactSensitive,

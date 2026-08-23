@@ -52,7 +52,7 @@ function hint(tool: string): string {
     case 'pen':
       return 'Click = corner. Drag = curve (Bezier handles). Shift = 45°. Click first point to close. Double-click / Ctrl-click / Enter = finish open. Shift+Enter = close + fill. Esc cancels. Over an existing path: click segment to add a point, click a square to delete it.'
     case 'pencil':
-      return 'Freehand stroke. Size and stroke color apply to the next line.'
+      return 'Adobe Pencil (Y). Straighten = lines/angles. Smooth = curves (slider). Ink = raw freehand. Stroke color + size apply. Shift does not apply — draw freely then the mode processes on release.'
     case 'brush':
       return 'Thick freehand stroke. Size and stroke color apply to the next brush mark.'
     case 'text':
@@ -171,6 +171,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
 
       {(tool === 'rect' || tool === 'oval') && <ShapeBox notify={notify ?? (() => {})} />}
       {tool === 'pen' && <PenFields notify={notify ?? (() => {})} />}
+      {tool === 'pencil' && <PencilFields />}
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
       {tool === 'select' && (
         <>
@@ -264,6 +265,49 @@ export function TextFields({
         <button type="button" data-testid="text-align-center" style={{ ...smallBtn, background: v.textAlign === 'center' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ textAlign: 'center' })}>C</button>
         <button type="button" data-testid="text-align-right" style={{ ...smallBtn, background: v.textAlign === 'right' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ textAlign: 'right' })}>R</button>
       </div>
+    </div>
+  )
+}
+
+function PencilFields() {
+  const [opts, setOpts] = useState(loadToolOptions)
+  useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
+  const mode = opts.pencilMode || 'smooth'
+  const btn = (id: 'straighten' | 'smooth' | 'ink', label: string, title: string) => (
+    <button
+      type="button"
+      data-testid={`pencil-mode-${id}`}
+      title={title}
+      data-active={mode === id ? 'true' : 'false'}
+      onClick={() => setToolOptions({ pencilMode: id })}
+      style={{ ...smallBtn, background: mode === id ? '#2d5aa7' : '#2a2a2a' }}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div data-testid="pencil-props" style={{ margin: '8px 0' }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Pencil mode</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {btn('straighten', 'Straighten', 'Recognize straight lines and 45° angles')}
+        {btn('smooth', 'Smooth', 'Soften curves')}
+        {btn('ink', 'Ink', 'No correction — raw stroke')}
+      </div>
+      {mode === 'smooth' && (
+        <label style={field}>
+          <span style={{ color: '#999' }}>Smoothing</span>
+          <input
+            data-testid="pencil-smooth"
+            type="range"
+            min={0}
+            max={100}
+            value={opts.pencilSmooth ?? 50}
+            onChange={(e) => setToolOptions({ pencilSmooth: Number(e.target.value) })}
+            style={{ flex: 1, accentColor: '#0a7cff' }}
+          />
+          <span style={{ width: 28, textAlign: 'right', color: '#ddd' }}>{opts.pencilSmooth ?? 50}</span>
+        </label>
+      )}
     </div>
   )
 }

@@ -130,6 +130,23 @@ describe('inkStore', () => {
     expect(listInk()[0].points.length).toBe(3)
   })
 
+  it('text hit and move stay on the glyphs', () => {
+    addInk({
+      kind: 'text',
+      points: [{ x: 40, y: 40 }],
+      closed: false,
+      fill: '#111',
+      stroke: null,
+      strokeWidth: 0,
+      text: 'Hi',
+      fontSize: 24,
+    })
+    expect(hitInk(50, 38)?.kind).toBe('text')
+    moveInk(selectedInkIds(), 10, 5)
+    expect(listInk()[0].points[0]).toEqual({ x: 50, y: 45 })
+    expect(hitInk(60, 43)?.kind).toBe('text')
+  })
+
   it('rotate / flip / reset text', () => {
     addInk({
       kind: 'text',

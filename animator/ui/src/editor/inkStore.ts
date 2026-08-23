@@ -506,18 +506,51 @@ export function pointInPoly(p: InkPt, poly: InkPt[]): boolean {
   return inside
 }
 
+/** Unrotated text box (baseline-relative). */
+export function textLocalBox(it: InkItem): { x: number; y: number; w: number; h: number } {
+  const p = it.points[0] ?? { x: 0, y: 0 }
+  const lines = (it.text ?? '').split('\n')
+  const size = it.fontSize ?? 18
+  const longest = lines.reduce((m, s) => Math.max(m, s.length), 1)
+  const w = Math.max(24, longest * size * 0.55 + (it.letterSpacing ?? 0) * Math.max(0, longest - 1))
+  const h = Math.max(size, lines.length * size * 1.3)
+  let x = p.x
+  if (it.textAlign === 'center') x = p.x - w / 2
+  if (it.textAlign === 'right') x = p.x - w
+  return { x, y: p.y - size + 4, w, h }
+}
+
+function rotateScaleBox(b: { x: number; y: number; w: number; h: number }, deg: number, sx: number, sy: number) {
+  const cx = b.x + b.w / 2
+  const cy = b.y + b.h / 2
+  const rad = (deg * Math.PI) / 180
+  const c = Math.cos(rad)
+  const s = Math.sin(rad)
+  const corners = [
+    { x: b.x, y: b.y },
+    { x: b.x + b.w, y: b.y },
+    { x: b.x + b.w, y: b.y + b.h },
+    { x: b.x, y: b.y + b.h },
+  ].map((p) => {
+    let x = (p.x - cx) * sx
+    let y = (p.y - cy) * sy
+    return { x: cx + x * c - y * s, y: cy + x * s + y * c }
+  })
+  const xs = corners.map((p) => p.x)
+  const ys = corners.map((p) => p.y)
+  const x0 = Math.min(...xs)
+  const y0 = Math.min(...ys)
+  return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0 }
+}
+
 export function inkBounds(it: InkItem): { x: number; y: number; w: number; h: number } {
   if (it.kind === 'text') {
-    const p = it.points[0] ?? { x: 0, y: 0 }
-    const lines = (it.text ?? '').split('\n')
-    const size = it.fontSize ?? 18
-    const longest = lines.reduce((m, s) => Math.max(m, s.length), 0)
-    const w = Math.max(40, longest * size * 0.55 + (it.letterSpacing ?? 0) * Math.max(0, longest - 1))
-    const h = Math.max(size, lines.length * size * 1.3)
-    let x = p.x
-    if (it.textAlign === 'center') x = p.x - w / 2
-    if (it.textAlign === 'right') x = p.x - w
-    return { x, y: p.y - size + 4, w, h }
+    const local = textLocalBox(it)
+    const rot = it.rotation ?? 0
+    const sx = it.scaleX ?? 1
+    const sy = it.scaleY ?? 1
+    if (!rot && sx === 1 && sy === 1) return local
+    return rotateScaleBox(local, rot, sx, sy)
   }
   let minX = Infinity
   let minY = Infinity
@@ -532,6 +565,23 @@ export function inkBounds(it: InkItem): { x: number; y: number; w: number; h: nu
   const pad = (it.strokeWidth || 1) / 2
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 0, h: 0 }
   return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 }
+}
+
+function hitTextBox(it: InkItem, x: number, y: number): boolean {
+  const b = textLocalBox(it)
+  const cx = b.x + b.w / 2
+  const cy = b.y + b.h / 2
+  const rad = (-(it.rotation ?? 0) * Math.PI) / 180
+  const dx = x - cx
+  const dy = y - cy
+  const lx = dx * Math.cos(rad) - dy * Math.sin(rad)
+  const ly = dx * Math.sin(rad) + dy * Math.cos(rad)
+  const sx = Math.abs(it.scaleX ?? 1) || 1
+  const sy = Math.abs(it.scaleY ?? 1) || 1
+  const px = lx / sx + cx
+  const py = ly / sy + cy
+  const pad = 6
+  return px >= b.x - pad && py >= b.y - pad && px <= b.x + b.w + pad && py <= b.y + b.h + pad
 }
 
 export function hitInk(x: number, y: number): InkItem | null {

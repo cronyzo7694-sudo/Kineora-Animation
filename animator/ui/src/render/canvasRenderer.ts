@@ -10,7 +10,7 @@
 import type { RectItemJson } from '../engine/wasmTypes'
 import type { Viewport } from './viewport'
 import { docRectToScreen, docToScreen } from './viewport'
-import type { InkItem, InkPt } from '../editor/inkStore'
+import { textLocalBox, type InkItem, type InkPt } from '../editor/inkStore'
 import { contrastOn, tooClose } from '../contrast'
 
 export interface Pt {
@@ -649,18 +649,23 @@ function drawInkText(
   origin: InkPt,
   background: string,
 ): void {
+  const local = textLocalBox({ ...it, points: [origin], rotation: 0, scaleX: 1, scaleY: 1 })
+  const cx = local.x + local.w / 2
+  const cy = local.y + local.h / 2
+  const c = docToScreen(vp, cx, cy)
   const p = docToScreen(vp, origin.x, origin.y)
   const size = (it.fontSize ?? 18) * vp.zoom
   const fam = it.fontFamily || 'system-ui, sans-serif'
   const weight = it.fontWeight === 'bold' ? 'bold' : 'normal'
   const style = it.fontItalic ? 'italic' : 'normal'
   ctx.save()
-  ctx.translate(p.x, p.y)
+  ctx.translate(c.x, c.y)
   const rot = it.rotation ?? 0
   if (rot) ctx.rotate((rot * Math.PI) / 180)
   const sx = it.scaleX ?? 1
   const sy = it.scaleY ?? 1
   if (sx !== 1 || sy !== 1) ctx.scale(sx, sy)
+  ctx.translate(p.x - c.x, p.y - c.y)
   ctx.fillStyle = contrastOn(it.fill, background)
   ctx.font = `${style} ${weight} ${Math.max(1, size)}px ${fam}`
   ctx.textAlign = it.textAlign === 'center' || it.textAlign === 'right' ? it.textAlign : 'left'

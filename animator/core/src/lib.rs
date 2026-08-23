@@ -5,6 +5,7 @@
 //! Ownership (Phase-3): MOD-DOC / MOD-FRAME / MOD-SELECTION / MOD-XFR /
 //! MOD-COMMAND / MOD-PERSIST / MOD-EXPORT (SVG subset).
 
+pub mod ai_runner;
 pub mod command;
 pub mod doc_manager;
 pub mod easing;

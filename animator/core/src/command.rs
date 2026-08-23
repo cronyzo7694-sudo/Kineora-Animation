@@ -185,6 +185,15 @@ impl History {
         self.undo.iter().map(|e| e.cmd.label()).collect()
     }
 
+    /// A5 transaction compiler seam. A staging `Session` executes the existing
+    /// checked Session facades against a cloned live document, then transfers
+    /// each already-built Command into one `CompositeCommand` on the real
+    /// Session. This is crate-private so normal editor code cannot bypass
+    /// History; production execution still enters through `execute_grouped`.
+    pub(crate) fn take_last_command(&mut self) -> Option<Box<dyn Command>> {
+        self.undo.pop().map(|entry| entry.cmd)
+    }
+
     /// E-AI-4: current document revision (0 for a fresh/loaded document; +1 per
     /// execute/undo/redo).
     pub fn revision(&self) -> u64 {

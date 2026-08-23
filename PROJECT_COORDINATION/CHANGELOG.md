@@ -1,5 +1,30 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — AI-T · AI Agent A5: atomic TransactionRunner + activity records
+
+- NEW Rust `ai_runner.rs`: accepts only A4 `ValidatedPlan` wire data, rebuilds
+  every existing Command through checked `Session` facades on a clone of the
+  LIVE document, and commits all prepared children through exactly one A1
+  `Session::execute_grouped`. Any middle/final construction failure discards
+  the staging session and pushes no History entry; real document, allocator,
+  selection, redo, and application clipboard stay untouched.
+- Apply-time authority is layered: TS `runner.ts` reads fresh A3 snapshot +
+  manifest, reuses the existing A4 `validatePlan` + `DocStateProbe`, checks the
+  A4 validation stamp for layer/selection/view staleness, then the Rust compiler
+  repeats live action-by-action Session guards immediately before grouped apply.
+  No second schema, validator, capability registry, snapshot, provider, or
+  grouping primitive was introduced.
+- NEW session-only `activity.ts`: deterministic started/action/completed/
+  rollback/failure events, affected action, structured E_* error, mutation
+  count, and entity bindings. It stores no prompts/provider data/params and
+  redacts all retained strings through A2.
+- Engine bridge adds one optional A5 facade and emits existing document/
+  selection bus events only after successful apply. No chat/UI mount (A6 not
+  started), no playback automation, no product-tool changes.
+- Tests added: 15 TransactionRunner/adversarial tests + 3 client bridge tests;
+  11 native Rust atomicity/history/selection/minimal-mutation tests authored.
+  TypeScript full gate and Rust toolchain status recorded in the A5 checkpoint.
+
 ## 2026-08-23 — AI-T · AI Agent A3: engine AI seams (E-AI-2..5) + snapshot/capability services
 
 - ENGINE (Rust — written here; cargo NOT RUN, user-PC verify pending):

@@ -245,6 +245,8 @@ export interface KineoraWasm {
   /** u64 revision — wasm-bindgen surfaces as bigint. */
   kineora_doc_revision?(): bigint
   kineora_set_selection?(idsJson: string): number
+  /** A5 atomic transaction runner. Input MUST be an A4 ValidatedPlan JSON. */
+  kineora_ai_execute_transaction?(planJson: string, label: string): string
   kineora_export_svg(frame: number): string
   kineora_export_svg_scaled(frame: number, scale: number): string
   kineora_save(path: string): boolean

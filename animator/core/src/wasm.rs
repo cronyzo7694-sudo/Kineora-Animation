@@ -1390,3 +1390,38 @@ pub fn kineora_set_selection(ids_json: String) -> u32 {
         doc.session.set_selection(ids) as u32
     })
 }
+
+/// A5: compile an already-A4-validated plan through existing Session facades,
+/// then commit every resulting Command through ONE `Session::execute_grouped`.
+/// The returned JSON is structured and redaction-safe; it never contains raw
+/// prompts, provider data, keys, or document snapshots.
+#[wasm_bindgen]
+pub fn kineora_ai_execute_transaction(plan_json: String, label: String) -> String {
+    DOCS.with(|d| {
+        let mut manager = d.borrow_mut();
+        let Some(doc) = manager.active_mut() else {
+            return serde_json::json!({
+                "ok": false,
+                "outcome": "failed",
+                "rolledBack": false,
+                "mutationCount": 0,
+                "actions": [],
+                "bindings": [],
+                "error": {
+                    "code": "E_STATE",
+                    "stage": 8,
+                    "message": "no live document is open"
+                }
+            })
+            .to_string();
+        };
+        let result = crate::ai_runner::execute_validated_plan(
+            &mut doc.session,
+            &plan_json,
+            &label,
+        );
+        serde_json::to_string(&result).unwrap_or_else(|_| {
+            "{\"ok\":false,\"outcome\":\"failed\",\"rolledBack\":false,\"mutationCount\":0,\"actions\":[],\"bindings\":[],\"error\":{\"code\":\"E_UNKNOWN\",\"stage\":0,\"message\":\"transaction result serialization failed\"}}".into()
+        })
+    })
+}

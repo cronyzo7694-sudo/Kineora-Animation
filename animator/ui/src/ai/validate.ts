@@ -120,6 +120,20 @@ export interface ValidatedAction {
   tier: 'A' | 'B'
 }
 
+export interface ValidationStamp {
+  /** Advisory A3 snapshot identity captured when A4 produced this plan. A5
+   * always revalidates against a fresh live snapshot; this stamp lets it detect
+   * selection/view-only staleness that does not increment History revision and
+   * layer-index identity changes after document edits. */
+  docRevision: number
+  sceneIndex: number
+  activeLayer: number
+  playhead: number
+  selection: number[]
+  layers: Array<{ index: number; id: number }>
+  capabilityEngine: string
+}
+
 export interface ValidatedPlan {
   actions: ValidatedAction[]
   expected: string[]
@@ -127,6 +141,7 @@ export interface ValidatedPlan {
   requiresConfirmation: boolean
   massDestructive: { nodes: number; totalSceneNodes: number } | null
   budget: { actions: number; estimatedMutations: number }
+  validatedAt: ValidationStamp
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +552,15 @@ export function validatePlan(rawText: string, opts: ValidationOptions): Validati
         requiresConfirmation: validated.some((v) => v.tier === 'B'),
         massDestructive,
         budget: { actions: validated.length, estimatedMutations },
+        validatedAt: {
+          docRevision: opts.snapshot.rev,
+          sceneIndex: opts.snapshot.raw.scene.i,
+          activeLayer: opts.snapshot.raw.activeLayer,
+          playhead: opts.snapshot.raw.playhead,
+          selection: [...opts.snapshot.raw.selection],
+          layers: opts.snapshot.raw.layers.map((layer) => ({ index: layer.i, id: layer.id })),
+          capabilityEngine: opts.registry.manifest.engine,
+        },
       },
     }
   } catch (e) {

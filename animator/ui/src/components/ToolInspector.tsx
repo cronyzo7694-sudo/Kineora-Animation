@@ -190,6 +190,84 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
   )
 }
 
+const smallBtn: CSSProperties = {
+  padding: '3px 7px',
+  borderRadius: 3,
+  border: '1px solid #555',
+  background: '#2a2a2a',
+  color: '#eee',
+  cursor: 'pointer',
+  fontSize: 11,
+}
+
+export function TextFields({
+  onPatch,
+  value,
+}: {
+  onPatch?: (patch: Partial<ReturnType<typeof loadToolOptions>>) => void
+  value?: {
+    fontSize?: number
+    fontFamily?: string
+    fontWeight?: 'normal' | 'bold'
+    fontItalic?: boolean
+    fontUnderline?: boolean
+    textAlign?: 'left' | 'center' | 'right'
+    letterSpacing?: number
+  }
+} = {}) {
+  const [opts, setOpts] = useState(loadToolOptions)
+  useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
+  const v = {
+    fontSize: value?.fontSize ?? opts.fontSize ?? 24,
+    fontFamily: value?.fontFamily ?? opts.fontFamily ?? 'system-ui, sans-serif',
+    fontWeight: value?.fontWeight ?? opts.fontWeight ?? 'normal',
+    fontItalic: value?.fontItalic ?? !!opts.fontItalic,
+    fontUnderline: value?.fontUnderline ?? !!opts.fontUnderline,
+    textAlign: value?.textAlign ?? opts.textAlign ?? 'left',
+    letterSpacing: value?.letterSpacing ?? opts.letterSpacing ?? 0,
+  }
+  const apply = (patch: Partial<typeof v>) => {
+    if (onPatch) onPatch(patch)
+    else setToolOptions(patch)
+  }
+  return (
+    <div data-testid="text-props" style={{ margin: '8px 0' }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Character</div>
+      <label style={field}>
+        <span style={{ color: '#999' }}>Family</span>
+        <select data-testid="text-family" value={v.fontFamily} onChange={(e) => apply({ fontFamily: e.target.value })} style={{ ...input, width: 120 }}>
+          <option value="system-ui, sans-serif">System UI</option>
+          <option value="Arial, Helvetica, sans-serif">Arial</option>
+          <option value="'Times New Roman', Times, serif">Times</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="'Courier New', Courier, monospace">Courier</option>
+          <option value="Verdana, Geneva, sans-serif">Verdana</option>
+          <option value="Impact, sans-serif">Impact</option>
+        </select>
+      </label>
+      <label style={field}>
+        <span style={{ color: '#999' }}>Size</span>
+        <input data-testid="prop-tool-font-size" type="number" min={8} max={200} value={v.fontSize} onChange={(e) => apply({ fontSize: Math.max(8, Number(e.target.value) || 24) })} style={input} />
+      </label>
+      <label style={field}>
+        <span style={{ color: '#999' }}>Tracking</span>
+        <input data-testid="text-tracking" type="number" min={-20} max={80} value={v.letterSpacing} onChange={(e) => apply({ letterSpacing: Number(e.target.value) || 0 })} style={input} />
+      </label>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button type="button" data-testid="text-bold" style={{ ...smallBtn, fontWeight: 700, background: v.fontWeight === 'bold' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ fontWeight: v.fontWeight === 'bold' ? 'normal' : 'bold' })}>B</button>
+        <button type="button" data-testid="text-italic" style={{ ...smallBtn, fontStyle: 'italic', background: v.fontItalic ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ fontItalic: !v.fontItalic })}>I</button>
+        <button type="button" data-testid="text-underline" style={{ ...smallBtn, textDecoration: 'underline', background: v.fontUnderline ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ fontUnderline: !v.fontUnderline })}>U</button>
+      </div>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Paragraph</div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button type="button" data-testid="text-align-left" style={{ ...smallBtn, background: v.textAlign === 'left' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ textAlign: 'left' })}>L</button>
+        <button type="button" data-testid="text-align-center" style={{ ...smallBtn, background: v.textAlign === 'center' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ textAlign: 'center' })}>C</button>
+        <button type="button" data-testid="text-align-right" style={{ ...smallBtn, background: v.textAlign === 'right' ? '#2d5aa7' : '#2a2a2a' }} onClick={() => apply({ textAlign: 'right' })}>R</button>
+      </div>
+    </div>
+  )
+}
+
 function PenFields({ notify }: { notify: (msg: string) => void }) {
   const [opts, setOpts] = useState(loadToolOptions)
   const [, tick] = useState(0)
@@ -244,16 +322,6 @@ function PenFields({ notify }: { notify: (msg: string) => void }) {
       </div>
     </div>
   )
-}
-
-const smallBtn: CSSProperties = {
-  padding: '3px 7px',
-  borderRadius: 3,
-  border: '1px solid #555',
-  background: '#2a2a2a',
-  color: '#eee',
-  cursor: 'pointer',
-  fontSize: 11,
 }
 
 /** Adobe Subselection Properties — anchors only. Never throw (blank UI crash). */

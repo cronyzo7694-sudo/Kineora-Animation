@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { setToolOptions } from '../toolOptions'
 import { ToolColors } from './ToolColors'
 import { ToolOptions } from './ToolOptions'
 

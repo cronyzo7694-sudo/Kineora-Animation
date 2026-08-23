@@ -12,6 +12,7 @@ import {
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOptions'
 import { SelectionActions } from './SelectionActions'
+import { ShapeBox } from './ShapeBox'
 import { ToolColors } from './ToolColors'
 import { ToolOptions } from './ToolOptions'
 
@@ -42,9 +43,9 @@ export function toolLabel(tool: string): string {
 function hint(tool: string): string {
   switch (tool) {
     case 'rect':
-      return 'Drag to draw a rectangle. Shift = square. Alt = from center. Fill + Stroke apply to the next shape.'
+      return 'Drag to draw. Pick a shape from the Shape box (Adobe Rectangle flyout): rounded rect, polygons, stars, arrows, or a custom path. Shift constrains. Alt = from center.'
     case 'oval':
-      return 'Drag to draw an oval. Shift = circle. Alt = from center. Fill + Stroke apply to the next shape.'
+      return 'Drag an oval, or pick Ring / another shape from the Shape box. Shift = circle. Alt = from center.'
     case 'line':
       return 'Click-drag a two-point line. Shift constrains to H/V. Stroke color and width apply.'
     case 'pen':
@@ -180,6 +181,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
         </label>
       )}
 
+      {(tool === 'rect' || tool === 'oval') && <ShapeBox notify={notify ?? (() => {})} />}
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
       {tool === 'select' && (
         <>

@@ -52,7 +52,7 @@ import {
 import { render, subscribeFillImages, type ColorPreview, type RenderState, HANDLE_HIT_RADIUS } from '../render/canvasRenderer'
 import { loadViewPrefs, patchViewPrefs, subscribeViewPrefs } from '../viewPrefs'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
-import { contrastOn } from '../contrast'
+import { contrastOn, tooClose } from '../contrast'
 import { loadToolOptions, rectFullyInside, snapMoveDelta, subscribeToolOptions } from '../toolOptions'
 import { loadOnionPrefs, subscribeOnionPrefs } from '../onionPrefs'
 import { collectGhosts } from '../onion'
@@ -90,6 +90,7 @@ import {
 } from '../editor/transformMath'
 import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
+import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 
 interface Props {
   engine: EngineStatus
@@ -534,12 +535,22 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         rg.lastDocX = doc.x
         rg.lastDocY = doc.y
         const a = screenToDoc(vpRef.current, rg.startX, rg.startY)
-        rectPreviewRef.current = {
-          ...buildRect(a.x, a.y, doc.x, doc.y, {
-            square: e.shiftKey,
-            fromCenter: e.altKey,
-          }),
-          shape: rg.shape,
+        const box = buildRect(a.x, a.y, doc.x, doc.y, {
+          square: e.shiftKey,
+          fromCenter: e.altKey,
+        })
+        const preset = loadToolOptions().shapePreset || rg.shape
+        if (isEngineShape(preset)) {
+          rectPreviewRef.current = { ...box, shape: preset }
+          previewStrokeRef.current = null
+        } else {
+          rectPreviewRef.current = null
+          const o = loadToolOptions()
+          previewStrokeRef.current = shapeInBox(preset, box, {
+            sides: o.polySides,
+            inner: o.starInner,
+            corner: o.cornerRadius,
+          })
         }
         scheduleRedraw()
       }
@@ -723,21 +734,35 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           // section decides what new objects look like.
           const colors = loadToolColors()
           const bg = statusJson()?.background ?? '#ffffff'
-          const fill = contrastOn(colors.fill, bg)
+          const fill = colors.fill ?? '#ffffff'
           let stroke = colors.stroke
           let sw = colors.strokeWidth
-          if (!stroke || (fill === bg && contrastOn(stroke, bg) === fill)) {
+          if (!stroke || tooClose(stroke, bg)) {
             stroke = '#111111'
-            sw = Math.max(sw || 0, 2)
+            sw = Math.max(sw || 0, 1)
           }
-          const id = drawShape(rg.shape, rp.x, rp.y, rp.w, rp.h, fill, stroke, sw)
-          if (id === 0 && engine.kind === 'ok' && notify) {
-            notify(
-              rg.shape === 'oval' && !hasShapeDrawFacade()
-                ? 'Oval tool: engine build too old — rebuild with `npm run wasm`'
-                : 'draw blocked: active layer is locked, hidden, or a folder',
-            )
+          const preset = loadToolOptions().shapePreset || rg.shape
+          if (isEngineShape(preset)) {
+            const id = drawShape(preset, rp.x, rp.y, rp.w, rp.h, fill, stroke, sw)
+            if (id === 0 && engine.kind === 'ok' && notify) {
+              notify(
+                preset === 'oval' && !hasShapeDrawFacade()
+                  ? 'Oval tool: engine build too old — rebuild with `npm run wasm`'
+                  : 'draw blocked: active layer is locked, hidden, or a folder',
+              )
+            }
+          } else {
+            const o = loadToolOptions()
+            addInk({
+              kind: 'pen',
+              points: shapeInBox(preset, rp, { sides: o.polySides, inner: o.starInner, corner: o.cornerRadius }),
+              closed: true,
+              fill,
+              stroke,
+              strokeWidth: Math.max(1, sw),
+            })
           }
+          previewStrokeRef.current = null
         }
       }
       scheduleRedraw()

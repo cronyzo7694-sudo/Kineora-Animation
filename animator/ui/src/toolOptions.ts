@@ -19,6 +19,14 @@ export interface ToolOptions {
   snapToPixels: boolean
   /** Selection: marquee selects objects it *touches* (ON) vs fully enclosed (OFF). */
   contactSensitive: boolean
+  /** Adobe Rectangle flyout / Shape box preset. */
+  shapePreset: string
+  /** PolyStar / polygon side count (3–32). */
+  polySides: number
+  /** Star inner radius 0.1–0.9. */
+  starInner: number
+  /** Rounded-rect corner % of min(w,h). */
+  cornerRadius: number
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -61,6 +69,19 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
     snapToObjects: typeof patch.snapToObjects === 'boolean' ? patch.snapToObjects : state.snapToObjects,
     snapToPixels: typeof patch.snapToPixels === 'boolean' ? patch.snapToPixels : state.snapToPixels,
     contactSensitive: typeof patch.contactSensitive === 'boolean' ? patch.contactSensitive : state.contactSensitive,
+    shapePreset: typeof patch.shapePreset === 'string' && patch.shapePreset ? patch.shapePreset : state.shapePreset ?? d.shapePreset,
+    polySides:
+      typeof patch.polySides === 'number' && Number.isFinite(patch.polySides)
+        ? Math.max(3, Math.min(32, Math.round(patch.polySides)))
+        : (state.polySides ?? d.polySides),
+    starInner:
+      typeof patch.starInner === 'number' && Number.isFinite(patch.starInner)
+        ? Math.max(0.1, Math.min(0.9, patch.starInner))
+        : (state.starInner ?? d.starInner),
+    cornerRadius:
+      typeof patch.cornerRadius === 'number' && Number.isFinite(patch.cornerRadius)
+        ? Math.max(0, Math.min(49, patch.cornerRadius))
+        : (state.cornerRadius ?? d.cornerRadius),
   }
   state = next
   for (const fn of [...listeners]) fn()

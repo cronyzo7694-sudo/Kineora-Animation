@@ -13,7 +13,71 @@ export function ToolOptions({ tool, vertical = false }: { tool: string; vertical
   const [opts, setOpts] = useState(loadToolOptions)
   useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
 
-  if (tool === 'pencil' || tool === 'brush' || tool === 'eraser') {
+  if (tool === 'pencil') {
+    const mode = opts.pencilMode || 'smooth'
+    const modeBtn = (id: 'straighten' | 'smooth' | 'ink', glyph: string, title: string) => (
+      <button
+        type="button"
+        data-testid={`opt-pencil-${id}`}
+        title={title}
+        aria-pressed={mode === id}
+        onClick={() => setToolOptions({ pencilMode: id })}
+        style={{
+          width: 22,
+          height: 18,
+          padding: 0,
+          borderRadius: 3,
+          border: '1px solid #3a3a3a',
+          background: mode === id ? '#2d5aa7' : '#252525',
+          color: '#ddd',
+          cursor: 'pointer',
+          fontSize: 9,
+        }}
+      >
+        {glyph}
+      </button>
+    )
+    return (
+      <div
+        data-testid="tool-options"
+        aria-label="Pencil options"
+        style={
+          vertical
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '2px 0' }
+            : { display: 'flex', alignItems: 'center', gap: 3, padding: '0 8px' }
+        }
+      >
+        {modeBtn('straighten', '∠', 'Straighten')}
+        {modeBtn('smooth', '∿', 'Smooth')}
+        {modeBtn('ink', '✎', 'Ink')}
+        <button
+          type="button"
+          data-testid="ink-size-btn"
+          title={`Weight ${opts.inkSize}px`}
+          onClick={() => {
+            const steps = [2, 4, 8, 16]
+            const i = steps.findIndex((s) => s >= opts.inkSize)
+            setToolOptions({ inkSize: steps[(i + 1) % steps.length] })
+          }}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 9,
+          }}
+        >
+          {opts.inkSize}
+        </button>
+      </div>
+    )
+  }
+
+  if (tool === 'brush' || tool === 'eraser') {
     return (
       <div
         data-testid="tool-options"

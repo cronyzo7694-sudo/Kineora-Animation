@@ -84,6 +84,8 @@ export interface RenderState {
   previewStroke?: InkPt[] | null
   previewStrokeWidth?: number
   previewStrokeColor?: string | null
+  previewStrokeDash?: number[]
+  previewLineCap?: CanvasLineCap
   previewFill?: string | null
   previewClosed?: boolean
   previewText?: { x: number; y: number; text: string; size: number; fill: string } | null
@@ -204,6 +206,7 @@ export function render(ctx: CanvasRenderingContext2D, vp: Viewport, s: RenderSta
       Math.max(1.5, s.previewStrokeWidth ?? 2),
       s.previewFill ?? null,
       !!s.previewClosed,
+      { dash: s.previewStrokeDash, cap: s.previewLineCap },
     )
   }
   if (s.previewText) {
@@ -431,8 +434,11 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
     const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
     const fill = it.fill && it.closed ? it.fill : 'none'
     const stroke = it.stroke ?? 'none'
+    const cap = it.lineCap || 'round'
+    const join = it.lineJoin || 'round'
+    const dash = it.strokeDash && it.strokeDash.length ? ` stroke-dasharray="${it.strokeDash.join(' ')}"` : ''
     parts.push(
-      `<path d="${d}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `<path d="${d}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}" stroke-linecap="${cap}" stroke-linejoin="${join}"${dash}/>`,
     )
   }
   return parts.join('')
@@ -584,7 +590,11 @@ function drawInkItems(
     } else {
       const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
       const vis = visibleOnStage({ fill: it.fill ?? 'transparent', stroke: it.stroke, strokeWidth: sw }, background ?? '#ffffff')
-      drawPolyline(ctx, vp, pts, vis.stroke, vis.strokeWidth, it.fill, it.closed)
+      drawPolyline(ctx, vp, pts, vis.stroke, vis.strokeWidth, it.fill, it.closed, {
+        dash: it.strokeDash,
+        cap: it.lineCap,
+        join: it.lineJoin,
+      })
       const im = getFillImage(extra?.fillImage)
       if (im && it.closed && pts.length >= 3) {
         const b = { x: Math.min(...pts.map((p) => p.x)), y: Math.min(...pts.map((p) => p.y)), w: 0, h: 0 }

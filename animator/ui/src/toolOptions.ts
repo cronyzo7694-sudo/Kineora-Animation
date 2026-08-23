@@ -39,6 +39,11 @@ export interface ToolOptions {
   pencilMode: 'straighten' | 'smooth' | 'ink'
   /** Smooth amount 0–100 (Smooth mode). */
   pencilSmooth: number
+  /** Adobe stroke style for Pencil (Property inspector). */
+  pencilStyle: 'solid' | 'dashed' | 'dotted'
+  pencilCap: 'butt' | 'round' | 'square'
+  /** Straighten: recognize ovals / rects / triangles. */
+  pencilRecognize: boolean
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -128,6 +133,15 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
       typeof patch.pencilSmooth === 'number' && Number.isFinite(patch.pencilSmooth)
         ? Math.max(0, Math.min(100, patch.pencilSmooth))
         : (state.pencilSmooth ?? d.pencilSmooth),
+    pencilStyle:
+      patch.pencilStyle === 'solid' || patch.pencilStyle === 'dashed' || patch.pencilStyle === 'dotted'
+        ? patch.pencilStyle
+        : (state.pencilStyle ?? d.pencilStyle),
+    pencilCap:
+      patch.pencilCap === 'butt' || patch.pencilCap === 'round' || patch.pencilCap === 'square'
+        ? patch.pencilCap
+        : (state.pencilCap ?? d.pencilCap),
+    pencilRecognize: typeof patch.pencilRecognize === 'boolean' ? patch.pencilRecognize : (state.pencilRecognize ?? d.pencilRecognize),
   }
   state = next
   for (const fn of [...listeners]) fn()

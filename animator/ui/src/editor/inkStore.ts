@@ -32,6 +32,10 @@ export interface InkItem {
   fill: string | null
   stroke: string | null
   strokeWidth: number
+  /** Pencil / line dash (doc px). */
+  strokeDash?: number[]
+  lineCap?: 'butt' | 'round' | 'square'
+  lineJoin?: 'miter' | 'round' | 'bevel'
   text?: string
   fontSize?: number
   fontFamily?: string

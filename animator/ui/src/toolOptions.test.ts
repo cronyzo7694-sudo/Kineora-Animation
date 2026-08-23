@@ -18,6 +18,12 @@ describe('toolOptions', () => {
     expect(loadToolOptions().inkSize).toBe(8)
   })
 
+  it('keeps pencil fields when patching another option', () => {
+    setToolOptions({ pencilMode: 'ink', pencilSmooth: 80, pencilStyle: 'dashed' })
+    setToolOptions({ inkSize: 6 })
+    expect(loadToolOptions()).toMatchObject({ pencilMode: 'ink', pencilSmooth: 80, pencilStyle: 'dashed', inkSize: 6 })
+  })
+
   it('defaults match Adobe selection modifiers', () => {
     expect(defaultToolOptions()).toMatchObject({
       snapToObjects: true,

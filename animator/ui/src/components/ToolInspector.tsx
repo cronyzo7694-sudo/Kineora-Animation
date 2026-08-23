@@ -52,7 +52,7 @@ function hint(tool: string): string {
     case 'pen':
       return 'Click = corner. Drag = curve (Bezier handles). Shift = 45°. Click first point to close. Double-click / Ctrl-click / Enter = finish open. Shift+Enter = close + fill. Esc cancels. Over an existing path: click segment to add a point, click a square to delete it.'
     case 'pencil':
-      return 'Adobe Pencil (Y). Straighten = lines/angles. Smooth = curves (slider). Ink = raw freehand. Stroke color + size apply. Shift does not apply — draw freely then the mode processes on release.'
+      return 'Adobe Pencil (Y). Tools options: Straighten / Smooth / Ink. Smooth slider 0–100 (disabled in other modes). Straighten snaps 45° and can recognize oval / rectangle / triangle. Stroke color, weight, style (solid/dash/dot) and cap apply on release.'
     case 'brush':
       return 'Thick freehand stroke. Size and stroke color apply to the next brush mark.'
     case 'text':

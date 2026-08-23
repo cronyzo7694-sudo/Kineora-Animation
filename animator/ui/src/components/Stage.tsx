@@ -92,7 +92,7 @@ import {
 import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
-import { processPencil } from '../editor/pencil'
+import { dashForStyle, processPencil } from '../editor/pencil'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -788,16 +788,20 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             sg.kind === 'line'
               ? sg.pts
               : sg.kind === 'pencil'
-                ? processPencil(sg.pts, o.pencilMode || 'smooth', o.pencilSmooth ?? 50)
+                ? processPencil(sg.pts, o.pencilMode || 'smooth', o.pencilSmooth ?? 50, o.pencilRecognize !== false)
                 : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
           const size = o.inkSize
+          const sw = sg.kind === 'brush' ? Math.max(8, size) : Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth)
           addInk({
             kind: sg.kind,
             points: pts,
             closed: false,
             fill: null,
             stroke: colors.stroke ?? '#111111',
-            strokeWidth: sg.kind === 'brush' ? Math.max(8, size) : Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth),
+            strokeWidth: sw,
+            ...(sg.kind === 'pencil'
+              ? { strokeDash: dashForStyle(o.pencilStyle, sw), lineCap: o.pencilCap || 'round', lineJoin: 'round' as const }
+              : {}),
           })
         }
       }
@@ -1055,8 +1059,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewStroke:
         previewStrokeRef.current ??
         (penPoints().length ? penPreviewPoints(loadToolOptions().penRubberBand !== false) : null),
-      previewStrokeWidth: loadToolColors().strokeWidth,
+      previewStrokeWidth: tool === 'pencil' || tool === 'brush' ? loadToolOptions().inkSize : loadToolColors().strokeWidth,
       previewStrokeColor: loadToolColors().stroke,
+      previewStrokeDash: tool === 'pencil' ? dashForStyle(loadToolOptions().pencilStyle, loadToolOptions().inkSize) : undefined,
+      previewLineCap: tool === 'pencil' ? loadToolOptions().pencilCap : undefined,
       previewClosed: strokeRef.current?.kind === 'lasso' || (penPoints().length >= 2 && isPenCloseHover()),
       previewFill: null,
       colorPreview,

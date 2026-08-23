@@ -156,11 +156,7 @@ export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collaps
         ))}
       </ul>
       )}
-<<<<<<< HEAD
-      {!collapsed && <ExternalLibraryPanel notify={notify} onCopied={() => setTick((n) => n + 1)} />}
-=======
       {!collapsed && <ExternalLibraryPanel notify={notify} onCopied={() => setExtTick((n) => n + 1)} />}
->>>>>>> 9fa8e51 (fix(ui): stop the app freeze from Library crash and Stage refit)
     </aside>
   )
 }

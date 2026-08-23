@@ -721,8 +721,8 @@ export function TimelineStrip({ status, notify, height, nameW: nameWProp, onName
         {!attached && <span data-testid="timeline-not-attached" style={{ color: '#e88', fontSize: 10 }}>engine not attached</span>}
       </div>
 
-      <div data-testid="timeline-sequence-row" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '1px 6px', background: '#2e2e2e', borderBottom: '1px solid #1f1f1f', flexWrap: 'wrap', minHeight: 22 }}>
-        <span style={{ color: '#808080', fontSize: 10, minWidth: 110 }}>
+      <div data-testid="timeline-sequence-row" style={{ display: 'flex', alignItems: 'center', gap: 1, padding: '1px 6px', background: '#262626', borderBottom: '1px solid #1a1a1a', flexWrap: 'wrap', minHeight: 20 }}>
+        <span style={{ color: '#6a6a6a', fontSize: 10, minWidth: 110 }}>
           {selLayer !== null ? `${selFrames.size} selected (${layers[selLayer]?.name ?? 'layer'})` : 'no frames selected'}
         </span>
         {seqBtn('timeline-copy', 'Copy', 'Copy selected frames (to clipboard)', () => doRange(copyFrames, 'copy frames'))}

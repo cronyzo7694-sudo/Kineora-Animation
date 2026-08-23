@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { evaluate, exportSvgScaled, statusJson } from '../engine/client'
 import { downloadBlob, downloadCanvasBlob } from '../engine/actions'
-import { rasterizeContent } from '../render/canvasRenderer'
+import { inkToSvg, rasterizeContent } from '../render/canvasRenderer'
+import { listInk } from '../editor/inkStore'
 import { bus } from '../bus'
 // SYS-27 MOD-EXPORT engines (sequence slice — INT-AID-003)
 import { buildSvgSequence, deliverExport } from '../export27'
@@ -67,11 +68,13 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
     }
     const f = FORMATS.find((x) => x.id === format)!
     if (format === 'svg') {
-      const svg = exportSvgScaled(frame, scale)
+      let svg = exportSvgScaled(frame, scale)
       if (!svg) {
         notify('export: engine returned no SVG')
         return
       }
+      const ink = inkToSvg(listInk())
+      if (ink) svg = svg.replace(/<\/svg>\s*$/i, `${ink}</svg>`)
       downloadBlob(`kineora.${f.ext}`, svg, f.mime)
       // SYS-27 contract §D: export:done{format, path} on every successful
       // export (browser dev mode: path = the download file name).
@@ -86,6 +89,7 @@ export function ExportDialog({ open, engine, onClose, notify }: Props) {
           stageW: st?.doc_width ?? 1920,
           stageH: st?.doc_height ?? 1080,
           items,
+          inkItems: listInk(),
         },
         scale,
       )

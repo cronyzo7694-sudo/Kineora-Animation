@@ -278,6 +278,8 @@ export interface ContentState {
   stageW: number
   stageH: number
   items: RectItemJson[]
+  /** Optional ink overlay (Pen/Pencil/Brush/Text) — omitted in legacy tests. */
+  inkItems?: InkItem[]
 }
 
 /**
@@ -295,6 +297,34 @@ export function renderContent(ctx: CanvasRenderingContext2D, vp: Viewport, s: Co
   for (const it of s.items) {
     drawRectItem(ctx, vp, it, { x: 0, y: 0 }, { fill: it.fill, stroke: it.stroke, strokeWidth: it.stroke_width })
   }
+  if (s.inkItems && s.inkItems.length > 0) {
+    drawInkItems(ctx, vp, s.inkItems, [], null)
+  }
+}
+
+/** Serialize ink objects as SVG fragments (no chrome) so File ▸ Export includes
+ *  Pen/Pencil/Brush/Text — the Rust exporter still only knows rect/oval. */
+export function inkToSvg(items: InkItem[]): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+  const parts: string[] = []
+  for (const it of items) {
+    if (it.kind === 'text') {
+      const p = it.points[0] ?? { x: 0, y: 0 }
+      parts.push(
+        `<text x="${p.x}" y="${p.y}" fill="${esc(it.fill || '#111')}" font-size="${it.fontSize ?? 18}" font-family="system-ui,sans-serif">${esc(it.text || '')}</text>`,
+      )
+      continue
+    }
+    if (it.points.length < 2) continue
+    const d = it.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y}`).join(' ') + (it.closed ? ' Z' : '')
+    const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+    const fill = it.fill && it.closed ? it.fill : 'none'
+    const stroke = it.stroke ?? 'none'
+    parts.push(
+      `<path d="${d}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`,
+    )
+  }
+  return parts.join('')
 }
 
 /**

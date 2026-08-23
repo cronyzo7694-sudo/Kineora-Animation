@@ -95,6 +95,7 @@ import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 import { dashForStyle, processPencil } from '../editor/pencil'
 import { brushDocSize, constrainBrush } from '../editor/brush'
 import { applyEraserStroke, engineHitsEraser, engineShapeToInk, faucetTarget, inkIsFill } from '../editor/eraser'
+import { setGestureActive } from '../ai/gesture'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -638,6 +639,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     }
 
     const up = (e: MouseEvent) => {
+      setGestureActive(false)
       panDragRef.current = null
       if (isPenDragging()) setPenDragging(false)
       penDownRef.current = null
@@ -928,6 +930,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     }
 
     const cancel = () => {
+      setGestureActive(false)
       panDragRef.current = null
       zoomStartRef.current = null
       zoomMarqueeRef.current = null

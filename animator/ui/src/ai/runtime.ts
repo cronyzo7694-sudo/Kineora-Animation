@@ -13,6 +13,7 @@ import { AiOrchestrator } from './orchestrator'
 import { createProviderStore, hasConsent, type ProviderStore, type ProviderType } from './providers'
 import { createUsageMeter, type UsageMeter } from './usage'
 import { hasShapeDrawFacade } from '../engine/client'
+import { isGestureActive } from './gesture'
 
 export interface AiRuntime {
   storage?: StorageLike
@@ -71,9 +72,7 @@ export function createAiRuntime(storage: StorageLike | undefined = browserStorag
     interaction,
     adapters,
     currentDocumentId: active,
-    // No pointer heuristic. Until Stage supplies onGestureActiveChange, idle
-    // is the honest default (missing callback used to block every APPLY).
-    isGestureActive: () => false,
+    isGestureActive,
   })
   return {
     storage,

@@ -103,14 +103,15 @@ export function Toolbar({ controls, ctx }: { controls: Control[]; ctx: AppContex
         disabled={disabled}
         onClick={() => c.action(ctx)}
         style={{
-          padding: '6px 10px',
-          borderRadius: 4,
-          border: '1px solid #555',
-          background: '#2a2a2a',
-          color: disabled ? '#777' : '#eee',
+          padding: '4px 9px',
+          borderRadius: 3,
+          border: '1px solid #3a3a3a',
+          background: '#252525',
+          color: disabled ? '#666' : '#ddd',
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.55 : 1,
           whiteSpace: 'nowrap',
+          fontSize: 12,
         }}
       >
         {c.label}

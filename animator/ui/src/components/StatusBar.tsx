@@ -46,7 +46,7 @@ export function StatusBar({ engine, tool, toast, status, editDepth = 0, onFrameC
   })
 
   return (
-    <div data-testid="statusbar" aria-live="polite" style={{ display: 'flex', gap: 10, padding: '5px 12px', borderTop: '1px solid #2a2a2a', background: '#1a1a1a', color: '#aaa', fontSize: 12, overflowX: 'auto', overflowY: 'hidden', alignItems: 'center' }}>
+    <div data-testid="statusbar" aria-live="polite" style={{ display: 'flex', gap: 10, padding: '4px 12px', borderTop: '1px solid #2a2a2a', background: '#161616', color: '#aaa', fontSize: 11, overflowX: 'auto', overflowY: 'hidden', alignItems: 'center', scrollbarWidth: 'thin' }}>
       <span data-testid="st-activeTool" style={{ ...cell, background: '#232323', padding: '2px 8px', borderRadius: 3 }}>
         <span style={label}>tool</span> <strong style={{ color: '#eee' }}>{tool}</strong>
       </span>

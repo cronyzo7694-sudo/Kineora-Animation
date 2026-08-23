@@ -230,7 +230,21 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
         position: 'relative',
       }}
     >
-      <div data-testid="tools-scroll" style={{ overflowY: 'auto', flex: '1 1 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, width: '100%' }}>
+      <div
+        data-testid="tools-scroll"
+        style={{
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          flex: '1 1 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 1,
+          width: '100%',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+        }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_SELECT.map(button)}</div>
         <div data-testid="tools-divider" style={{ width: 24, height: 1, background: '#333', margin: '6px 0' }} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{TOOLS_AREA_DRAW.map(button)}</div>

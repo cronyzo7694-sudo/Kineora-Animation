@@ -1,0 +1,39 @@
+/* App chrome — hide leftover “unfinished” scroll sticks and cheap default UA chrome. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #101010;
+  color: #ddd;
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Adobe-like: the tools rail never shows a scrollbar gutter. */
+[data-testid='tools-scroll'],
+[data-testid='tools-panel'] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-testid='tools-scroll']::-webkit-scrollbar,
+[data-testid='tools-panel']::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Thin, dark scrollbars only on real content docks. */
+[data-testid='layers-panel'] ::-webkit-scrollbar,
+[data-testid='right-dock'] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+[data-testid='layers-panel'] ::-webkit-scrollbar-thumb,
+[data-testid='right-dock'] ::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 8px;
+}

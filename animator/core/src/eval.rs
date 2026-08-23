@@ -447,7 +447,10 @@ fn ellipse_overlaps_rect(it: &RectItem, left: f64, right: f64, top: f64, bottom:
     {
         corners[i] = local_point(it, c.0, c.1);
     }
-    if corners.iter().any(|&(lx, ly)| ellipse_contains(rx, ry, lx, ly)) {
+    if corners
+        .iter()
+        .any(|&(lx, ly)| ellipse_contains(rx, ry, lx, ly))
+    {
         return true;
     }
     // ellipse centre inside the box (the box fully contains the ellipse)

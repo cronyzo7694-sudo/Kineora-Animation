@@ -1370,7 +1370,9 @@ pub fn kineora_capabilities() -> String {
 pub fn kineora_doc_revision() -> u64 {
     DOCS.with(|d| {
         let m = d.borrow();
-        m.active().map(|doc| doc.session.doc_revision()).unwrap_or(0)
+        m.active()
+            .map(|doc| doc.session.doc_revision())
+            .unwrap_or(0)
     })
 }
 

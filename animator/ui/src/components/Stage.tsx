@@ -53,6 +53,12 @@ interface Props {
    * Paint Bucket tool" after picking up a fill.
    */
   onToolChange?: (tool: string) => void
+  /**
+   * Read-only gesture-idle seam for AI-REQ-033. True means a Stage pointer
+   * gesture is armed/in progress; false is emitted only after commit/cancel.
+   * The callback exposes no pointer data and grants no mutation authority.
+   */
+  onGestureActiveChange?: (active: boolean) => void
 }
 
 /**
@@ -106,12 +112,20 @@ interface TransformGesture {
   details: SelDetail[]
 }
 
-export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onToolChange }: Props) {
+export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onToolChange, onGestureActiveChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const vpRef = useRef(createViewport())
   const toolRef = useRef(tool)
   toolRef.current = tool
+  const gestureChangeRef = useRef(onGestureActiveChange)
+  gestureChangeRef.current = onGestureActiveChange
+  const gestureActiveRef = useRef(false)
+  const setGestureActive = (active: boolean) => {
+    if (gestureActiveRef.current === active) return
+    gestureActiveRef.current = active
+    gestureChangeRef.current?.(active)
+  }
 
   const [redrawVersion, setRedrawVersion] = useState(0)
   const [zoomReadout, setZoomReadout] = useState('100%')
@@ -176,7 +190,11 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   useEffect(() => {
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+      setGestureActive(false)
     }
+    // The callback is read through gestureChangeRef so listener identity cannot
+    // strand an active gesture during rerenders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => subscribeViewPrefs(() => scheduleRedraw()), [])
@@ -353,6 +371,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           }
         }
         scheduleRedraw()
+        setGestureActive(false)
         return
       }
 
@@ -415,6 +434,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         }
       }
       scheduleRedraw()
+      setGestureActive(false)
     }
 
     const cancel = () => {
@@ -430,6 +450,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       marqueeStartRef.current = null
       marqueeRef.current = null
       scheduleRedraw()
+      setGestureActive(false)
     }
 
     // Blueprint T2B.4: Esc discards an in-progress rect (no command, no undo).
@@ -444,6 +465,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       zoomStartRef.current = null
       zoomMarqueeRef.current = null
       scheduleRedraw()
+      setGestureActive(false)
     }
 
     window.addEventListener('mousemove', move)
@@ -596,6 +618,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 1) {
       e.preventDefault()
+      setGestureActive(true)
       panDragRef.current = { x: e.clientX, y: e.clientY }
       return
     }
@@ -603,6 +626,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     // ——— Hand tool (H) / Spacebar override: drag the Stage to move the view ———
     if (e.button === 0 && activeTool() === 'hand') {
       e.preventDefault()
+      setGestureActive(true)
       panDragRef.current = { x: e.clientX, y: e.clientY }
       return
     }
@@ -659,6 +683,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     // ——— Zoom tool (Z): click = in, Alt+click = out, drag = zoom to area ———
     if (e.button === 0 && activeTool() === 'zoom') {
       const doc = screenToDoc(vpRef.current, sx, sy)
+      setGestureActive(true)
       zoomStartRef.current = { doc, sx, sy, dragging: false }
       zoomMarqueeRef.current = null
       return
@@ -680,6 +705,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         const hit = pickHandle(screenHandles, sx, sy, HANDLE_HIT_RADIUS)
         if (hit) {
           const anchor = hit === 'rotate' ? geom.center : e.altKey ? geom.center : oppositeHandle(geom, hit)
+          setGestureActive(true)
           transformRef.current = { handle: hit, startDoc: doc, anchor, center: geom.center, details }
           pendingRef.current = null
           return
@@ -695,6 +721,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
       // 3) plain click: select (or arm marquee on empty)
       const hit = selectAt(doc.x, doc.y)
+      setGestureActive(true)
       if (hit) {
         selectGestureRef.current = { startX: sx, startY: sy, dragging: false }
         previewRef.current = null
@@ -708,6 +735,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && (activeTool() === 'rect' || activeTool() === 'oval')) {
       const startDoc = screenToDoc(vpRef.current, sx, sy)
+      setGestureActive(true)
       rectGestureRef.current = {
         startX: sx,
         startY: sy,

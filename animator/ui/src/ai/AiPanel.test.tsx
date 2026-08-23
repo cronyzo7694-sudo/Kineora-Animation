@@ -154,6 +154,8 @@ function runtime(setup?: (interaction: InteractionStore) => void): FakeRuntime {
     capabilityRegistry: () => registry(),
     activeDocumentId: () => 1,
     currentRevision: () => 2,
+    setGestureActive: vi.fn(),
+    isGestureActive: () => false,
     disposeDocument: (documentId) => {
       const disposed = orchestrator.disposeDocument(documentId)
       return disposed

@@ -33,14 +33,26 @@ fn fresh_document_snapshot_has_empty_truthful_shape() {
 #[test]
 fn drawn_shapes_appear_with_compact_geometry_and_membership() {
     let mut s = session();
-    let id = s.draw_shape(ShapeKind::Oval, 930.0, 100.0, 60.0, 60.0, "#e11d48", None, 1.0);
+    let id = s.draw_shape(
+        ShapeKind::Oval,
+        930.0,
+        100.0,
+        60.0,
+        60.0,
+        "#e11d48",
+        None,
+        1.0,
+    );
     assert!(id.0 > 0);
     let v = snap(&s);
     let node = &v["nodes"][0];
     assert_eq!(node["id"], id.0);
     assert_eq!(node["kind"], "oval");
     assert_eq!(node["fill"], "#e11d48");
-    assert!(node.get("stroke").is_none(), "null stroke omitted compactly");
+    assert!(
+        node.get("stroke").is_none(),
+        "null stroke omitted compactly"
+    );
     assert_eq!(node["kf"], serde_json::json!([[0, 1]]));
     // Selection ids flow through.
     assert_eq!(v["selection"], serde_json::json!([id.0]));
@@ -63,7 +75,16 @@ fn revision_bumps_on_execute_undo_and_redo() {
 #[test]
 fn classic_tween_and_keyframes_appear_in_layer_rows() {
     let mut s = session();
-    s.draw_shape(ShapeKind::Oval, 10.0, 10.0, 20.0, 20.0, "#ff0000", None, 1.0);
+    s.draw_shape(
+        ShapeKind::Oval,
+        10.0,
+        10.0,
+        20.0,
+        20.0,
+        "#ff0000",
+        None,
+        1.0,
+    );
     assert!(s.insert_keyframe(15));
     assert!(s.set_classic_tween(0, 1, 15, 60.0));
     let v = snap(&s);
@@ -94,7 +115,10 @@ fn blank_keyframes_are_visible_as_blank() {
         .find(|k| k["f"] == 10)
         .unwrap()
         .clone();
-    assert_eq!(kf10["blank"], true, "blank frames CLEAR content — must be visible");
+    assert_eq!(
+        kf10["blank"], true,
+        "blank frames CLEAR content — must be visible"
+    );
 }
 
 #[test]
@@ -121,7 +145,16 @@ fn symbol_instances_and_library_rows_appear() {
 fn set_selection_selects_by_ids_and_prunes_unknown() {
     let mut s = session();
     let a = s.draw_shape(ShapeKind::Rect, 0.0, 0.0, 10.0, 10.0, "#000000", None, 1.0);
-    let b = s.draw_shape(ShapeKind::Oval, 50.0, 50.0, 10.0, 10.0, "#ff0000", None, 1.0);
+    let b = s.draw_shape(
+        ShapeKind::Oval,
+        50.0,
+        50.0,
+        10.0,
+        10.0,
+        "#ff0000",
+        None,
+        1.0,
+    );
     // draw_shape auto-selects the newest; set_selection takes full control.
     let kept = s.set_selection(vec![a, b]);
     assert_eq!(kept, 2);
@@ -138,9 +171,20 @@ fn set_selection_is_view_state_not_an_undo_entry_and_keeps_rev() {
     let a = s.draw_shape(ShapeKind::Rect, 0.0, 0.0, 10.0, 10.0, "#000000", None, 1.0);
     let rev_before = s.doc_revision();
     s.set_selection(vec![a]);
-    assert_eq!(s.doc_revision(), rev_before, "selection never bumps the revision");
-    assert!(s.undo(), "the only undoable entry is the DRAW, not the selection");
-    assert_eq!(s.doc.nodes.len(), 0, "the draw reverted — no phantom entries");
+    assert_eq!(
+        s.doc_revision(),
+        rev_before,
+        "selection never bumps the revision"
+    );
+    assert!(
+        s.undo(),
+        "the only undoable entry is the DRAW, not the selection"
+    );
+    assert_eq!(
+        s.doc.nodes.len(),
+        0,
+        "the draw reverted — no phantom entries"
+    );
 }
 
 #[test]
@@ -164,11 +208,30 @@ fn capability_manifest_matches_the_current_engine_exactly() {
     assert_eq!(v["nodeFamilies"], serde_json::json!(["shape", "symbol"]));
     let f = &v["features"];
     // Present today:
-    for k in ["classicTween", "perKeyTransform", "symbols", "folders", "strokeAtDraw", "selectionByIds", "compositeUndo"] {
+    for k in [
+        "classicTween",
+        "perKeyTransform",
+        "symbols",
+        "folders",
+        "strokeAtDraw",
+        "selectionByIds",
+        "compositeUndo",
+    ] {
         assert_eq!(f[k], true, "{k} must be supported on this build");
     }
     // Honestly absent today (audit Q14):
-    for k in ["playbackAutomation", "nodeOpacity", "namedEasings", "paths", "text", "motionTween", "shapeTween", "masks", "camera", "audio"] {
+    for k in [
+        "playbackAutomation",
+        "nodeOpacity",
+        "namedEasings",
+        "paths",
+        "text",
+        "motionTween",
+        "shapeTween",
+        "masks",
+        "camera",
+        "audio",
+    ] {
         assert_eq!(f[k], false, "{k} must honestly report unsupported");
     }
 }
@@ -180,5 +243,8 @@ fn snapshot_is_active_scene_scoped_and_compact() {
     let text = s.scene_snapshot();
     // Compactness guard: short keys, no whitespace — a busy frame stays small.
     assert!(text.len() < 4000, "snapshot must stay token-friendly");
-    assert!(!text.contains("\"outline\""), "false-flag fields are omitted compactly");
+    assert!(
+        !text.contains("\"outline\""),
+        "false-flag fields are omitted compactly"
+    );
 }

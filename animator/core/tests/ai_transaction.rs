@@ -77,8 +77,22 @@ fn multi_action_plan_materializes_refs_in_order_and_groups_once() {
         .iter()
         .find(|binding| binding.alias == "ball")
         .expect("node binding");
-    let node = session.doc.nodes.get(&NodeId(ball.id)).expect("created node");
-    assert_eq!(node.transform().y, 100.0);
+    let node = session
+        .doc
+        .nodes
+        .get(&NodeId(ball.id))
+        .expect("created node");
+    assert_eq!(
+        node.transform().y,
+        6.0,
+        "per-key transform must not rewrite the node's base transform"
+    );
+    let resolved = session
+        .evaluate(1)
+        .into_iter()
+        .find(|item| item.id == ball.id)
+        .expect("created node evaluates at the affected frame");
+    assert_eq!(resolved.y, 100.0);
     assert_eq!(session.doc.scenes[0].layers[1].name, "Ball");
 }
 
@@ -90,7 +104,12 @@ fn middle_failure_discards_every_prepared_command_and_allocator_change() {
         &mut session,
         &plan(vec![
             shape(0, Some("made"), 1.0, 2.0),
-            action(1, None, "node.transform", json!({ "node": 9999, "x": 50.0 })),
+            action(
+                1,
+                None,
+                "node.transform",
+                json!({ "node": 9999, "x": 50.0 }),
+            ),
             action(2, None, "layer.create", json!({})),
         ]),
         "AI — rollback middle",
@@ -114,8 +133,18 @@ fn final_failure_rolls_back_all_prior_actions() {
         &mut session,
         &plan(vec![
             shape(0, Some("made"), 1.0, 2.0),
-            action(1, Some("layer"), "layer.create", json!({ "name": "Temporary" })),
-            action(2, None, "layer.rename", json!({ "layer": 99, "name": "Nope" })),
+            action(
+                1,
+                Some("layer"),
+                "layer.create",
+                json!({ "name": "Temporary" }),
+            ),
+            action(
+                2,
+                None,
+                "layer.rename",
+                json!({ "layer": 99, "name": "Nope" }),
+            ),
         ]),
         "AI — rollback final",
     );
@@ -143,7 +172,10 @@ fn live_locked_and_hidden_ancestor_guards_fail_closed() {
             "AI — guarded",
         );
         assert!(!result.ok);
-        assert_eq!(result.error.as_ref().map(|e| e.code.as_str()), Some("E_GUARD"));
+        assert_eq!(
+            result.error.as_ref().map(|e| e.code.as_str()),
+            Some("E_GUARD")
+        );
         assert_eq!(session.doc, doc);
         assert_eq!(session.history.undo_len(), 0);
     }
@@ -165,7 +197,10 @@ fn stale_node_reference_never_mutates_the_live_document() {
     );
     assert!(!result.ok);
     assert!(!result.rolled_back);
-    assert_eq!(result.error.as_ref().map(|e| e.code.as_str()), Some("E_REF"));
+    assert_eq!(
+        result.error.as_ref().map(|e| e.code.as_str()),
+        Some("E_REF")
+    );
     assert_eq!(session.doc, before);
 }
 
@@ -192,7 +227,12 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
     let first = setup.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
     let second = setup.draw_rect(100.0, 100.0, 30.0, 40.0, "#00ff00");
     let mut session = Session::from_document(setup.doc.clone());
-    let unrelated_before = session.doc.nodes.get(&second).cloned().expect("second node");
+    let unrelated_before = session
+        .doc
+        .nodes
+        .get(&second)
+        .cloned()
+        .expect("second node");
 
     let result = execute_validated_plan(
         &mut session,
@@ -208,8 +248,19 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
     assert_eq!(session.doc.nodes.get(&second), Some(&unrelated_before));
     let changed = session.doc.nodes.get(&first).expect("first node");
     assert_eq!(changed.transform().x, 0.0);
-    assert_eq!(changed.transform().y, 50.0);
+    assert_eq!(
+        changed.transform().y,
+        0.0,
+        "per-key transform preserves the node's base transform"
+    );
     assert_eq!(changed.transform().scale_x, 1.0);
+    let resolved = session
+        .evaluate(1)
+        .into_iter()
+        .find(|item| item.id == first.0)
+        .expect("transformed node evaluates at the affected frame");
+    assert_eq!(resolved.x, 0.0);
+    assert_eq!(resolved.y, 50.0);
 }
 
 #[test]

@@ -73,6 +73,51 @@ function drag(canvas: HTMLElement, from: [number, number], to: [number, number])
   fireEvent.mouseUp(window)
 }
 
+describe('Stage AI gesture-idle seam (AI-REQ-033)', () => {
+  beforeEach(() => {
+    drawShapeMock.mockClear()
+  })
+
+  it('reports an armed pointer gesture active until its commit finishes', () => {
+    const onGestureActiveChange = vi.fn()
+    render(
+      <Stage
+        engine={{ kind: 'ok', detail: 'mock' }}
+        tool="oval"
+        playhead={1}
+        tick={0}
+        onGestureActiveChange={onGestureActiveChange}
+      />,
+    )
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 20 })
+    expect(onGestureActiveChange).toHaveBeenLastCalledWith(true)
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 70 })
+    expect(onGestureActiveChange).toHaveBeenCalledTimes(1)
+    fireEvent.mouseUp(window)
+    expect(onGestureActiveChange.mock.calls).toEqual([[true], [false]])
+  })
+
+  it('returns to idle on pointer cancellation without committing the draw', () => {
+    const onGestureActiveChange = vi.fn()
+    render(
+      <Stage
+        engine={{ kind: 'ok', detail: 'mock' }}
+        tool="rect"
+        playhead={1}
+        tick={0}
+        onGestureActiveChange={onGestureActiveChange}
+      />,
+    )
+    const canvas = screen.getByTestId('stage-canvas')
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 10, clientY: 20 })
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 70 })
+    fireEvent.pointerCancel(canvas)
+    expect(onGestureActiveChange.mock.calls).toEqual([[true], [false]])
+    expect(drawShapeMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('Stage viewport interaction wiring (regression)', () => {
   it('wheel zoom updates the readout immediately (canvas redraw triggered)', async () => {
     renderStage()

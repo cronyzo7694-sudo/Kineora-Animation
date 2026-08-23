@@ -24,7 +24,7 @@ fn insert_scene_appends_with_default_timeline_and_activates() {
         "same default Document::new seeds"
     );
     assert!(
-        sc.layers[0].keyframes.get(&1).is_some(),
+        sc.layers[0].keyframes.contains_key(&1),
         "blank keyframe @1 (a valid draw target immediately)"
     );
     // Part 25.1 "becomes active" + 25.4 re-bind

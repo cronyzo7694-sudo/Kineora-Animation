@@ -219,7 +219,11 @@ fn layer_row(i: usize, l: &Layer) -> SnapLayer {
         vis: l.visible,
         lock: l.locked,
         outline: l.outline,
-        oc: if l.outline { Some(l.outline_color.clone()) } else { None },
+        oc: if l.outline {
+            Some(l.outline_color.clone())
+        } else {
+            None
+        },
         parent: l.parent_id.map(|p| p.0),
         collapsed: l.collapsed,
         kf,

@@ -1,5 +1,28 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — AI-T · AI Agent runtime unblock: native gate + real Stage idle seam
+
+- Reopened the previously unrun native gate with a real Rust 1.88 toolchain.
+  Fixed the invalid Oval SVG raw-string fixtures, applied `rustfmt`, resolved
+  genuine `clippy -D warnings` findings, and corrected A5 native assertions to
+  verify per-keyframe transforms through resolved frame evaluation instead of
+  incorrectly expecting base-node rewrites. Native result: fmt clean, clippy
+  clean, **394/394 tests pass**; raw `wasm32-unknown-unknown --release` compile
+  passes and exports all five A3/A5 AI functions.
+- Wired the approved read-only Stage gesture seam into the single App-owned AI
+  runtime. Stage reports only busy/idle for armed pointer gestures and clears it
+  after commit/cancel/blur; AiOrchestrator keeps A5 blocked while busy. No
+  pointer coordinates, Stage refs, polling, direct mutation, or second runtime
+  was introduced.
+- Added the focused `make a ball` integration regression proving PromptBuilder
+  request → provider adapter boundary → A4 oval plan → PREVIEW no-write → explicit
+  approval → exactly one A5 call → structural PASS, with key exclusion asserted.
+- `wasm-pack` itself could not be installed in this sandbox because GitHub release
+  asset/CDN access is unavailable. The canonical `npm run wasm` packaging step and
+  live `hasAiEngineFacades()/hasAiTransactionFacade()` JS probe therefore remain
+  unclaimed; no generated artifact or fake facade was committed.
+- A6.8 Phase 3 and later closure phases were not started in this slice.
+
 ## 2026-08-23 — AI-T · AI Agent A5: atomic TransactionRunner + activity records
 
 - NEW Rust `ai_runner.rs`: accepts only A4 `ValidatedPlan` wire data, rebuilds

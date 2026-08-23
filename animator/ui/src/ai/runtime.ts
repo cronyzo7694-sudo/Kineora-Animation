@@ -28,6 +28,8 @@ export interface AiRuntime {
   capabilityRegistry(): CapabilityRegistry | null
   activeDocumentId(): number | null
   currentRevision(): number | null
+  setGestureActive(active: boolean): void
+  isGestureActive(): boolean
   disposeDocument(documentId: number): boolean
   undo(): boolean
 }
@@ -44,6 +46,7 @@ export function createAiRuntime(storage: StorageLike | undefined = browserStorag
   const ceiling = createDailyTokenCeilingStore(storage)
   const context = createConversationContextStore()
   const interaction = createInteractionStore()
+  let gestureActive = false
   const consent = () => hasConsent(storage)
   const active = () => {
     const id = activeDocId()
@@ -71,8 +74,9 @@ export function createAiRuntime(storage: StorageLike | undefined = browserStorag
     interaction,
     adapters,
     currentDocumentId: active,
-    // Gesture contract is intentionally not fabricated. Until an approved
-    // Stage signal is wired, A6.3 returns an honest gesture-busy state.
+    // AI-REQ-033: the App-owned Stage supplies this read-only state. Missing
+    // pointer details stay private to Stage; orchestration sees only busy/idle.
+    isGestureActive: () => gestureActive,
   })
   return {
     storage,
@@ -88,6 +92,8 @@ export function createAiRuntime(storage: StorageLike | undefined = browserStorag
     capabilityRegistry,
     activeDocumentId: active,
     currentRevision: revision,
+    setGestureActive: (active) => { gestureActive = active },
+    isGestureActive: () => gestureActive,
     disposeDocument: (documentId) => orchestrator.disposeDocument(documentId),
     undo,
   }

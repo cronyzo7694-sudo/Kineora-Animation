@@ -735,7 +735,16 @@ export default function App() {
             onCancel={() => setLayout((p) => ({ ...p, layersW: originRef.current.layersW }))}
           />
         )}
-        <Stage engine={engine} tool={tool} playhead={status?.playhead ?? 1} tick={tick} notify={notify} colorPreview={colorPreview} onToolChange={setTool} />
+        <Stage
+          engine={engine}
+          tool={tool}
+          playhead={status?.playhead ?? 1}
+          tick={tick}
+          notify={notify}
+          colorPreview={colorPreview}
+          onToolChange={setTool}
+          onGestureActiveChange={aiRuntime.setGestureActive}
+        />
         {rightVisible.length > 0 && (
           <ResizeHandle
             testId="resize-props"

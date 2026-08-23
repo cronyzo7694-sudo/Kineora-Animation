@@ -121,9 +121,7 @@ impl History {
     /// Revert the top command. Returns the selection to restore (prev), or
     /// `None` when the stack is empty.
     pub fn undo(&mut self, doc: &mut Document) -> Option<Vec<NodeId>> {
-        let Some(mut e) = self.undo.pop() else {
-            return None;
-        };
+        let mut e = self.undo.pop()?;
         self.rev += 1;
         e.cmd.revert(doc);
         let restore = e.prev_selection.clone();
@@ -134,9 +132,7 @@ impl History {
 
     /// Re-apply the top redo command. Returns the post-command selection.
     pub fn redo(&mut self, doc: &mut Document) -> Option<Vec<NodeId>> {
-        let Some(mut e) = self.redo.pop() else {
-            return None;
-        };
+        let mut e = self.redo.pop()?;
         self.rev += 1;
         e.cmd.apply(doc);
         let restore = e.post_selection.clone();
@@ -928,7 +924,7 @@ impl Command for RemoveFrames {
         }
         // tweens whose start or end keyframe was removed die with it
         l.tweens.retain(|s, tw| {
-            !(*s >= self.start && *s <= self.end) && !(tw.end >= self.start && tw.end <= self.end)
+            !(*s >= self.start && *s <= self.end || tw.end >= self.start && tw.end <= self.end)
         });
     }
     fn revert(&mut self, doc: &mut Document) {
@@ -1221,8 +1217,9 @@ impl Command for MoveKeyframeSequence {
         let l = doc.layer_mut(self.scene, self.layer).expect("layer exists");
         // drop tweens anchored to the moving keyframes (broken span)
         l.tweens.retain(|s, tw| {
-            !(*s == self.from || tw.end == self.from)
-                && !next.map(|n| *s == n || tw.end == n).unwrap_or(false)
+            !(*s == self.from
+                || tw.end == self.from
+                || next.map(|n| *s == n || tw.end == n).unwrap_or(false))
         });
         // remove the moving keyframes from their old positions
         l.keyframes.remove(&self.from);

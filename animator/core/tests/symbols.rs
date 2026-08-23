@@ -142,8 +142,7 @@ fn convert_rebases_content_around_registration() {
     let a_item = items.iter().find(|it| it.fill == "#ff0000").unwrap();
     assert!(
         (a_item.x).abs() < 1e-6 && (a_item.y).abs() < 1e-6,
-        "a_item={:?}",
-        a_item
+        "a_item={a_item:?}"
     );
     let _ = inst;
 }
@@ -552,7 +551,7 @@ fn convert_on_a_hold_frame_auto_keys_inside_the_command_and_undo_removes_it() {
     assert!(s.insert_keyframe(10));
     s.set_playhead(5);
     assert!(
-        s.doc.layer(0, 0).unwrap().keyframes.get(&5).is_none(),
+        !s.doc.layer(0, 0).unwrap().keyframes.contains_key(&5),
         "frame 5 is a hold, not a key"
     );
     let n = s.history.undo_len();
@@ -572,7 +571,7 @@ fn convert_on_a_hold_frame_auto_keys_inside_the_command_and_undo_removes_it() {
     );
     assert!(s.undo());
     assert!(
-        s.doc.layer(0, 0).unwrap().keyframes.get(&5).is_none(),
+        !s.doc.layer(0, 0).unwrap().keyframes.contains_key(&5),
         "undo convert removes the auto-created keyframe"
     );
 }

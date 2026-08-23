@@ -18,6 +18,7 @@ Details: `PROJECT_COORDINATION/AI-A_REPORT.md`. Manual desktop QA PENDING.
 | UI shell + control registry + dev panel | MOD-SHELL/UI | COMPLETE | vitest |
 | Tauri desktop config | MOD-SHELL | READY(config) / BLOCKED(run: sandbox webkit) | desktop/src-tauri/ |
 | WASM bridge (core ↔ UI) | MOD-INPUT/BRIDGE | COMPLETE (user-PC verified) | core/src/wasm.rs + ui/src/engine/client.ts |
+| **Kineora AI A1–A6.8 Phase 2** | MOD-AI | NATIVE + UI AUTOMATED; generated AI WASM package/runtime probe pending | 394/394 Rust; A3/A5 raw WASM exports present; Stage gesture-idle wired; `make a ball` focused integration; `npm run wasm` blocked here by unavailable wasm-pack release download |
 | Canvas renderer (RectItem + viewport) | MOD-RENDER | COMPLETE | render/viewport.ts + canvasRenderer.ts + Stage |
 | Select + Move gestures | MOD-INPUT/MOD-SELECTION/MOD-XFR | COMPLETE | editor/gesture.ts + MoveSelection (layer-aware) |
 | Rect tool (real object creation) | MOD-INPUT/MOD-DRAWING/MOD-DOC | COMPLETE | gesture.normalizeRect + DrawRect + draw.rs |

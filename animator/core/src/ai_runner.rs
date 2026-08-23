@@ -246,17 +246,29 @@ impl Compiler {
         };
         if let Some(index) = value.as_u64() {
             let Some(id) = self.initial_layers.get(index as usize).copied() else {
-                return Err(self.failure(action, "E_STATE", format!("layer index {index} is stale")));
+                return Err(self.failure(
+                    action,
+                    "E_STATE",
+                    format!("layer index {index} is stale"),
+                ));
             };
             return self.layer_index_for_id(id).ok_or_else(|| {
-                self.failure(action, "E_REF", format!("layer index {index} was deleted or moved"))
+                self.failure(
+                    action,
+                    "E_REF",
+                    format!("layer index {index} was deleted or moved"),
+                )
             });
         }
         let alias = ref_alias(value)
             .ok_or_else(|| self.compile_failure(action, "layer reference was not materialized"))?;
         match self.bindings.get(alias).copied() {
             Some(Binding::Layer(id)) => self.layer_index_for_id(id).ok_or_else(|| {
-                self.failure(action, "E_REF", format!("created layer {alias} no longer exists"))
+                self.failure(
+                    action,
+                    "E_REF",
+                    format!("created layer {alias} no longer exists"),
+                )
             }),
             Some(_) => Err(self.compile_failure(action, format!("{alias} is not a layer"))),
             None => Err(self.compile_failure(action, format!("unknown layer binding {alias}"))),
@@ -463,7 +475,11 @@ impl Compiler {
                 let shape = match required_str(p, "shape", action)? {
                     "rect" => ShapeKind::Rect,
                     "oval" => ShapeKind::Oval,
-                    other => return Err(self.compile_failure(action, format!("unsupported shape {other}"))),
+                    other => {
+                        return Err(
+                            self.compile_failure(action, format!("unsupported shape {other}"))
+                        )
+                    }
                 };
                 let stroke = optional_color(p, "stroke", action)?;
                 let x = required_f64(p, "x", action)?;
@@ -473,19 +489,14 @@ impl Compiler {
                 let fill = required_str(p, "fill", action)?.to_string();
                 let stroke_width = optional_f64(p, "strokeWidth", action)?.unwrap_or(0.0);
                 let id = self.with_layer_frame(layer, frame, |session| {
-                    session.draw_shape(
-                        shape,
-                        x,
-                        y,
-                        w,
-                        h,
-                        &fill,
-                        stroke.as_deref(),
-                        stroke_width,
-                    )
+                    session.draw_shape(shape, x, y, w, h, &fill, stroke.as_deref(), stroke_width)
                 });
                 if id.0 == 0 {
-                    return Err(self.failure(action, "E_GUARD", "shape target is no longer editable"));
+                    return Err(self.failure(
+                        action,
+                        "E_GUARD",
+                        "shape target is no longer editable",
+                    ));
                 }
                 self.take_command(action)?;
                 self.bind(action, Binding::Node(id));
@@ -495,7 +506,11 @@ impl Compiler {
                 self.select_nodes(action, ids.clone())?;
                 if optional_bool(p, "reset", action)?.unwrap_or(false) {
                     if !self.staging.remove_transform() {
-                        return Err(self.failure(action, "E_STATE", "requested reset is now a no-op"));
+                        return Err(self.failure(
+                            action,
+                            "E_STATE",
+                            "requested reset is now a no-op",
+                        ));
                     }
                     self.take_command(action)?;
                 }
@@ -559,7 +574,11 @@ impl Compiler {
                 let ids = self.resolve_nodes(action, required(p, "nodes", action)?)?;
                 self.select_nodes(action, ids)?;
                 if !self.staging.delete_selection() {
-                    return Err(self.failure(action, "E_STATE", "delete target became unavailable"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "delete target became unavailable",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -570,7 +589,11 @@ impl Compiler {
                 let offset = optional_f64(p, "offset", action)?.unwrap_or(DUPLICATE_OFFSET);
                 for _ in 0..copies {
                     if !self.staging.duplicate_objects() {
-                        return Err(self.failure(action, "E_STATE", "duplicate target became unavailable"));
+                        return Err(self.failure(
+                            action,
+                            "E_STATE",
+                            "duplicate target became unavailable",
+                        ));
                     }
                     self.take_command(action)?;
                     let delta = offset - DUPLICATE_OFFSET;
@@ -588,10 +611,18 @@ impl Compiler {
                     "bring-forward" => ArrangeOp::Forward,
                     "send-backward" => ArrangeOp::Backward,
                     "send-to-back" => ArrangeOp::Back,
-                    other => return Err(self.compile_failure(action, format!("invalid arrange op {other}"))),
+                    other => {
+                        return Err(
+                            self.compile_failure(action, format!("invalid arrange op {other}"))
+                        )
+                    }
                 };
                 if !self.staging.arrange_selection(op) {
-                    return Err(self.failure(action, "E_STATE", "arrange target became unavailable"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "arrange target became unavailable",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -605,12 +636,20 @@ impl Compiler {
                     "top" => AlignOp::Top,
                     "center-v" => AlignOp::MiddleV,
                     "bottom" => AlignOp::Bottom,
-                    other => return Err(self.compile_failure(action, format!("invalid align op {other}"))),
+                    other => {
+                        return Err(
+                            self.compile_failure(action, format!("invalid align op {other}"))
+                        )
+                    }
                 };
                 let space = match optional_str(p, "space", action)?.unwrap_or("selection") {
                     "selection" => AlignSpace::Selection,
                     "stage" => AlignSpace::Stage,
-                    other => return Err(self.compile_failure(action, format!("invalid align space {other}"))),
+                    other => {
+                        return Err(
+                            self.compile_failure(action, format!("invalid align space {other}"))
+                        )
+                    }
                 };
                 if !self.staging.align_selection(op, space) {
                     return Err(self.failure(action, "E_STATE", "align target became unavailable"));
@@ -641,7 +680,11 @@ impl Compiler {
                         .map(|layer| layer.name.as_str());
                     if current_name != Some(name) {
                         if !self.staging.rename_layer(index, name) {
-                            return Err(self.failure(action, "E_STATE", "created layer could not be named"));
+                            return Err(self.failure(
+                                action,
+                                "E_STATE",
+                                "created layer could not be named",
+                            ));
                         }
                         self.take_command(action)?;
                     }
@@ -650,8 +693,15 @@ impl Compiler {
             }
             "layer.rename" => {
                 let layer = self.resolve_layer(action, p.get("layer"))?;
-                if !self.staging.rename_layer(layer, required_str(p, "name", action)?) {
-                    return Err(self.failure(action, "E_STATE", "rename target became stale or unchanged"));
+                if !self
+                    .staging
+                    .rename_layer(layer, required_str(p, "name", action)?)
+                {
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "rename target became stale or unchanged",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -671,14 +721,22 @@ impl Compiler {
                     _ => self.staging.set_layer_outline(layer, value),
                 };
                 if !ok {
-                    return Err(self.failure(action, "E_STATE", "layer flag target is stale or unchanged"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "layer flag target is stale or unchanged",
+                    ));
                 }
                 self.take_command(action)?;
             }
             "layer.duplicate" => {
                 let layer = self.resolve_layer(action, p.get("layer"))?;
                 if self.staging.duplicate_layer(layer).is_none() {
-                    return Err(self.failure(action, "E_STATE", "layer duplicate target became stale"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "layer duplicate target became stale",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -697,7 +755,11 @@ impl Compiler {
                     None => None,
                 };
                 if !self.staging.set_layer_parent(child, parent) {
-                    return Err(self.failure(action, "E_STATE", "layer parent target became invalid"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "layer parent target became invalid",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -705,13 +767,18 @@ impl Compiler {
                 let layer = self.resolve_layer(action, p.get("layer"))?;
                 self.ensure_layer_content_editable(action, layer)?;
                 let frame = required_u32(p, "frame", action)?;
-                let ok = self.with_layer_frame(layer, None, |session| match action.action.as_str() {
-                    "keyframe.insert" => session.insert_keyframe(frame),
-                    "keyframe.insertBlank" => session.insert_blank_keyframe(frame),
-                    _ => session.clear_keyframe(frame),
-                });
+                let ok =
+                    self.with_layer_frame(layer, None, |session| match action.action.as_str() {
+                        "keyframe.insert" => session.insert_keyframe(frame),
+                        "keyframe.insertBlank" => session.insert_blank_keyframe(frame),
+                        _ => session.clear_keyframe(frame),
+                    });
                 if !ok {
-                    return Err(self.failure(action, "E_STATE", "keyframe state changed before apply"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "keyframe state changed before apply",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -726,7 +793,11 @@ impl Compiler {
                     self.staging.duplicate_keyframe(layer, from, to)
                 };
                 if !ok {
-                    return Err(self.failure(action, "E_STATE", "keyframe source/target changed before apply"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "keyframe source/target changed before apply",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -745,7 +816,11 @@ impl Compiler {
                         }
                     });
                     if !ok {
-                        return Err(self.failure(action, "E_STATE", "frame range changed before apply"));
+                        return Err(self.failure(
+                            action,
+                            "E_STATE",
+                            "frame range changed before apply",
+                        ));
                     }
                     self.take_command(action)?;
                 }
@@ -769,7 +844,11 @@ impl Compiler {
                     _ => self.staging.convert_to_blank_keyframes(layer, start, end),
                 };
                 if !ok {
-                    return Err(self.failure(action, "E_STATE", "frame range changed before apply"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "frame range changed before apply",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -795,7 +874,11 @@ impl Compiler {
                     required_u32(p, "end", action)?,
                     required_f64(p, "ease", action)?,
                 ) {
-                    return Err(self.failure(action, "E_STATE", "tween endpoints changed before apply"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "tween endpoints changed before apply",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -813,14 +896,19 @@ impl Compiler {
             "symbol.convert" => {
                 let selected = self.staging.selection.clone();
                 self.ensure_nodes_editable(action, &selected)?;
-                let symbol_type = parse_symbol_type(required_str(p, "type", action)?, action, self)?;
+                let symbol_type =
+                    parse_symbol_type(required_str(p, "type", action)?, action, self)?;
                 let id = self.staging.convert_selection_to_symbol(
                     required_str(p, "name", action)?,
                     symbol_type,
                     4,
                 );
                 if id.0 == 0 {
-                    return Err(self.failure(action, "E_STATE", "symbol conversion selection became stale"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "symbol conversion selection became stale",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -848,17 +936,21 @@ impl Compiler {
                     optional_f64(p, "y", action)?.unwrap_or(0.0),
                 );
                 if id.0 == 0 {
-                    return Err(self.failure(action, "E_GUARD", "symbol placement target became invalid"));
+                    return Err(self.failure(
+                        action,
+                        "E_GUARD",
+                        "symbol placement target became invalid",
+                    ));
                 }
                 self.take_command(action)?;
                 self.bind(action, Binding::Node(id));
             }
             "symbol.rename" => {
                 let symbol = self.resolve_symbol(action, required(p, "symbol", action)?)?;
-                if !self.staging.rename_symbol(
-                    symbol,
-                    required_str(p, "name", action)?,
-                ) {
+                if !self
+                    .staging
+                    .rename_symbol(symbol, required_str(p, "name", action)?)
+                {
                     return Err(self.failure(action, "E_STATE", "symbol rename became invalid"));
                 }
                 self.take_command(action)?;
@@ -881,8 +973,15 @@ impl Compiler {
                     .selection
                     .iter()
                     .copied()
-                    .find(|id| matches!(self.staging.doc.nodes.get(id), Some(Node::SymbolInstance { .. })))
-                    .ok_or_else(|| self.failure(action, "E_REF", "no live selected symbol instance"))?;
+                    .find(|id| {
+                        matches!(
+                            self.staging.doc.nodes.get(id),
+                            Some(Node::SymbolInstance { .. })
+                        )
+                    })
+                    .ok_or_else(|| {
+                        self.failure(action, "E_REF", "no live selected symbol instance")
+                    })?;
                 let ok = if action.action == "symbol.swap" {
                     self.staging.swap_instance(instance, symbol)
                 } else {
@@ -890,7 +989,11 @@ impl Compiler {
                         "loop" => LoopMode::Loop,
                         "once" => LoopMode::PlayOnce,
                         "single" => LoopMode::SingleFrame,
-                        other => return Err(self.compile_failure(action, format!("invalid loop mode {other}"))),
+                        other => {
+                            return Err(
+                                self.compile_failure(action, format!("invalid loop mode {other}"))
+                            )
+                        }
                     };
                     self.staging.set_instance_loop(
                         instance,
@@ -912,7 +1015,11 @@ impl Compiler {
                     background_alpha: optional_f64(p, "backgroundAlpha", action)?,
                 };
                 if !self.staging.set_document_settings(patch) {
-                    return Err(self.failure(action, "E_STATE", "document settings are now unchanged"));
+                    return Err(self.failure(
+                        action,
+                        "E_STATE",
+                        "document settings are now unchanged",
+                    ));
                 }
                 self.take_command(action)?;
             }
@@ -935,7 +1042,11 @@ impl Compiler {
 /// failure is a complete rollback by construction: no real command ran and no
 /// History entry was pushed. Successful mutations enter through exactly one A1
 /// `Session::execute_grouped` call.
-pub fn execute_validated_plan(session: &mut Session, plan_json: &str, label: &str) -> AiExecutionResult {
+pub fn execute_validated_plan(
+    session: &mut Session,
+    plan_json: &str,
+    label: &str,
+) -> AiExecutionResult {
     let parsed: ValidatedPlanWire = match serde_json::from_str(plan_json) {
         Ok(plan) => plan,
         Err(_) => return AiExecutionResult::parse_failure("validated plan wire format is invalid"),
@@ -979,7 +1090,12 @@ pub fn execute_validated_plan(session: &mut Session, plan_json: &str, label: &st
                 let had_mutations = !compiler.commands.is_empty();
                 for row in actions.iter_mut().take(action.index) {
                     if row.status == "prepared" {
-                        row.status = if had_mutations { "rolled-back" } else { "skipped" }.into();
+                        row.status = if had_mutations {
+                            "rolled-back"
+                        } else {
+                            "skipped"
+                        }
+                        .into();
                     }
                 }
                 actions[action.index].status = "failed".into();
@@ -988,7 +1104,12 @@ pub fn execute_validated_plan(session: &mut Session, plan_json: &str, label: &st
                 }
                 return AiExecutionResult {
                     ok: false,
-                    outcome: if had_mutations { "rolled-back" } else { "failed" }.into(),
+                    outcome: if had_mutations {
+                        "rolled-back"
+                    } else {
+                        "failed"
+                    }
+                    .into(),
                     rolled_back: had_mutations,
                     mutation_count: 0,
                     actions,
@@ -1018,7 +1139,9 @@ pub fn execute_validated_plan(session: &mut Session, plan_json: &str, label: &st
         // monotonic and intentionally not reverted by undo.
         session.doc.next_id = session.doc.next_id.max(next_id);
         if !session.execute_grouped(label, compiler.commands) {
-            return AiExecutionResult::parse_failure("engine refused a non-empty grouped transaction");
+            return AiExecutionResult::parse_failure(
+                "engine refused a non-empty grouped transaction",
+            );
         }
         session.playhead = original_playhead;
         if let Some(id) = original_active_layer {
@@ -1062,10 +1185,7 @@ pub fn execute_validated_plan(session: &mut Session, plan_json: &str, label: &st
 }
 
 fn ref_alias(value: &Value) -> Option<&str> {
-    value
-        .as_object()?
-        .get("ref")?
-        .as_str()
+    value.as_object()?.get("ref")?.as_str()
 }
 
 fn required<'a>(
@@ -1087,7 +1207,9 @@ fn required_str<'a>(
     key: &str,
     action: &ValidatedActionWire,
 ) -> Result<&'a str, AiExecutionError> {
-    required(params, key, action)?.as_str().ok_or_else(|| compile_type(action, key))
+    required(params, key, action)?
+        .as_str()
+        .ok_or_else(|| compile_type(action, key))
 }
 
 fn optional_str<'a>(
@@ -1114,7 +1236,9 @@ fn required_f64(
     key: &str,
     action: &ValidatedActionWire,
 ) -> Result<f64, AiExecutionError> {
-    required(params, key, action)?.as_f64().ok_or_else(|| compile_type(action, key))
+    required(params, key, action)?
+        .as_f64()
+        .ok_or_else(|| compile_type(action, key))
 }
 
 fn optional_f64(
@@ -1187,7 +1311,9 @@ fn required_bool(
     key: &str,
     action: &ValidatedActionWire,
 ) -> Result<bool, AiExecutionError> {
-    required(params, key, action)?.as_bool().ok_or_else(|| compile_type(action, key))
+    required(params, key, action)?
+        .as_bool()
+        .ok_or_else(|| compile_type(action, key))
 }
 
 fn optional_bool(

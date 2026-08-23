@@ -245,6 +245,36 @@ describe('A6.3 modes and execution gates', () => {
     expect(h.run).not.toHaveBeenCalled()
   })
 
+  it('takes "make a ball" through prompt → provider → A4 → approval → one A5 call → verifier', async () => {
+    const h = harness({ responses: [SHAPE_PLAN] })
+    const preview = await h.orchestrator.generate({
+      documentId: 1,
+      userRequest: 'make a ball',
+      mode: 'preview',
+    })
+    expect(preview).toMatchObject({
+      status: 'awaitingApproval',
+      plan: {
+        actions: [{ action: 'shape.create', params: { shape: 'oval' } }],
+      },
+    })
+    const providerRequest = h.complete.mock.calls[0]?.[2]
+    expect(providerRequest.messages.at(-1)).toEqual({ role: 'user', content: 'make a ball' })
+    expect(providerRequest.messages[0]?.content).toContain('shape.create')
+    expect(JSON.stringify(providerRequest)).not.toContain('sk-testkey-1234567890')
+    expect(h.run).not.toHaveBeenCalled()
+
+    const applied = await h.orchestrator.approve(1)
+    expect(h.run).toHaveBeenCalledTimes(1)
+    expect(h.run).toHaveBeenCalledWith(preview.plan)
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'completed',
+      transaction: { ok: true, outcome: 'applied' },
+      verification: { verdict: 'pass' },
+    })
+  })
+
   it('APPLY executes a Tier-A plan through exactly one A5 transaction', async () => {
     const h = harness()
     const result = await h.orchestrator.generate({ documentId: 1, userRequest: 'oval banao', mode: 'apply' })

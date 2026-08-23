@@ -105,9 +105,16 @@ fn group_undoes_everything_in_one_step() {
 
     assert!(s.undo(), "single Ctrl+Z…");
     assert_eq!(s.doc, pre, "…reverts the ENTIRE group, bit-exact");
-    assert!(!s.undo(), "nothing else on the stack — exactly one entry existed");
+    assert!(
+        !s.undo(),
+        "nothing else on the stack — exactly one entry existed"
+    );
     assert!(s.redo());
-    assert_eq!(s.doc.nodes.len(), 2, "single redo re-applies the whole group");
+    assert_eq!(
+        s.doc.nodes.len(),
+        2,
+        "single redo re-applies the whole group"
+    );
 }
 
 #[test]
@@ -129,7 +136,10 @@ fn children_apply_in_order_and_revert_in_reverse() {
         doc.settings.background, baseline,
         "revert removed 3,2,1 (Rec asserts the exact tail — forward order would panic)"
     );
-    assert!(!h.is_dirty(&doc), "undo back to the saved baseline is CLEAN");
+    assert!(
+        !h.is_dirty(&doc),
+        "undo back to the saved baseline is CLEAN"
+    );
 
     h.redo(&mut doc);
     assert_eq!(doc.settings.background, format!("{baseline}123"));
@@ -149,7 +159,11 @@ fn selection_prev_post_capture_is_unchanged_for_groups() {
     let mut s = session();
     let drawn = s.draw_shape(ShapeKind::Oval, 5.0, 5.0, 20.0, 20.0, "#ff0000", None, 1.0);
     assert!(drawn.0 > 0, "draw succeeded");
-    assert_eq!(s.selection, vec![drawn], "draw leaves the new node selected");
+    assert_eq!(
+        s.selection,
+        vec![drawn],
+        "draw leaves the new node selected"
+    );
 
     let layer_id = s.layers()[0].id;
     let before = s.layers()[0].name.clone();
@@ -262,7 +276,11 @@ fn a_new_group_clears_redo_like_any_command() {
         Box::new(CompositeCommand::new("g2", recs(&['2']))),
         Vec::new(),
     );
-    assert_eq!(h.redo_len(), 0, "new group invalidates redo (Phase-3 Part 12)");
+    assert_eq!(
+        h.redo_len(),
+        0,
+        "new group invalidates redo (Phase-3 Part 12)"
+    );
 }
 
 #[test]

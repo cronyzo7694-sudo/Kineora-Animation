@@ -196,7 +196,6 @@ impl Session {
         self.log(&format!("playhead:{frame}"));
     }
 
-
     /// B-5: active layer is a drawable/paste target only when it exists, is
     /// Normal (not a folder), visible, and unlocked — including ancestor
     /// folders (B-1 / B-3).

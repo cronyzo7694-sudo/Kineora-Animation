@@ -130,7 +130,7 @@ impl DocManager {
         let mut n = self.untitled_counter;
         loop {
             n += 1;
-            let candidate = format!("Untitled-{}", n);
+            let candidate = format!("Untitled-{n}");
             if !self.docs.iter().any(|d| d.title == candidate) {
                 self.untitled_counter = n;
                 return candidate;

@@ -430,7 +430,10 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
       continue
     }
     if (it.points.length < 2) continue
-    const d = pathD(it.points, it.closed)
+    let d = pathD(it.points, it.closed)
+    for (const hole of it.holes ?? []) {
+      if (hole.length >= 3) d += ' ' + pathD(hole, true)
+    }
     const sw = it.kind === 'brush' && it.fill && it.closed ? it.strokeWidth : it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
     const fill = it.fill && it.closed ? it.fill : 'none'
     const stroke = it.stroke ?? 'none'
@@ -515,19 +518,8 @@ function drawRulers(ctx: CanvasRenderingContext2D, vp: Viewport, stageW: number,
   ctx.restore()
 }
 
-function drawPolyline(
-  ctx: CanvasRenderingContext2D,
-  vp: Viewport,
-  pts: InkPt[],
-  stroke: string | null,
-  strokeWidth: number,
-  fill: string | null,
-  closed: boolean,
-  style?: { dash?: number[]; cap?: CanvasLineCap; join?: CanvasLineJoin },
-): void {
+function tracePoly(ctx: CanvasRenderingContext2D, vp: Viewport, pts: InkPt[], closed: boolean): void {
   if (pts.length === 0) return
-  ctx.save()
-  ctx.beginPath()
   const a = docToScreen(vp, pts[0].x, pts[0].y)
   ctx.moveTo(a.x, a.y)
   const last = closed ? pts.length : pts.length - 1
@@ -545,9 +537,28 @@ function drawPolyline(
     }
   }
   if (closed) ctx.closePath()
+}
+
+function drawPolyline(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  pts: InkPt[],
+  stroke: string | null,
+  strokeWidth: number,
+  fill: string | null,
+  closed: boolean,
+  style?: { dash?: number[]; cap?: CanvasLineCap; join?: CanvasLineJoin; holes?: InkPt[][] },
+): void {
+  if (pts.length === 0) return
+  ctx.save()
+  ctx.beginPath()
+  tracePoly(ctx, vp, pts, closed)
+  for (const hole of style?.holes ?? []) {
+    if (hole.length >= 3) tracePoly(ctx, vp, hole, true)
+  }
   if (fill) {
     ctx.fillStyle = fill
-    ctx.fill()
+    ctx.fill((style?.holes && style.holes.length > 0 ? 'evenodd' : 'nonzero') as CanvasFillRule)
   }
   if (stroke) {
     ctx.strokeStyle = stroke
@@ -597,6 +608,7 @@ function drawInkItems(
         dash: it.strokeDash,
         cap: it.lineCap,
         join: it.lineJoin,
+        holes: it.holes,
       })
       const im = getFillImage(extra?.fillImage)
       if (im && it.closed && pts.length >= 3) {

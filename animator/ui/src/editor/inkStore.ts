@@ -36,6 +36,8 @@ export interface InkItem {
   strokeDash?: number[]
   lineCap?: 'butt' | 'round' | 'square'
   lineJoin?: 'miter' | 'round' | 'bevel'
+  /** Even-odd holes (Adobe Eraser subtracts the nib from a fill). */
+  holes?: InkPt[][]
   text?: string
   fontSize?: number
   fontFamily?: string
@@ -63,7 +65,11 @@ const redoStack: InkItem[][] = []
 const listeners = new Set<() => void>()
 
 function snapshot(): InkItem[] {
-  return items.map((it) => ({ ...it, points: it.points.map((p) => ({ ...p })) }))
+  return items.map((it) => ({
+    ...it,
+    points: it.points.map((p) => ({ ...p })),
+    holes: it.holes?.map((h) => h.map((p) => ({ ...p }))),
+  }))
 }
 
 function emit(): void {
@@ -109,7 +115,11 @@ export function serializeInk(): InkItem[] {
 
 /** Replace the live ink layer without an undo step (load / tab switch). */
 export function restoreInk(next: InkItem[]): void {
-  items = next.map((it) => ({ ...it, points: it.points.map((p) => ({ ...p })) }))
+  items = next.map((it) => ({
+    ...it,
+    points: it.points.map((p) => ({ ...p })),
+    holes: it.holes?.map((h) => h.map((p) => ({ ...p }))),
+  }))
   let max = ID_BASE
   for (const it of items) if (it.id >= max) max = it.id + 1
   nextId = max
@@ -145,6 +155,21 @@ export function updateInk(id: number, patch: Partial<InkItem>): boolean {
   items[i] = { ...items[i], ...patch }
   emit()
   bus.emit('document:changed', { type: 'transform', targets: [id] })
+  return true
+}
+
+/** One undo: replace an item with zero or more pieces (eraser split). */
+export function replaceInk(id: number, next: Omit<InkItem, 'id'>[]): boolean {
+  const i = items.findIndex((it) => it.id === id)
+  if (i < 0) return false
+  pushUndo()
+  const before = items.slice(0, i)
+  const after = items.slice(i + 1)
+  const created: InkItem[] = next.map((partial) => ({ ...partial, id: nextId++ }))
+  items = [...before, ...created, ...after]
+  selected = selected.filter((s) => s !== id)
+  emit()
+  bus.emit('document:changed', { type: 'edit', targets: [id, ...created.map((c) => c.id)] })
   return true
 }
 
@@ -603,7 +628,10 @@ export function hitInk(x: number, y: number): InkItem | null {
       continue
     }
     const tol = Math.max(4, (it.strokeWidth || 1) / 2 + 3)
-    if (it.closed && it.fill && it.points.length >= 3 && pointInPoly(p, it.points)) return it
+    if (it.closed && it.fill && it.points.length >= 3 && pointInPoly(p, it.points)) {
+      const inHole = (it.holes ?? []).some((h) => h.length >= 3 && pointInPoly(p, h))
+      if (!inHole) return it
+    }
     for (let s = 1; s < it.points.length; s++) {
       if (distToSegment(p, it.points[s - 1], it.points[s]) <= tol) return it
     }

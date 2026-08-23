@@ -64,7 +64,7 @@ function hint(tool: string): string {
     case 'eyedropper':
       return 'Click an object to pick up its fill and stroke, then switches to Paint Bucket.'
     case 'eraser':
-      return 'Adobe Eraser (E). Mode: Normal / Fills / Lines / Selected Fills / Inside. Faucet click deletes a whole fill or stroke. Shape + size = nib. Double-click the tool to clear the Stage. Pressure is stylus-only. Engine shapes are deleted whole (no boolean punch).'
+      return 'Adobe Eraser (E): drag subtracts the nib from fills and cuts the crossed part of a stroke. Faucet click deletes a whole fill/stroke. Mode + shape + size in Properties. Double-click the tool to clear the Stage. Engine rect/oval become ink so they can be punched.'
     case 'zoom':
       return 'Click to zoom, Alt-click to reverse, or drag a region. Enlarge / Reduce below.'
     case 'hand':

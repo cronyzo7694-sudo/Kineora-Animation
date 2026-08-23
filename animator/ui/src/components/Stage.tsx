@@ -94,7 +94,7 @@ import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/obje
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 import { dashForStyle, processPencil } from '../editor/pencil'
 import { brushDocSize, constrainBrush } from '../editor/brush'
-import { collectEraserHits, faucetTarget, inkIsFill } from '../editor/eraser'
+import { applyEraserStroke, engineHitsEraser, engineShapeToInk, faucetTarget, inkIsFill } from '../editor/eraser'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -750,7 +750,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const sg = strokeRef.current
       strokeRef.current = null
       previewStrokeRef.current = null
-      if (sg && (sg.pts.length >= 2 || (sg.kind === 'brush' && sg.pts.length >= 1))) {
+      if (sg && (sg.pts.length >= 2 || sg.kind === 'brush' || sg.kind === 'eraser')) {
         const colors = loadToolColors()
         if (sg.kind === 'eraser') {
           const o = loadToolOptions()
@@ -763,19 +763,32 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
           } else if (mode === 'selected' && selectedInkIds().length === 0 && !(statusJson()?.selection?.length)) {
             notify?.('Erase Selected Fills: select a fill first')
           } else {
-            const ids = collectEraserHits(sg.pts, mode, Math.max(4, o.inkSize), startInside)
-            if (ids.length) deleteInkIds(ids)
-            const last = sg.pts[sg.pts.length - 1]
-            const engineOk =
-              mode === 'lines'
-                ? false
-                : mode === 'selected'
-                  ? (statusJson()?.selection?.length ?? 0) > 0
-                  : mode !== 'inside' || !!startInside
-            if (engineOk && last && selectAt(last.x, last.y)) {
-              if (mode !== 'selected' || (statusJson()?.selection?.length ?? 0) > 0) deleteSelection()
+            const size = Math.max(8, o.inkSize)
+            const r = size / 2
+            const st = statusJson()
+            const engineItems = evaluate(st?.playhead ?? 1) ?? []
+            const promote = mode === 'lines' ? [] : engineItems.filter((it) => engineHitsEraser(it, sg.pts, r))
+            for (const it of promote) {
+              if (mode === 'selected' && !(st?.selection ?? []).includes(it.id)) continue
+              selectAt(it.x + it.w / 2, it.y + it.h / 2)
+              const d = statusJson()?.selection_details?.find((x) => x.id === it.id)
+              addInk(
+                engineShapeToInk({
+                  x: it.x,
+                  y: it.y,
+                  w: it.w,
+                  h: it.h,
+                  shape: it.shape,
+                  fill: d?.fill || it.fill,
+                  stroke: d?.stroke ?? it.stroke,
+                  stroke_width: d?.stroke_width ?? it.stroke_width,
+                }),
+                { select: false },
+              )
+              deleteSelection()
             }
-            notify?.(ids.length ? 'erased' : 'eraser: nothing under the nib')
+            const ok = applyEraserStroke(sg.pts, mode, size, o.eraserShape || 'circle', startInside)
+            notify?.(ok || promote.length ? 'erased' : 'eraser: nothing under the nib')
           }
         } else if (sg.kind === 'lasso') {
           const loop = sg.pts.length >= 3 ? [...sg.pts, sg.pts[0]] : sg.pts

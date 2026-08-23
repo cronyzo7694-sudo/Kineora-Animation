@@ -1,128 +1,72 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { collectEraserHits, faucetTarget, inkIsFill, inkIsStroke } from './eraser'
-import { addInk, listInk, resetInkForTests, selectInk } from './inkStore'
+import { applyEraserStroke, splitOpenPath } from './eraser'
+import { addInk, listInk, resetInkForTests } from './inkStore'
 
 beforeEach(() => resetInkForTests())
 
-describe('eraser classify', () => {
-  it('treats brush and closed fills as fills, pencil as stroke', () => {
-    const fillId = addInk({
+describe('splitOpenPath', () => {
+  it('cuts the middle of a stroke and keeps both ends', () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ]
+    const erase = [
+      { x: 48, y: 0 },
+      { x: 52, y: 0 },
+    ]
+    const bits = splitOpenPath(line, erase, 6)
+    expect(bits.length).toBe(2)
+    expect(bits[0][0].x).toBeLessThan(45)
+    expect(bits[1][bits[1].length - 1].x).toBeGreaterThan(55)
+  })
+})
+
+describe('applyEraserStroke', () => {
+  it('punches a hole in a fill instead of deleting the object', () => {
+    addInk({
       kind: 'pen',
       points: [
         { x: 0, y: 0 },
-        { x: 20, y: 0 },
-        { x: 20, y: 20 },
-        { x: 0, y: 20 },
+        { x: 80, y: 0 },
+        { x: 80, y: 80 },
+        { x: 0, y: 80 },
       ],
       closed: true,
       fill: '#f00',
-      stroke: '#000',
-      strokeWidth: 1,
+      stroke: null,
+      strokeWidth: 0,
     })
-    const lineId = addInk({
+    expect(applyEraserStroke([{ x: 40, y: 40 }], 'normal', 16, 'circle', null)).toBe(true)
+    const left = listInk()
+    expect(left).toHaveLength(1)
+    expect(left[0].holes?.length).toBe(1)
+    expect(left[0].points.length).toBe(4)
+  })
+
+  it('splits a pencil stroke instead of deleting it', () => {
+    addInk({
       kind: 'pencil',
       points: [
-        { x: 100, y: 0 },
-        { x: 140, y: 0 },
+        { x: 0, y: 10 },
+        { x: 120, y: 10 },
       ],
       closed: false,
       fill: null,
       stroke: '#111',
       strokeWidth: 2,
     })
-    expect(fillId).toBeGreaterThan(0)
-    const fill = listInk().find((i) => i.id === fillId)!
-    const line = listInk().find((i) => i.id === lineId)!
-    expect(inkIsFill(fill)).toBe(true)
-    expect(inkIsStroke(line)).toBe(true)
-  })
-})
-
-describe('collectEraserHits', () => {
-  it('Erase Lines skips a closed fill', () => {
-    addInk({
-      kind: 'pen',
-      points: [
-        { x: 0, y: 0 },
-        { x: 40, y: 0 },
-        { x: 40, y: 40 },
-        { x: 0, y: 40 },
-      ],
-      closed: true,
-      fill: '#0af',
-      stroke: null,
-      strokeWidth: 0,
-    })
-    const hits = collectEraserHits(
+    applyEraserStroke(
       [
-        { x: 10, y: 10 },
-        { x: 12, y: 12 },
+        { x: 58, y: 10 },
+        { x: 62, y: 10 },
       ],
-      'lines',
-      16,
+      'normal',
+      12,
+      'circle',
       null,
     )
-    expect(hits).toEqual([])
-  })
-
-  it('Erase Selected Fills only hits the selected fill', () => {
-    const a = addInk({
-      kind: 'pen',
-      points: [
-        { x: 0, y: 0 },
-        { x: 20, y: 0 },
-        { x: 20, y: 20 },
-        { x: 0, y: 20 },
-      ],
-      closed: true,
-      fill: '#111',
-      stroke: null,
-      strokeWidth: 0,
-    }, { select: false })
-    const b = addInk({
-      kind: 'pen',
-      points: [
-        { x: 80, y: 0 },
-        { x: 100, y: 0 },
-        { x: 100, y: 20 },
-        { x: 80, y: 20 },
-      ],
-      closed: true,
-      fill: '#222',
-      stroke: null,
-      strokeWidth: 0,
-    }, { select: false })
-    selectInk([b])
-    const hits = collectEraserHits(
-      [
-        { x: 10, y: 10 },
-        { x: 90, y: 10 },
-      ],
-      'selected',
-      8,
-      null,
-    )
-    expect(hits).toEqual([b])
-    expect(hits).not.toContain(a)
-  })
-})
-
-describe('faucetTarget', () => {
-  it('returns the fill under the click', () => {
-    addInk({
-      kind: 'pen',
-      points: [
-        { x: 0, y: 0 },
-        { x: 30, y: 0 },
-        { x: 30, y: 30 },
-        { x: 0, y: 30 },
-      ],
-      closed: true,
-      fill: '#abc',
-      stroke: null,
-      strokeWidth: 0,
-    })
-    expect(faucetTarget(10, 10, 'normal')?.kind).toBe('pen')
-    expect(faucetTarget(200, 200, 'normal')).toBeNull()
+    const left = listInk()
+    expect(left.length).toBeGreaterThanOrEqual(2)
+    expect(left.every((it) => it.kind === 'pencil')).toBe(true)
   })
 })

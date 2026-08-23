@@ -18,10 +18,20 @@ export interface PromptConversationTurn {
   content: string
 }
 
+/** A6.2 document-local binding confirmed against the fresh A3 snapshot.
+ * `ref` is a snapshot alias (n1/l1/s1), never an authoritative raw engine id. */
+export interface PromptEntityBinding {
+  alias: string
+  kind: 'node' | 'layer' | 'symbol'
+  ref: string
+  status: 'advisory'
+}
+
 export interface PromptBuilderInput {
   registry: CapabilityRegistry
   snapshot: SceneSnapshotView
   conversation?: readonly PromptConversationTurn[]
+  entityBindings?: readonly PromptEntityBinding[]
   userRequest: string
   mode: AiMode
   maxTokens?: number
@@ -33,6 +43,7 @@ export interface PromptBuildResult {
   jsonSchema?: CompleteRequest['jsonSchema']
   maxTokens: number
   includedConversationTurns: number
+  includedEntityBindings: number
   snapshotRevision: number
   redactionsApplied: boolean
 }
@@ -315,6 +326,21 @@ export function buildPrompt(input: PromptBuilderInput): PromptBuildResult {
     '</scene_data>',
   ].join('\n')
 
+  const safeBindings = (input.entityBindings ?? []).map((binding) => {
+    const alias = sanitizeOutbound(binding.alias)
+    const ref = sanitizeOutbound(binding.ref)
+    redactionsApplied ||= alias.changed || ref.changed
+    return { alias: alias.text, kind: binding.kind, ref: ref.text, status: 'advisory' as const }
+  })
+  const bindingBlock = safeBindings.length > 0
+    ? [
+        '<entity_bindings authority="advisory">',
+        'Bindings are document-local hints only. Fresh scene data and local A4 validation remain authoritative.',
+        escapedQuotedData(JSON.stringify(safeBindings)),
+        '</entity_bindings>',
+      ].join('\n')
+    : null
+
   const bounded = [...(input.conversation ?? [])].slice(-MAX_CONVERSATION_TURNS)
   const conversation: ChatMessage[] = bounded.map((turn) => {
     const safe = sanitizeOutbound(turn.content)
@@ -327,6 +353,7 @@ export function buildPrompt(input: PromptBuilderInput): PromptBuildResult {
   const messages: ChatMessage[] = [
     { role: 'system', content: staticPrefix },
     { role: 'system', content: sceneBlock },
+    ...(bindingBlock ? [{ role: 'system' as const, content: bindingBlock }] : []),
     ...conversation,
     // The volatile current request is intentionally LAST for prompt caching and
     // to keep quoted project data from masquerading as the user's instruction.
@@ -345,6 +372,7 @@ export function buildPrompt(input: PromptBuilderInput): PromptBuildResult {
         }),
     maxTokens: Math.max(1, Math.trunc(input.maxTokens ?? DEFAULT_PLAN_MAX_TOKENS)),
     includedConversationTurns: bounded.length,
+    includedEntityBindings: safeBindings.length,
     snapshotRevision: input.snapshot.rev,
     redactionsApplied,
   }

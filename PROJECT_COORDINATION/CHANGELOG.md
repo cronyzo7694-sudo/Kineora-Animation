@@ -1,5 +1,112 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — AI-T · AI Agent A3: engine AI seams (E-AI-2..5) + snapshot/capability services
+
+- ENGINE (Rust — written here; cargo NOT RUN, user-PC verify pending):
+  NEW `snapshot.rs` — `scene_snapshot()` (compact semantic JSON of the ACTIVE
+  scene: settings/scene/playhead/duration/rev/selection/counts + per-layer
+  keyframe/tween rows + per-node geometry & keyframe membership + library
+  rows; false/absent fields omitted for token economy) · `capabilities()` —
+  the trusted runtime manifest (shapes + nodeFamilies + features) where shape
+  kinds are enumerated through an EXHAUSTIVE match so a new ShapeKind variant
+  is a compile error here until the manifest is updated (single source of
+  truth — AI-REQ-111).
+  `History` gains a monotonic `rev` (E-AI-4) bumped on every execute/undo/redo
+  · `Session::doc_revision/scene_snapshot/capabilities/set_selection` (E-AI-3:
+  by-id selection, pruned to current-frame content, view state only) · wasm:
+  `kineora_scene_snapshot/kineora_capabilities/kineora_doc_revision/
+  kineora_set_selection`.
+- UI (TS — gate green): `engine/wasmTypes.ts` + `engine/client.ts` optional
+  facades w/ `hasAiEngineFacades()` probe (honest pre-A3 degrade) · NEW
+  `ai/snapshot.ts` — parse (fail-closed, `E_SNAPSHOT`), deep-frozen view,
+  deterministic n1/l1/s1 aliases + ref lookup + token-bounded prompt text ·
+  NEW `ai/capabilities.ts` — CapabilityRegistry GENERATED from the engine
+  manifest (no second hand-maintained list): feature gates flip states, new
+  engine shapes auto-light-up (tested w/ a 'polystar' future fixture),
+  stale-wasm probe degrades honestly, unsupported/deferred rows generated for
+  honest "abhi available nahi" answers (AI-REQ-112), tier A/B per spec 04.
+- TESTS: Rust `tests/ai_snapshot.rs` (11 acceptance tests — cargo NOT RUN) ·
+  TS 20 new (snapshot aliases/freeze/prompt text, manifest parse, dynamic
+  discovery, gates, tiers) · UI gate: tsc clean · vitest 967/967 (74 files)
+  · vite build clean.
+
+## 2026-08-23 — AI-T · AI Agent A2: BYOK foundations (keys, adapters, consent, usage)
+
+- NEW `animator/ui/src/ai/` (10 files; engine untouched, App untouched — the
+  settings component stays UNMOUNTED until A6 per the approved slice order):
+  `redact.ts` (pattern + exact-value registry redaction; bare vs transport
+  patterns) · `keys.ts` KeyVault — MEMORY-ONLY by default, per-key opt-in
+  localStorage persistence behind PERSIST_WARNING, wipe/refcounted redaction
+  registration · `providers.ts` — non-secret config store (runtime guard strips
+  secret-shaped fields on write), consent gate (CONSENT_VERSION), endpoint/
+  model validation · `adapters.ts` — plain-fetch adapters for OpenAI /
+  Anthropic (forced tool-use = strict JSON; browser-direct header) / Gemini
+  (key in x-goog-api-key HEADER, never URL) / OpenAI-compatible (endpoint
+  required); bounded 429/5xx retries (≤2, Retry-After aware); abort-aware;
+  normalized AiError kinds; LOUD structured-output degradation flag; usage
+  extraction per provider · `usage.ts` — session + persisted DAILY token
+  counters (future AI-REQ-070 ceiling input) · `AiProviderSettings.tsx` —
+  consent dialog (outbound-data inventory) + config form + test-connection.
+- Security invariants tested, not just documented: key never in provider
+  config blob, never in URLs, redacted from error text even when a provider
+  echoes it, vault.describe() carries no key material, consent version
+  expiry, zero-network-call on config errors.
+- UI truth gate green: tsc -b clean · vitest 947/947 (72 files; +60 new)
+  · vite build clean.
+
+## 2026-08-23 — AI-T · AI Agent A1: CompositeCommand (E-AI-1) — one request = one undo
+
+- Handoff received: research APPROVED, D-0010 APPROVED. Slice A1 ONLY per §20–23.
+- ENGINE (`animator/core`): NEW `CompositeCommand` in `command.rs` — ordered
+  children apply forward / revert in REVERSE; whole group = ONE History entry
+  labelled with the plan label (child labels stay internal). Atomicity model
+  documented on the type: Commands are apply-infallible, so grouped execution is
+  all-or-nothing at CONSTRUCTION time (build all children; any build failure ⇒
+  drop the whole group, push nothing).
+- NEW `Session::execute_grouped(label, children) -> bool` (session.rs, additive):
+  routes the group through the same exec_then path as every single command —
+  selection prev/post capture (INV-EDIT-2), redo-clear, dirty and 100-bound
+  semantics unchanged. Empty groups refused (no entry, no doc change).
+- `lib.rs` exports `CompositeCommand`. NO existing command/session behavior
+  touched (additive only — verified in the diff).
+- TESTS: NEW `animator/core/tests/composite.rs` — 10 tests: one-entry+label,
+  one-step undo/redo bit-exact, in-order apply + reverse revert (order-proving
+  recorder command), empty-refusal, selection prev/post intact, mixed real
+  commands (draw+visibility+rename) revert bit-exact (no partial survivors),
+  nested composites, HISTORY_BOUND counts a group as one, redo-invalidation,
+  accessors.
+- **cargo NOT RUN in this sandbox** (no rustc/crates.io — verified again today).
+  User PC must run: `cd animator/core && cargo fmt && cargo clippy --all-targets
+  -- -D warnings && cargo test`. Any compile/clippy issues = my follow-up.
+- Handoff-locked spec additions recorded: AI-REQ-023 (frame reuse/minimal
+  mutation), AI-REQ-111 (dynamic capability single source of truth),
+  AI-REQ-112 (UI-visible ≠ AI-exposed honesty), AI-REQ-113 (no image gen) —
+  see `TOOLS_RESEARCH/AI_AGENT/26` §M. Next slice: A2 (BYOK foundations) —
+  waits for approval per handoff §23.
+
+## 2026-08-23 — AI-T · Kineora AI Agent — complete pre-engineering research package (docs only)
+
+- NEW `TOOLS_RESEARCH/AI_AGENT/00..28` (29 files): full research + normative spec for a
+  BYOK AI animation agent ("ek red ball banao jo bounce kare" → validated plan → ONE
+  undoable transaction → structured verify → honest report). RESEARCH-ONLY: zero code
+  (no Rust/TS/schema implementation — JSON-like snippets are protocol illustrations).
+- Grounded in a fresh engine audit (`02_CURRENT_ENGINE_AUDIT.md`, file:line refs):
+  command layer = reversible `Command`+`History`(bound 100, selection captured,
+  NO composite/batch exists) · Node = Rect(shape rect|oval)+SymbolInstance ONLY (no
+  path/text) · classic tween numeric ease only (Penner lib dormant) · no per-node
+  opacity · read paths already exist (status/evaluate/project_json).
+- Derived, not assumed: MVP action vocabulary ↔ `command.rs` 1:1 (`04`); capability
+  manifest SUPPORTED/PARTIAL/UNSUPPORTED/DEFERRED (`07`); MVP scope with 7 scripted
+  acceptance scenes (`24`); engineering slice order A1–A8 (`27`).
+- Key engineering deps identified: E-AI-1 CompositeCommand (one request = one undo) +
+  E-AI-2..5 (scene snapshot, select-by-ids, doc revision, capability manifest) — all
+  additive. Cross-lane touches disclosed in `22` (panel mount vs AI-B `panelLayout`).
+- Security/threat model in `12` (keys memory-default, prompt-injection, loop budgets);
+  provider matrix in `17` (browser-direct CORS verified for OpenAI/Anthropic/Gemini).
+- Gate verdict in `28`: ✅ READY FOR ENGINEERING (zero critical ambiguity; 10 provisional
+  defaults listed for human override). FINAL AI AGENT CONTRACT included. Tracked as
+  D-0010 (PENDING HUMAN). No `animator/` code changed; test suites untouched.
+
 ## 2026-08-23 — AI-T · Tools forensic research + Tools-panel layout correction (session rebuild)
 
 - The previous AI-T session's work (Oval tool + tools forensic doc + panel correction)
@@ -314,3 +421,42 @@ Plus: PLANNED / DISCOVERY / SPECIFICATION / AUDIT / REVISION REQUIRED / TESTING 
 - Records existing slice (stills + SVG-seq + HTML5 player + `export:done`) as PARTIAL+; GIF/video
   stay honest toasts; AMB-EXP-001..013 open; next File-menu feature after Save remains Open.
 - SYS-27 **not** marked COMPLETE.
+
+## 2026-08-23 — AI-AGENT · slice A4 — 12-stage action validator + reference resolution + adversarial fuzz
+- `animator/ui/src/ai/validate.ts` (NEW, ~1120 lines) — the fail-closed pipeline from spec 05/15:
+  1 parse → 2 envelope shape → 3 action vocabulary (registry-derived, fail closed) → 4 closed
+  param schema (own-property only — `in` was leaking `toString`/`constructor`/`__proto__`; fixed)
+  → 5 strict values (no coercion, no expression strings; safe-integer frames; #rrggbb colors
+  normalized; control/format chars rejected, ordinary Unicode incl. Hindi welcome) → 6 $variable
+  substitution (scalars only — variables can NEVER fabricate targets; substituted values re-pass
+  stage 5) → 7 deterministic reference resolution ({ref}/{lastCreated} plan-local symbolic,
+  {selected:true}, {ordinal}, aliases n1/l10/s2, bare numeric strings, LAYER-INDEX numerics,
+  unique-name lookup w/ ambiguity → candidates, node names honestly refused — engine gap) →
+  8 live document state (keyframe/tween/frames predicates, setParent folder+cycle) →
+  9 guards (folder/hidden/locked incl. ANCESTOR-effective flags; ASK mode E_TIER) →
+  10 capability honesty (E_CAPABILITY; unsupported vs deferred wording per AI-REQ-112) →
+  11 budgets (64 actions, 256 estimated mutations, 1000 selection cap; mass-destructive FLAG
+  >20 nodes or >50% of scene) → 12 dry-run compile (symbolic-ref closure + humanText rows).
+  Stable error taxonomy E_PARSE/E_SCHEMA/E_RANGE/E_REF/E_STATE/E_GUARD/E_TIER/E_CAPABILITY/
+  E_BUDGET/E_COMPILE/E_UNKNOWN; anything unknown degrades to E_UNKNOWN, never a crash.
+- Caught+fixed during A4 test design: plan-local {ref} layer params were probed against the LIVE
+  snapshot (bouncing-ball-class plans false-failed stage 8) → live probes now skip non-numeric
+  layer params (A5 runner revalidates at apply); collectConcreteNodeIds picked up scalar numbers
+  (copies/x/y) as "node ids" → now schema-aware (node-ref params only); raw control chars in a
+  regex literal made the file binary-ish → escaped form; TS 5.9 never-narrowing gotcha —
+  never-returning bail-outs must be function DECLARATIONS, arrow consts silently break CFA.
+- `validate.test.ts` (77 tests) — every stage behaviorally, incl. the spec's bouncing-ball golden
+  plan, adversarial set (hostile Unicode, __proto__ envelopes, invented/stale ids, expression
+  attempts), purity proofs (deep-frozen snapshot untouched; params JSON-round-trip strict;
+  concrete targets ⊆ snapshot entities) and dynamic-discovery proofs (manifest feature flip /
+  new shape kind re-gate with ZERO validator edits — AI-REQ-111).
+- `validate.fuzz.test.ts` (4 tests, seeded mulberry32) — 600 hostile inputs: never throws, every
+  failure in the E_* taxonomy with real stage + UI-safe message, ok-plans only use supported
+  actions and real/symbolic targets, snapshot byte-identical afterwards; run-to-run determinism;
+  curated-valid stream keeps ok:true coverage honest (600 inputs, seed 0xa4: 547 fail-closed, 53 ok).
+- Addendum (formal A4 approval pass): explicit regression tests for AI-REQ-023 (vocabulary
+  carries duplicate/reuse families; partial edits validate as partial params — unchanged channels
+  stay absent; keyframe.duplicate carries coordinates only, no recreation payload) and budget
+  immutability (AI_BUDGETS frozen; bogus caller overrides ignored; maxInFlightRequests=1).
+- Gate: tsc -b clean · UI vitest 1052/1052 (76 files, +85) · vite build clean. UI-side ONLY —
+  no Rust touched (cargo n/a). No engine/doc mutation path exists in this module by construction.

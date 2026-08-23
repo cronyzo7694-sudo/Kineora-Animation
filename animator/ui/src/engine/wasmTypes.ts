@@ -238,6 +238,13 @@ export interface KineoraWasm {
   kineora_undo(): boolean
   kineora_redo(): boolean
   kineora_evaluate(frame: number): string
+  /** E-AI seams (A3, D-0010) — OPTIONAL: wasm builds older than A3 lack them,
+   *  so callers must probe via hasAiEngineFacades() and degrade honestly. */
+  kineora_scene_snapshot?(): string
+  kineora_capabilities?(): string
+  /** u64 revision — wasm-bindgen surfaces as bigint. */
+  kineora_doc_revision?(): bigint
+  kineora_set_selection?(idsJson: string): number
   kineora_export_svg(frame: number): string
   kineora_export_svg_scaled(frame: number, scale: number): string
   kineora_save(path: string): boolean

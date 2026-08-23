@@ -116,6 +116,81 @@ impl Session {
             .seal_last_post_selection(self.selection.clone());
     }
 
+    /// E-AI-1 / D-0010: execute a pre-built group of commands as ONE history
+    /// entry (the AI transaction seam — TOOLS_RESEARCH/AI_AGENT/09 + AI-REQ-032).
+    ///
+    /// ALL-OR-NOTHING BY CONSTRUCTION: `children` must be fully built BEFORE
+    /// this call, each one through the same fallible checks its Session facade
+    /// applies. If any child would have been rejected, the caller must abort
+    /// the whole group build and call this with nothing — never skip a failed
+    /// child silently. A group passed here applies to completion; `revert` of
+    /// the single history entry restores the exact pre-group state.
+    ///
+    /// Empty groups are refused (no command, no entry, no doc change): an
+    /// entry that does nothing would still consume a Ctrl+Z and would lie in
+    /// the undo list. Selection capture is identical to a single command
+    /// (prev restored on undo, post on redo — INV-EDIT-2 untouched).
+    pub fn execute_grouped(
+        &mut self,
+        label: &str,
+        children: Vec<Box<dyn crate::command::Command>>,
+    ) -> bool {
+        if children.is_empty() {
+            self.log("group:(empty — refused)");
+            return false;
+        }
+        let cmd = crate::command::CompositeCommand::new(label, children);
+        self.exec_then(Box::new(cmd), |_| {});
+        self.log(&format!("group:{label}"));
+        true
+    }
+
+    /// E-AI-4 (A3, D-0010): monotonic document revision — bumps on every
+    /// execute/undo/redo. Snapshots carry it so the AI orchestrator can detect
+    /// "the document changed since you looked" without diffing content.
+    pub fn doc_revision(&self) -> u64 {
+        self.history.revision()
+    }
+
+    /// E-AI-2 (A3, D-0010): compact semantic snapshot of the ACTIVE scene.
+    /// Read-only by construction (see snapshot.rs).
+    pub fn scene_snapshot(&self) -> String {
+        crate::snapshot::scene_snapshot(self)
+    }
+
+    /// E-AI-5 (A3, D-0010): trusted runtime capability manifest — the single
+    /// source of truth the AI capability registry consumes (AI-REQ-111).
+    pub fn capabilities(&self) -> String {
+        crate::snapshot::capabilities()
+    }
+
+    /// E-AI-3 (A3, D-0010): set the selection directly by node ids — the AI's
+    /// targeting primitive (the runner resolves references to concrete ids,
+    /// then aims here). VIEW STATE ONLY: never commanded, never undoable, the
+    /// document revision is untouched. Ids not present at the current frame of
+    /// the active scene are pruned (selection-existence invariant); returns
+    /// how many ids were actually selected.
+    pub fn set_selection(&mut self, ids: Vec<NodeId>) -> usize {
+        let mut frame_content = std::collections::BTreeSet::new();
+        if let Some(sc) = self.doc.scene(self.active_scene) {
+            for li in 0..sc.layers.len() {
+                for id in self.doc.content_at(self.active_scene, li, self.playhead) {
+                    frame_content.insert(id);
+                }
+            }
+        }
+        let asked = ids.len();
+        self.selection = ids
+            .into_iter()
+            .filter(|id| frame_content.contains(id))
+            .collect();
+        self.log(&format!(
+            "select:ids asked={asked} kept={}",
+            self.selection.len()
+        ));
+        self.selection.len()
+    }
+
     pub fn set_playhead(&mut self, frame: u32) {
         self.playhead = frame.max(1);
         self.log(&format!("playhead:{frame}"));

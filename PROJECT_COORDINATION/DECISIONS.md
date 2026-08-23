@@ -125,6 +125,49 @@
 
 ---
 
+### D-0010 — Kineora AI Agent (BYOK in-app assistant): new-feature lane + integration points
+
+- **Question:** Approve a NEW feature lane — an AI animation agent (user's own
+  OpenAI/Anthropic/Gemini/compatible key; chat panel; plans executed as validated
+  editor commands)? It is NOT in the Blueprint and NOT an Adobe Animate feature, so
+  it cannot ride on existing authority. Sub-questions: (a) lane approval + scope bound
+  to `TOOLS_RESEARCH/AI_AGENT/26_FINAL_AI_AGENT_SPEC.md` (AI-REQ-001..110); (b) chat
+  panel MVP mounts as a self-contained overlay via `App.tsx`, migrating into
+  `panelLayout.ts` (AI-B lane) later with AI-B review; (c) additive engine additions
+  E-AI-1 CompositeCommand · E-AI-2 scene_snapshot · E-AI-3 set_selection(ids) · E-AI-4
+  doc revision counter · E-AI-5 capabilities manifest — no existing command/session
+  behavior changed; (d) key-storage policy: memory-only default, opt-in localStorage
+  with explicit warning, redaction filter on all logs/errors, no keys in git/bundle/env;
+  (e) chat transcript / activity log / variables are session-only in MVP; (f) budget
+  defaults (64 actions/plan · 256 objects · 1 repair + 1 replan · 2 provider retries ·
+  120s timeout · user-settable daily token ceiling).
+- **Evidence:** full research package `TOOLS_RESEARCH/AI_AGENT/00..28` (engine audit
+  with file:line refs in `02`; threat model in `12`; dependency graph + build order in
+  `23`; gate verdict + contract in `28`). Engine gaps are verified absences, not
+  assumptions (e.g. no command grouping exists today → E-AI-1 is REQUIRED for the
+  "one request = one undo" UX).
+- **Affected systems:** engine `command.rs`/`session.rs`/`wasm.rs`/`lib.rs` (additive);
+  UI new `src/ai/*`; disclosed touches: `App.tsx` (mount), `commands.ts` (toggle
+  shortcut), `engine/client.ts` + `wasmTypes.ts` (facade). AI-B lanes untouched
+  (timeline/layers/onion/viewPrefs; panelLayout only later, with review).
+- **Options:** (a) approve as specified · (b) approve research-with-engineering-hold
+  (package stays reference, no code) · (c) reject lane.
+- **Recommendation (NOT authoritative):** (a), with the 10 provisional DEFAULTs in
+  `28_FINAL_AUDIT.md` overridable at any time without rework (they are config values).
+- **Status:** APPROVED (human, 2026-08-23 — "RESEARCH PHASE: APPROVED / D-0010:
+  APPROVED" in the final engineering handoff message). Approved per option (a).
+  The same handoff LOCKED four additions now folded into the spec as AI-REQ-023
+  (frame reuse & minimal mutation), AI-REQ-111 (capability single source of truth:
+  dynamic runtime registry — AI must discover, never be hand-edited per tool),
+  AI-REQ-112 (UI-visible-but-not-exposed ⇒ honest "available in Kineora, not yet
+  exposed to AI"), AI-REQ-113 (no image generation; structured engine state is
+  authoritative). Engineering proceeds per slices A1–A8 with approval gates;
+  **A1 (CompositeCommand) landed 2026-08-23** (`command.rs` `CompositeCommand` +
+  `Session::execute_grouped` + `tests/composite.rs`; cargo NOT RUN here — user PC
+  verification pending).
+
+---
+
 ## Non-blocking recommendations (do NOT treat as decisions)
 
 | ID | Topic | Recommendation |

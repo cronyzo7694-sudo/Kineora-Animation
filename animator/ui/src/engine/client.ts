@@ -524,6 +524,52 @@ export function hasSymbolFacade(): boolean {
   return !!mod && typeof mod.kineora_library === 'function'
 }
 
+// ---------------------------------------------------------------------------
+// E-AI (A3, D-0010) — AI-agent engine seams. Everything degrades honestly on
+// pre-A3 wasm builds (probe → null), never a silent fallback.
+// ---------------------------------------------------------------------------
+
+/** All four A3 seams present on the attached engine. */
+export function hasAiEngineFacades(): boolean {
+  return (
+    !!mod &&
+    typeof mod.kineora_scene_snapshot === 'function' &&
+    typeof mod.kineora_capabilities === 'function' &&
+    typeof mod.kineora_doc_revision === 'function' &&
+    typeof mod.kineora_set_selection === 'function'
+  )
+}
+
+/** E-AI-2: active-scene snapshot JSON; null on pre-A3 engines / no doc open. */
+export function aiSceneSnapshot(): string | null {
+  if (!mod || typeof mod.kineora_scene_snapshot !== 'function') return null
+  const json = mod.kineora_scene_snapshot()
+  return json && json !== '{}' ? json : null
+}
+
+/** E-AI-5: trusted runtime capability manifest JSON (engine-global). */
+export function aiCapabilities(): string | null {
+  if (!mod || typeof mod.kineora_capabilities !== 'function') return null
+  return mod.kineora_capabilities()
+}
+
+/** E-AI-4: monotonic document revision (staleness detection). */
+export function aiDocRevision(): number | null {
+  if (!mod || typeof mod.kineora_doc_revision !== 'function') return null
+  return Number(mod.kineora_doc_revision())
+}
+
+/** E-AI-3: select by node ids (AI targeting; view state — never undoable).
+ *  Returns how many ids were actually selected (engine prunes ids that are
+ *  not present at the current frame). */
+export function aiSetSelection(ids: number[]): number | null {
+  if (!mod || typeof mod.kineora_set_selection !== 'function') return null
+  const prev = statusJson()?.selection ?? []
+  const kept = mod.kineora_set_selection(JSON.stringify(ids))
+  emitSelectionChanged(prev)
+  return Number(kept)
+}
+
 export function setPlayhead(frame: number): void {
   mod?.kineora_set_playhead(frame)
 }

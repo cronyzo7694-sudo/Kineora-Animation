@@ -68,6 +68,12 @@ pub struct History {
     /// it `true`, after which `is_dirty` compares the document against the
     /// snapshot so an undo that returns to the exact saved state is CLEAN.
     dirty_hint: bool,
+    /// E-AI-4 (A3, D-0010): monotonic document revision — bumped on EVERY
+    /// execute/undo/redo. The AI snapshot carries it so the orchestrator can
+    /// detect "the document changed since you looked" (06_SCENE_SNAPSHOT
+    /// staleness). Monotonic per session; never persisted; not document
+    /// content (like next_id, it does not participate in dirty checks).
+    rev: u64,
 }
 
 impl History {
@@ -79,6 +85,7 @@ impl History {
             redo: Vec::new(),
             saved: Some(doc.clone()),
             dirty_hint: false,
+            rev: 0,
         }
     }
 
@@ -92,6 +99,7 @@ impl History {
         prev_selection: Vec<NodeId>,
     ) {
         cmd.apply(doc);
+        self.rev += 1;
         self.undo.push(HistoryEntry {
             cmd,
             prev_selection,
@@ -116,6 +124,7 @@ impl History {
         let Some(mut e) = self.undo.pop() else {
             return None;
         };
+        self.rev += 1;
         e.cmd.revert(doc);
         let restore = e.prev_selection.clone();
         self.redo.push(e);
@@ -128,6 +137,7 @@ impl History {
         let Some(mut e) = self.redo.pop() else {
             return None;
         };
+        self.rev += 1;
         e.cmd.apply(doc);
         let restore = e.post_selection.clone();
         self.undo.push(e);
@@ -173,6 +183,12 @@ impl History {
     }
     pub fn undo_labels(&self) -> Vec<String> {
         self.undo.iter().map(|e| e.cmd.label()).collect()
+    }
+
+    /// E-AI-4: current document revision (0 for a fresh/loaded document; +1 per
+    /// execute/undo/redo).
+    pub fn revision(&self) -> u64 {
+        self.rev
     }
 }
 
@@ -2506,6 +2522,66 @@ impl Command for DeleteLayerGroup {
         for (idx, layer) in restored {
             let i = idx.min(sc.layers.len());
             sc.layers.insert(i, layer);
+        }
+    }
+}
+
+/// CMD-COMPOSITE (E-AI-1 / D-0010) — an ordered group of child commands that
+/// History treats as ONE undo entry: "one user request = one Ctrl+Z" (the AI
+/// transaction primitive — TOOLS_RESEARCH/AI_AGENT/09_UNDO_TRANSACTION_MODEL).
+///
+/// Children apply in order and revert in REVERSE order, so position- and
+/// index-sensitive children always unwind against the exact document state
+/// their own revert was written for.
+///
+/// Atomicity contract: `Command::apply`/`revert` are infallible — existing
+/// commands never validate at apply time; all precondition checks live in the
+/// Session facades that BUILD commands (they return false WITHOUT pushing when
+/// a child cannot be built). Grouped execution is therefore all-or-nothing at
+/// CONSTRUCTION time: build every child first; if any child build fails, drop
+/// the whole group and push nothing. A group that reaches `History::execute`
+/// applies to completion, and a revert restores the exact pre-group state
+/// (tests/composite.rs proves bit-exactness on real command mixes).
+pub struct CompositeCommand {
+    label: String,
+    children: Vec<Box<dyn Command>>,
+}
+
+impl CompositeCommand {
+    /// `children` apply in slice order and revert in reverse. Empty groups are
+    /// constructible (a degenerate value) but `Session::execute_grouped`
+    /// refuses them — a no-op undo entry would corrupt the user's undo
+    /// expectations for nothing.
+    pub fn new(label: impl Into<String>, children: Vec<Box<dyn Command>>) -> Self {
+        Self {
+            label: label.into(),
+            children,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.children.is_empty()
+    }
+}
+
+impl Command for CompositeCommand {
+    /// ONE history label for the whole group (e.g. "AI — red ball bounce") —
+    /// child labels stay internal, so Edit-menu/undo lists show a single row.
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+    fn apply(&mut self, doc: &mut Document) {
+        for child in &mut self.children {
+            child.apply(doc);
+        }
+    }
+    fn revert(&mut self, doc: &mut Document) {
+        for child in self.children.iter_mut().rev() {
+            child.revert(doc);
         }
     }
 }

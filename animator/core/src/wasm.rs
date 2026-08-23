@@ -1339,3 +1339,54 @@ pub fn kineora_status() -> String {
         serde_json::to_string(&out).unwrap_or_else(|_| "{}".into())
     })
 }
+
+// ---------------------------------------------------------------------------
+// E-AI (A3, D-0010) — AI-agent engine seams: compact scene snapshot, trusted
+// capability manifest, revision counter, selection-by-ids. All READ-ONLY
+// except kineora_set_selection (view state only — never undoable).
+// ---------------------------------------------------------------------------
+
+/// E-AI-2: compact semantic snapshot of the ACTIVE scene (JSON). `{}` when no
+/// document is open.
+#[wasm_bindgen]
+pub fn kineora_scene_snapshot() -> String {
+    DOCS.with(|d| {
+        let m = d.borrow();
+        match m.active() {
+            Some(doc) => doc.session.scene_snapshot(),
+            None => "{}".to_string(),
+        }
+    })
+}
+
+/// E-AI-5: trusted runtime capability manifest (JSON, engine-global).
+#[wasm_bindgen]
+pub fn kineora_capabilities() -> String {
+    crate::snapshot::capabilities()
+}
+
+/// E-AI-4: monotonic document revision (0 when no document is open).
+#[wasm_bindgen]
+pub fn kineora_doc_revision() -> u64 {
+    DOCS.with(|d| {
+        let m = d.borrow();
+        m.active().map(|doc| doc.session.doc_revision()).unwrap_or(0)
+    })
+}
+
+/// E-AI-3: select by node ids (`[1,2,3]` JSON); prunes ids not present at the
+/// current frame of the active scene; returns how many were selected.
+#[wasm_bindgen]
+pub fn kineora_set_selection(ids_json: String) -> u32 {
+    DOCS.with(|d| {
+        let mut m = d.borrow_mut();
+        let Some(doc) = m.active_mut() else {
+            return 0;
+        };
+        let Ok(raw) = serde_json::from_str::<Vec<u64>>(&ids_json) else {
+            return 0;
+        };
+        let ids: Vec<crate::id::NodeId> = raw.into_iter().map(crate::id::NodeId).collect();
+        doc.session.set_selection(ids) as u32
+    })
+}

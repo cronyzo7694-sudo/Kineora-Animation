@@ -72,7 +72,7 @@ describe('ToolsPanel — Adobe-style vertical icon strip', () => {
   })
 
   it('the options area is empty for a tool without modifiers', () => {
-    render(<ToolsPanel tool="select" onPick={vi.fn()} />)
+    render(<ToolsPanel tool="hand" onPick={vi.fn()} />)
     expect(screen.queryByTestId('tool-options')).not.toBeInTheDocument()
   })
 

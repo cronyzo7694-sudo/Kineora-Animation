@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::command::{
     ClearKeyframe, ConvertToBlankKeyframes, ConvertToKeyframes, ConvertToSymbol, CreateLayer,
     CreateScene, CreateSymbol, DeleteFrames, DeleteLayer, DeleteLayerGroup, DeleteSymbol, DrawRect,
+    ImportLibrary,
     DuplicateFrames, DuplicateKeyframe, DuplicateLayer, History, InsertBlankKeyframe, InsertFrames,
     InsertKeyframe, LayerFlagKind, MoveKeyframe, MoveKeyframeSequence, MoveSelection, PasteFrames,
     PlaceSymbol, RemoveClassicTween, RemoveFrames, RenameLayer, RenameSymbol, ReorderLayer,

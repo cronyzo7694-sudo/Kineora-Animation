@@ -1048,8 +1048,6 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
     const wrap = wrapRef.current
     if (!canvas || !wrap) return
     const status = statusJson()
-    if (!status) return
-
     const viewW = wrap.clientWidth
     const viewH = wrap.clientHeight
     const dpr = window.devicePixelRatio || 1
@@ -1069,24 +1067,24 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       ? items.map((it) => {
           const t = pending.get(it.id)
           if (!t) return it
-          const base = status.selection_details?.find((d) => d.id === it.id)
+          const base = status?.selection_details?.find((d) => d.id === it.id)
           const w = (base?.base_w ?? it.w) * t.scale_x
           const h = (base?.base_h ?? it.h) * t.scale_y
           return { ...it, x: t.x, y: t.y, w, h, rotation: t.rotation }
         })
       : items
 
-    const overlay = overlayFromPending(status.selection_details ?? [], pending) ?? overlayFromStatus()
+    const overlay = overlayFromPending(status?.selection_details ?? [], pending) ?? overlayFromStatus()
     const view = loadViewPrefs()
     const onion = loadOnionPrefs()
 
     const state: RenderState = {
-      background: status.background ?? '#ffffff',
-      backgroundAlpha: status.background_alpha ?? 1,
-      stageW: status.doc_width ?? 1920,
-      stageH: status.doc_height ?? 1080,
+      background: status?.background ?? '#ffffff',
+      backgroundAlpha: status?.background_alpha ?? 1,
+      stageW: status?.doc_width ?? 1920,
+      stageH: status?.doc_height ?? 1080,
       items: displayItems,
-      selectedIds: status.selection ?? [],
+      selectedIds: status?.selection ?? [],
       overlay,
       marquee: marqueeRef.current ?? zoomMarqueeRef.current,
       previewDelta: previewRef.current,
@@ -1099,8 +1097,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewStroke:
         previewStrokeRef.current ??
         (penPoints().length ? penPreviewPoints(loadToolOptions().penRubberBand !== false) : null),
-      previewStrokeWidth: tool === 'pencil' || tool === 'brush' ? loadToolOptions().inkSize : loadToolColors().strokeWidth,
-      previewStrokeColor: loadToolColors().stroke,
+      previewStrokeWidth:
+        tool === 'brush'
+          ? Math.max(8, loadToolOptions().inkSize)
+          : tool === 'pencil'
+            ? loadToolOptions().inkSize
+            : loadToolColors().strokeWidth,
+      previewStrokeColor:
+        tool === 'brush' ? contrastOn(loadToolColors().fill, status?.background ?? '#ffffff') : loadToolColors().stroke,
       previewStrokeDash: tool === 'pencil' ? dashForStyle(loadToolOptions().pencilStyle, loadToolOptions().inkSize) : undefined,
       previewLineCap: tool === 'pencil' ? loadToolOptions().pencilCap : undefined,
       previewClosed: strokeRef.current?.kind === 'lasso' || strokeRef.current?.kind === 'brush' || (penPoints().length >= 2 && isPenCloseHover()),
@@ -1141,10 +1145,10 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const sizeChanged = w !== lastW || h !== lastH
       lastW = w
       lastH = h
-      const status = statusJson()
-      if (!fitted && status) {
+      if (!fitted) {
         fitted = true
-        applyViewport(fitViewport(status.doc_width ?? 1920, status.doc_height ?? 1080, w, h))
+        const status = statusJson()
+        applyViewport(fitViewport(status?.doc_width ?? 1920, status?.doc_height ?? 1080, w, h))
         return
       }
       if (sizeChanged) scheduleRedraw()

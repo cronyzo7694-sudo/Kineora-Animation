@@ -44,6 +44,15 @@ export interface ToolOptions {
   pencilCap: 'butt' | 'round' | 'square'
   /** Straighten: recognize ovals / rects / triangles. */
   pencilRecognize: boolean
+  /** Adobe Brush (B) paint mode. */
+  brushMode: 'normal' | 'fills' | 'behind' | 'selection' | 'inside'
+  brushShape: 'circle' | 'oval' | 'square' | 'rect' | 'diamond'
+  brushAngle: number
+  brushSmooth: number
+  brushZoomWithStage: boolean
+  brushObject: boolean
+  /** Stylus pressure — only affects PointerEvent pen; mouse stays uniform. */
+  brushPressure: boolean
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -67,6 +76,16 @@ export function defaultToolOptions(): ToolOptions {
     penRubberBand: true,
     pencilMode: 'smooth',
     pencilSmooth: 50,
+    pencilStyle: 'solid',
+    pencilCap: 'round',
+    pencilRecognize: true,
+    brushMode: 'normal',
+    brushShape: 'circle',
+    brushAngle: 0,
+    brushSmooth: 50,
+    brushZoomWithStage: true,
+    brushObject: false,
+    brushPressure: false,
   }
 }
 
@@ -142,6 +161,33 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
         ? patch.pencilCap
         : (state.pencilCap ?? d.pencilCap),
     pencilRecognize: typeof patch.pencilRecognize === 'boolean' ? patch.pencilRecognize : (state.pencilRecognize ?? d.pencilRecognize),
+    brushMode:
+      patch.brushMode === 'normal' ||
+      patch.brushMode === 'fills' ||
+      patch.brushMode === 'behind' ||
+      patch.brushMode === 'selection' ||
+      patch.brushMode === 'inside'
+        ? patch.brushMode
+        : (state.brushMode ?? d.brushMode),
+    brushShape:
+      patch.brushShape === 'circle' ||
+      patch.brushShape === 'oval' ||
+      patch.brushShape === 'square' ||
+      patch.brushShape === 'rect' ||
+      patch.brushShape === 'diamond'
+        ? patch.brushShape
+        : (state.brushShape ?? d.brushShape),
+    brushAngle:
+      typeof patch.brushAngle === 'number' && Number.isFinite(patch.brushAngle)
+        ? ((patch.brushAngle % 180) + 180) % 180
+        : (state.brushAngle ?? d.brushAngle),
+    brushSmooth:
+      typeof patch.brushSmooth === 'number' && Number.isFinite(patch.brushSmooth)
+        ? Math.max(0, Math.min(100, patch.brushSmooth))
+        : (state.brushSmooth ?? d.brushSmooth),
+    brushZoomWithStage: typeof patch.brushZoomWithStage === 'boolean' ? patch.brushZoomWithStage : (state.brushZoomWithStage ?? d.brushZoomWithStage),
+    brushObject: typeof patch.brushObject === 'boolean' ? patch.brushObject : (state.brushObject ?? d.brushObject),
+    brushPressure: typeof patch.brushPressure === 'boolean' ? patch.brushPressure : (state.brushPressure ?? d.brushPressure),
   }
   state = next
   for (const fn of [...listeners]) fn()

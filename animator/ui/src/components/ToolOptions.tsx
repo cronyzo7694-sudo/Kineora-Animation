@@ -77,7 +77,69 @@ export function ToolOptions({ tool, vertical = false }: { tool: string; vertical
     )
   }
 
-  if (tool === 'brush' || tool === 'eraser') {
+  if (tool === 'brush') {
+    const modes = ['normal', 'fills', 'behind', 'selection', 'inside'] as const
+    const mode = opts.brushMode || 'normal'
+    return (
+      <div
+        data-testid="tool-options"
+        aria-label="Brush options"
+        style={
+          vertical
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '2px 0' }
+            : { display: 'flex', alignItems: 'center', gap: 3, padding: '0 8px' }
+        }
+      >
+        <button
+          type="button"
+          data-testid="opt-brush-mode"
+          title={`Paint ${mode} — click to cycle`}
+          onClick={() => {
+            const i = modes.indexOf(mode)
+            setToolOptions({ brushMode: modes[(i + 1) % modes.length] })
+          }}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 8,
+          }}
+        >
+          {mode[0].toUpperCase()}
+        </button>
+        <button
+          type="button"
+          data-testid="ink-size-btn"
+          title={`Size ${opts.inkSize}px`}
+          onClick={() => {
+            const steps = [8, 12, 20, 32]
+            const i = steps.findIndex((s) => s >= opts.inkSize)
+            setToolOptions({ inkSize: steps[(i + 1) % steps.length] })
+          }}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 9,
+          }}
+        >
+          {opts.inkSize}
+        </button>
+      </div>
+    )
+  }
+
+  if (tool === 'eraser') {
     return (
       <div
         data-testid="tool-options"

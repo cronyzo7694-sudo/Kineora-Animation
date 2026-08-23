@@ -54,7 +54,7 @@ function hint(tool: string): string {
     case 'pencil':
       return 'Adobe Pencil (Y). Tools options: Straighten / Smooth / Ink. Smooth slider 0–100 (disabled in other modes). Straighten snaps 45° and can recognize oval / rectangle / triangle. Stroke color, weight, style (solid/dash/dot) and cap apply on release.'
     case 'brush':
-      return 'Thick freehand stroke. Size and stroke color apply to the next brush mark.'
+      return 'Adobe Brush (B) paints a FILL (helpx Paint with the Brush tool). Fill color, not stroke. Modes: Normal / Fills / Behind / Selection / Inside. Size, shape, angle, smoothing, Zoom size with Stage. Shift-drag = H/V. Object Drawing ON = select after paint. Pressure only with a stylus.'
     case 'text':
       return 'Click the Stage to type. Enter commits, Shift+Enter = new line, Esc cancels. Double-click existing text to edit. Character (family, size, B/I/U, tracking) and Paragraph (align) apply to the next field — and to selected text in Properties.'
     case 'bucket':
@@ -83,11 +83,11 @@ function hint(tool: string): string {
 }
 
 function usesFill(tool: string): boolean {
-  return ['rect', 'oval', 'pen', 'text', 'bucket', 'eyedropper'].includes(tool)
+  return ['rect', 'oval', 'pen', 'text', 'bucket', 'eyedropper', 'brush'].includes(tool)
 }
 
 function usesStroke(tool: string): boolean {
-  return ['rect', 'oval', 'line', 'pen', 'pencil', 'brush', 'ink', 'eyedropper'].includes(tool)
+  return ['rect', 'oval', 'line', 'pen', 'pencil', 'ink', 'eyedropper'].includes(tool)
 }
 
 function usesSize(tool: string): boolean {
@@ -172,6 +172,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
       {(tool === 'rect' || tool === 'oval') && <ShapeBox notify={notify ?? (() => {})} />}
       {tool === 'pen' && <PenFields notify={notify ?? (() => {})} />}
       {tool === 'pencil' && <PencilFields />}
+      {tool === 'brush' && <BrushFields />}
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
       {tool === 'select' && (
         <>

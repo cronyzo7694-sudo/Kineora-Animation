@@ -431,7 +431,7 @@ export function inkToSvg(items: InkItem[], background = '#ffffff'): string {
     }
     if (it.points.length < 2) continue
     const d = pathD(it.points, it.closed)
-    const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+    const sw = it.kind === 'brush' && it.fill && it.closed ? it.strokeWidth : it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
     const fill = it.fill && it.closed ? it.fill : 'none'
     const stroke = it.stroke ?? 'none'
     const cap = it.lineCap || 'round'
@@ -588,7 +588,7 @@ function drawInkItems(
     if (it.kind === 'text') {
       drawInkText(ctx, vp, it, pts[0] ?? { x: 0, y: 0 }, background ?? '#ffffff')
     } else {
-      const sw = it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
+      const sw = it.kind === 'brush' && it.fill && it.closed ? it.strokeWidth : it.kind === 'brush' ? Math.max(it.strokeWidth, 8) : it.strokeWidth
       const vis = visibleOnStage({ fill: it.fill ?? 'transparent', stroke: it.stroke, strokeWidth: sw }, background ?? '#ffffff')
       drawPolyline(ctx, vp, pts, vis.stroke, vis.strokeWidth, it.fill, it.closed, {
         dash: it.strokeDash,

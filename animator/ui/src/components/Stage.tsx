@@ -93,6 +93,7 @@ import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 import { dashForStyle, processPencil } from '../editor/pencil'
+import { brushDocSize, brushRibbon, clipPtsToRect, constrainBrush } from '../editor/brush'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -782,6 +783,43 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
             }
           }
           notify?.(hits.length + ids.length ? `lasso: ${hits.length + ids.length} selected` : 'lasso: nothing inside')
+        } else if (sg.kind === 'brush') {
+          const o = loadToolOptions()
+          const fill = colors.fill
+          if (!fill) {
+            notify?.('brush: Fill color is None')
+          } else {
+            const start = sg.pts[0]
+            const hit = start ? hitInk(start.x, start.y) : null
+            const mode = o.brushMode || 'normal'
+            if ((mode === 'fills' || mode === 'inside') && !(hit && hit.closed && hit.fill)) {
+              notify?.(mode === 'fills' ? 'Paint Fills: start on a fill' : 'Paint Inside: start inside a fill')
+            } else if (mode === 'selection' && selectedInkIds().length === 0) {
+              notify?.('Paint Selection: select a fill first')
+            } else {
+              const rad = brushDocSize(o.inkSize, vpRef.current.zoom, o.brushZoomWithStage !== false) / 2
+              let ribbon = brushRibbon(sg.pts, rad, o.brushShape || 'circle', o.brushAngle ?? 0, o.brushSmooth ?? 50)
+              if (mode === 'inside' && hit) ribbon = clipPtsToRect(ribbon, inkBounds(hit))
+              if (mode === 'selection') {
+                const ids = selectedInkIds()
+                const boxes = listInk().filter((it) => ids.includes(it.id)).map(inkBounds)
+                if (boxes.length) {
+                  const x0 = Math.min(...boxes.map((b) => b.x))
+                  const y0 = Math.min(...boxes.map((b) => b.y))
+                  const x1 = Math.max(...boxes.map((b) => b.x + b.w))
+                  const y1 = Math.max(...boxes.map((b) => b.y + b.h))
+                  ribbon = clipPtsToRect(ribbon, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+                }
+              }
+              if (ribbon.length >= 3) {
+                addInk(
+                  { kind: 'brush', points: ribbon, closed: true, fill, stroke: null, strokeWidth: 0 },
+                  { select: !!o.brushObject, z: mode === 'behind' ? 'back' : 'front' },
+                )
+                if (!o.brushObject) clearInkSelection()
+              }
+            }
+          }
         } else {
           const o = loadToolOptions()
           const pts =
@@ -789,9 +827,9 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
               ? sg.pts
               : sg.kind === 'pencil'
                 ? processPencil(sg.pts, o.pencilMode || 'smooth', o.pencilSmooth ?? 50, o.pencilRecognize !== false)
-                : simplifyPolyline(sg.pts, sg.kind === 'brush' ? 2.4 : 1.4)
+                : simplifyPolyline(sg.pts, 1.4)
           const size = o.inkSize
-          const sw = sg.kind === 'brush' ? Math.max(8, size) : Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth)
+          const sw = Math.max(1, sg.kind === 'pencil' ? size : colors.strokeWidth)
           addInk(
             {
               kind: sg.kind,
@@ -804,7 +842,6 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
                 ? { strokeDash: dashForStyle(o.pencilStyle, sw), lineCap: o.pencilCap || 'round', lineJoin: 'round' as const }
                 : {}),
             },
-            // Adobe: pencil stroke is not selected after draw — V-tool picks it up.
             { select: sg.kind !== 'pencil' },
           )
           if (sg.kind === 'pencil') clearInkSelection()
@@ -1068,8 +1105,8 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewStrokeColor: loadToolColors().stroke,
       previewStrokeDash: tool === 'pencil' ? dashForStyle(loadToolOptions().pencilStyle, loadToolOptions().inkSize) : undefined,
       previewLineCap: tool === 'pencil' ? loadToolOptions().pencilCap : undefined,
-      previewClosed: strokeRef.current?.kind === 'lasso' || (penPoints().length >= 2 && isPenCloseHover()),
-      previewFill: null,
+      previewClosed: strokeRef.current?.kind === 'lasso' || strokeRef.current?.kind === 'brush' || (penPoints().length >= 2 && isPenCloseHover()),
+      previewFill: strokeRef.current?.kind === 'brush' ? loadToolColors().fill : null,
       colorPreview,
       workArea: view.workArea,
       hideEdges: view.hideEdges,

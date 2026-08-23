@@ -639,7 +639,7 @@ function toolHint(tool: string): string {
     case 'hand':
       return 'Drag the Stage to pan. Spacebar temporarily activates Hand from any tool.'
     case 'eraser':
-      return 'Drag over objects to erase them. Size cycles in the options below.'
+      return 'Adobe Eraser: mode + Faucet in Properties. Double-click the tool to clear the Stage.'
     default:
       return 'Select an object on the Stage to edit its position, size, and colors here.'
   }

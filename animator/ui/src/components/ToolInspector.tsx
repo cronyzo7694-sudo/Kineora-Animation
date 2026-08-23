@@ -64,7 +64,7 @@ function hint(tool: string): string {
     case 'eyedropper':
       return 'Click an object to pick up its fill and stroke, then switches to Paint Bucket.'
     case 'eraser':
-      return 'Drag over objects to erase them. Size is the hit radius.'
+      return 'Adobe Eraser (E). Mode: Normal / Fills / Lines / Selected Fills / Inside. Faucet click deletes a whole fill or stroke. Shape + size = nib. Double-click the tool to clear the Stage. Pressure is stylus-only. Engine shapes are deleted whole (no boolean punch).'
     case 'zoom':
       return 'Click to zoom, Alt-click to reverse, or drag a region. Enlarge / Reduce below.'
     case 'hand':
@@ -173,6 +173,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
       {tool === 'pen' && <PenFields notify={notify ?? (() => {})} />}
       {tool === 'pencil' && <PencilFields />}
       {tool === 'brush' && <BrushFields />}
+      {tool === 'eraser' && <EraserFields />}
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
       {tool === 'select' && (
         <>
@@ -407,6 +408,95 @@ function BrushFields() {
           type="checkbox"
           checked={!!opts.brushPressure}
           onChange={(e) => setToolOptions({ brushPressure: e.target.checked })}
+        />
+        Pressure (stylus only)
+      </label>
+    </div>
+  )
+}
+
+function EraserFields() {
+  const [opts, setOpts] = useState(loadToolOptions)
+  useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
+  const mode = opts.eraserMode || 'normal'
+  const shape = opts.eraserShape || 'circle'
+  const modeBtn = (id: typeof mode, label: string, title: string) => (
+    <button
+      type="button"
+      data-testid={`eraser-mode-${id}`}
+      title={title}
+      data-active={mode === id ? 'true' : 'false'}
+      onClick={() => setToolOptions({ eraserMode: id })}
+      style={{ ...smallBtn, background: mode === id ? '#2d5aa7' : '#2a2a2a' }}
+    >
+      {label}
+    </button>
+  )
+  const shapeBtn = (id: typeof shape, label: string) => (
+    <button
+      type="button"
+      data-testid={`eraser-shape-${id}`}
+      onClick={() => {
+        const patch: Parameters<typeof setToolOptions>[0] = { eraserShape: id }
+        if (opts.eraserSyncBrush) patch.brushShape = id
+        setToolOptions(patch)
+      }}
+      style={{ ...smallBtn, background: shape === id ? '#2d5aa7' : '#2a2a2a' }}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div data-testid="eraser-props" style={{ margin: '8px 0' }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Erase mode</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {modeBtn('normal', 'Normal', 'Erase strokes and fills')}
+        {modeBtn('fills', 'Fills', 'Erase only fills')}
+        {modeBtn('lines', 'Lines', 'Erase only strokes')}
+        {modeBtn('selected', 'Selected', 'Erase only selected fills')}
+        {modeBtn('inside', 'Inside', 'Stay inside the fill you start in')}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 8 }}>
+        <input
+          data-testid="eraser-faucet"
+          type="checkbox"
+          checked={!!opts.eraserFaucet}
+          onChange={(e) => setToolOptions({ eraserFaucet: e.target.checked })}
+        />
+        Faucet (click to delete)
+      </label>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Eraser shape</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+        {shapeBtn('circle', '○')}
+        {shapeBtn('oval', '⬭')}
+        {shapeBtn('square', '□')}
+        {shapeBtn('rect', '▭')}
+        {shapeBtn('diamond', '◇')}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="eraser-active-layer"
+          type="checkbox"
+          checked={opts.eraserActiveLayer !== false}
+          onChange={(e) => setToolOptions({ eraserActiveLayer: e.target.checked })}
+        />
+        Erase on active layer
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="eraser-sync-brush"
+          type="checkbox"
+          checked={!!opts.eraserSyncBrush}
+          onChange={(e) => setToolOptions({ eraserSyncBrush: e.target.checked, ...(e.target.checked ? { brushShape: opts.eraserShape } : {}) })}
+        />
+        Sync size/shape with Brush
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 6 }}>
+        <input
+          data-testid="eraser-pressure"
+          type="checkbox"
+          checked={!!opts.eraserPressure}
+          onChange={(e) => setToolOptions({ eraserPressure: e.target.checked })}
         />
         Pressure (stylus only)
       </label>

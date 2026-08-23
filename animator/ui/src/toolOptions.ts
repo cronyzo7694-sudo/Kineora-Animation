@@ -53,6 +53,16 @@ export interface ToolOptions {
   brushObject: boolean
   /** Stylus pressure — only affects PointerEvent pen; mouse stays uniform. */
   brushPressure: boolean
+  /** Adobe Eraser (E) mode. */
+  eraserMode: 'normal' | 'fills' | 'lines' | 'selected' | 'inside'
+  /** Faucet: click deletes a whole fill or stroke segment. */
+  eraserFaucet: boolean
+  eraserShape: 'circle' | 'oval' | 'square' | 'rect' | 'diamond'
+  eraserPressure: boolean
+  /** Erase only objects on the active layer (engine shapes; ink is authoring-side). */
+  eraserActiveLayer: boolean
+  /** Remember size/shape with the Brush tool (Adobe sync). */
+  eraserSyncBrush: boolean
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -86,6 +96,12 @@ export function defaultToolOptions(): ToolOptions {
     brushZoomWithStage: true,
     brushObject: false,
     brushPressure: false,
+    eraserMode: 'normal',
+    eraserFaucet: false,
+    eraserShape: 'circle',
+    eraserPressure: false,
+    eraserActiveLayer: true,
+    eraserSyncBrush: false,
   }
 }
 
@@ -188,6 +204,26 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
     brushZoomWithStage: typeof patch.brushZoomWithStage === 'boolean' ? patch.brushZoomWithStage : (state.brushZoomWithStage ?? d.brushZoomWithStage),
     brushObject: typeof patch.brushObject === 'boolean' ? patch.brushObject : (state.brushObject ?? d.brushObject),
     brushPressure: typeof patch.brushPressure === 'boolean' ? patch.brushPressure : (state.brushPressure ?? d.brushPressure),
+    eraserMode:
+      patch.eraserMode === 'normal' ||
+      patch.eraserMode === 'fills' ||
+      patch.eraserMode === 'lines' ||
+      patch.eraserMode === 'selected' ||
+      patch.eraserMode === 'inside'
+        ? patch.eraserMode
+        : (state.eraserMode ?? d.eraserMode),
+    eraserFaucet: typeof patch.eraserFaucet === 'boolean' ? patch.eraserFaucet : (state.eraserFaucet ?? d.eraserFaucet),
+    eraserShape:
+      patch.eraserShape === 'circle' ||
+      patch.eraserShape === 'oval' ||
+      patch.eraserShape === 'square' ||
+      patch.eraserShape === 'rect' ||
+      patch.eraserShape === 'diamond'
+        ? patch.eraserShape
+        : (state.eraserShape ?? d.eraserShape),
+    eraserPressure: typeof patch.eraserPressure === 'boolean' ? patch.eraserPressure : (state.eraserPressure ?? d.eraserPressure),
+    eraserActiveLayer: typeof patch.eraserActiveLayer === 'boolean' ? patch.eraserActiveLayer : (state.eraserActiveLayer ?? d.eraserActiveLayer),
+    eraserSyncBrush: typeof patch.eraserSyncBrush === 'boolean' ? patch.eraserSyncBrush : (state.eraserSyncBrush ?? d.eraserSyncBrush),
   }
   state = next
   for (const fn of [...listeners]) fn()

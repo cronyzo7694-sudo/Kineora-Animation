@@ -140,22 +140,73 @@ export function ToolOptions({ tool, vertical = false }: { tool: string; vertical
   }
 
   if (tool === 'eraser') {
+    const modes = ['normal', 'fills', 'lines', 'selected', 'inside'] as const
+    const mode = opts.eraserMode || 'normal'
+    const modeLetter: Record<(typeof modes)[number], string> = {
+      normal: 'N',
+      fills: 'F',
+      lines: 'L',
+      selected: 'S',
+      inside: 'I',
+    }
     return (
       <div
         data-testid="tool-options"
-        aria-label="Tool options"
+        aria-label="Eraser options"
         style={
           vertical
             ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '2px 0' }
-            : { display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }
+            : { display: 'flex', alignItems: 'center', gap: 3, padding: '0 8px' }
         }
       >
+        <button
+          type="button"
+          data-testid="opt-eraser-mode"
+          title={`Erase ${mode} — click to cycle`}
+          onClick={() => {
+            const i = modes.indexOf(mode)
+            setToolOptions({ eraserMode: modes[(i + 1) % modes.length] })
+          }}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 8,
+          }}
+        >
+          {modeLetter[mode]}
+        </button>
+        <button
+          type="button"
+          data-testid="opt-eraser-faucet"
+          title="Faucet — click a fill or stroke to delete it"
+          aria-pressed={!!opts.eraserFaucet}
+          onClick={() => setToolOptions({ eraserFaucet: !opts.eraserFaucet })}
+          style={{
+            width: 22,
+            height: 18,
+            padding: 0,
+            borderRadius: 3,
+            border: '1px solid #3a3a3a',
+            background: opts.eraserFaucet ? '#2d5aa7' : '#252525',
+            color: '#ddd',
+            cursor: 'pointer',
+            fontSize: 10,
+          }}
+        >
+          ⌇
+        </button>
         <button
           type="button"
           data-testid="ink-size-btn"
           title={`Size ${opts.inkSize}px — click to cycle`}
           onClick={() => {
-            const steps = tool === 'brush' ? [8, 12, 20, 32] : [2, 4, 8, 16]
+            const steps = [4, 8, 16, 32]
             const i = steps.findIndex((s) => s >= opts.inkSize)
             setToolOptions({ inkSize: steps[(i + 1) % steps.length] })
           }}

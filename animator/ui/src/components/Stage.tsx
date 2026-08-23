@@ -94,6 +94,7 @@ import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/obje
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
 import { dashForStyle, processPencil } from '../editor/pencil'
 import { brushDocSize, constrainBrush } from '../editor/brush'
+import { collectEraserHits, faucetTarget, inkIsFill } from '../editor/eraser'
 import {
   appendPenPoint,
   clearPenDraft,
@@ -752,15 +753,30 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       if (sg && (sg.pts.length >= 2 || (sg.kind === 'brush' && sg.pts.length >= 1))) {
         const colors = loadToolColors()
         if (sg.kind === 'eraser') {
-          const hitIds = new Set<number>()
-          for (const pt of sg.pts) {
-            const h = hitInk(pt.x, pt.y)
-            if (h) hitIds.add(h.id)
+          const o = loadToolOptions()
+          const mode = o.eraserMode || 'normal'
+          const start = sg.pts[0]
+          const startHit = start ? hitInk(start.x, start.y) : null
+          const startInside = startHit && inkIsFill(startHit) ? startHit.id : null
+          if (mode === 'inside' && startInside == null) {
+            notify?.('Erase Inside: start on a fill')
+          } else if (mode === 'selected' && selectedInkIds().length === 0 && !(statusJson()?.selection?.length)) {
+            notify?.('Erase Selected Fills: select a fill first')
+          } else {
+            const ids = collectEraserHits(sg.pts, mode, Math.max(4, o.inkSize), startInside)
+            if (ids.length) deleteInkIds(ids)
+            const last = sg.pts[sg.pts.length - 1]
+            const engineOk =
+              mode === 'lines'
+                ? false
+                : mode === 'selected'
+                  ? (statusJson()?.selection?.length ?? 0) > 0
+                  : mode !== 'inside' || !!startInside
+            if (engineOk && last && selectAt(last.x, last.y)) {
+              if (mode !== 'selected' || (statusJson()?.selection?.length ?? 0) > 0) deleteSelection()
+            }
+            notify?.(ids.length ? 'erased' : 'eraser: nothing under the nib')
           }
-          if (hitIds.size) deleteInkIds([...hitIds])
-          const last = sg.pts[sg.pts.length - 1]
-          if (selectAt(last.x, last.y)) deleteSelection()
-          notify?.('erased')
         } else if (sg.kind === 'lasso') {
           const loop = sg.pts.length >= 3 ? [...sg.pts, sg.pts[0]] : sg.pts
           const ids = inkInPolygon(loop.length >= 3 ? loop : sg.pts)
@@ -1100,11 +1116,15 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       previewStrokeWidth:
         tool === 'brush'
           ? Math.max(8, loadToolOptions().inkSize)
-          : tool === 'pencil'
+          : tool === 'pencil' || tool === 'eraser'
             ? loadToolOptions().inkSize
             : loadToolColors().strokeWidth,
       previewStrokeColor:
-        tool === 'brush' ? contrastOn(loadToolColors().fill, status?.background ?? '#ffffff') : loadToolColors().stroke,
+        tool === 'brush'
+          ? contrastOn(loadToolColors().fill, status?.background ?? '#ffffff')
+          : tool === 'eraser'
+            ? '#888888'
+            : loadToolColors().stroke,
       previewStrokeDash: tool === 'pencil' ? dashForStyle(loadToolOptions().pencilStyle, loadToolOptions().inkSize) : undefined,
       previewLineCap: tool === 'pencil' ? loadToolOptions().pencilCap : undefined,
       previewClosed: strokeRef.current?.kind === 'lasso' || strokeRef.current?.kind === 'brush' || (penPoints().length >= 2 && isPenCloseHover()),
@@ -1275,6 +1295,23 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       const doc = screenToDoc(vpRef.current, sx, sy)
       zoomStartRef.current = { doc, sx, sy, dragging: false }
       zoomMarqueeRef.current = null
+      return
+    }
+
+    if (e.button === 0 && activeTool() === 'eraser' && loadToolOptions().eraserFaucet) {
+      const doc = screenToDoc(vpRef.current, sx, sy)
+      const o = loadToolOptions()
+      const ink = faucetTarget(doc.x, doc.y, o.eraserMode || 'normal')
+      if (ink) {
+        deleteInkIds([ink.id])
+        notify?.('faucet: deleted')
+      } else if (o.eraserMode !== 'lines' && selectAt(doc.x, doc.y)) {
+        deleteSelection()
+        notify?.('faucet: deleted')
+      } else {
+        notify?.('faucet: nothing under the pointer')
+      }
+      scheduleRedraw()
       return
     }
 

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { deleteInkIds, listInk } from '../editor/inkStore'
+import { deleteSelection, selectAll } from '../engine/client'
 import { setToolOptions } from '../toolOptions'
 import { ToolColors } from './ToolColors'
 import { ToolOptions } from './ToolOptions'
@@ -186,6 +188,20 @@ export function ToolsPanel({ tool, onPick, notify }: Props) {
         onMouseLeave={() => setHover((h) => (h?.id === t.id ? null : h))}
         onFocus={() => setHover(t)}
         onBlur={() => setHover((h) => (h?.id === t.id ? null : h))}
+        onDoubleClick={(ev) => {
+          if (t.id !== 'eraser') return
+          ev.preventDefault()
+          ev.stopPropagation()
+          const ids = listInk().map((it) => it.id)
+          if (ids.length) deleteInkIds(ids)
+          try {
+            selectAll()
+            deleteSelection()
+          } catch {
+            /* engine mock / detached */
+          }
+          notify?.('erased all on Stage')
+        }}
         onClick={() => {
           if (isComingSoon) {
             notify?.(`${t.label} — coming soon (next unit)`)

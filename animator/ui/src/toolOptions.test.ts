@@ -31,6 +31,17 @@ describe('toolOptions', () => {
       contactSensitive: true,
     })
   })
+
+  it('keeps eraser fields when patching another option', () => {
+    setToolOptions({ eraserMode: 'fills', eraserFaucet: true, eraserShape: 'square' })
+    setToolOptions({ inkSize: 12 })
+    expect(loadToolOptions()).toMatchObject({
+      eraserMode: 'fills',
+      eraserFaucet: true,
+      eraserShape: 'square',
+      inkSize: 12,
+    })
+  })
 })
 
 describe('snapMoveDelta / enclose', () => {

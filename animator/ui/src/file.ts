@@ -15,6 +15,7 @@ import { platform } from './platform'
 // SYS-28 boundary (H10 §5.1/§5.2 — the handoff seams below call INTO these;
 // SYS-02 still owns every trigger + UI outcome; INV-PERS-1 preserved):
 import { onManualSaveSuccess } from './autosave'
+import { openExternalLibraryFromContent } from './externalLibrary'
 import { embedInk, extractInk, prepareForLoad, stampFormatVersion } from './persist'
 import { restoreInk, serializeInk } from './editor/inkStore'
 import {
@@ -755,6 +756,21 @@ export function publishHandoff(what: string, notify: Notify): void {
   notify(`Publish ${what}: integration gap — owned by SYS-27 (publish engine), not implemented yet`.trim())
 }
 
-export function openExternalLibraryHandoff(notify: Notify): void {
-  notify('Open from Libraries: integration gap — owned by SYS-18 (external library), not implemented yet')
+/** File ▸ Open from Libraries — pick a project and show it read-only. */
+export function openExternalLibrary(notify: Notify): void {
+  if (!engineOk()) return notify('open from libraries: engine not attached')
+  void (async () => {
+    const opened = await platform.openProject()
+    if (!opened) return
+    const lib = openExternalLibraryFromContent(opened.content, opened.name, opened.path)
+    if (!lib) {
+      notify('open from libraries: invalid or corrupt project file')
+      return
+    }
+    notify(
+      lib.items.length === 0
+        ? `opened library "${lib.title}" — no symbols to reuse`
+        : `opened library "${lib.title}" — ${lib.items.length} symbol(s), Copy to add them here`,
+    )
+  })()
 }

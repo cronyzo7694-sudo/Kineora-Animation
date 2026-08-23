@@ -55,7 +55,7 @@ import {
   exportHandoff,
   importHandoff,
   openDocument,
-  openExternalLibraryHandoff,
+  openExternalLibrary,
   openFromRecent,
   findDocByPath,
   type RecentEntry,
@@ -538,10 +538,13 @@ export const commands: Command[] = [
     category: 'file',
     shortcut: 'Ctrl+Shift+O',
     status: 'FUNCTIONAL',
-    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 → handoff SYS-18',
+    source: '[BLUEPRINT REQUIRED] Part 01 §1.2.1 / Part 12 §12.2.14 — read-only external library',
     enabled: engineOk,
     whyDisabled: () => NOT_ATTACHED,
-    run: (c) => openExternalLibraryHandoff(c.notify),
+    run: (c) => {
+      if (!c.panels.library) c.togglePanel('library')
+      openExternalLibrary(c.notify)
+    },
   },
   {
     id: 'file.close',

@@ -473,6 +473,23 @@ export function convertToSymbol(name: string, symbolType: string, regGrid: numbe
   return id
 }
 
+/** Copy symbols from another project's JSON into the ACTIVE document. */
+export function importSymbolsFromProject(sourceJson: string, sourceIds: number[]): number[] {
+  if (!mod?.kineora_import_symbols) return []
+  try {
+    const raw = mod.kineora_import_symbols(sourceJson, JSON.stringify(sourceIds))
+    const ids = JSON.parse(raw) as number[]
+    if (Array.isArray(ids) && ids.length > 0) docChanged('symbol')
+    return Array.isArray(ids) ? ids.map((n) => Number(n)).filter((n) => n > 0) : []
+  } catch {
+    return []
+  }
+}
+
+export function hasImportSymbolsFacade(): boolean {
+  return !!mod && typeof mod.kineora_import_symbols === 'function'
+}
+
 export function newSymbol(name: string, symbolType: string): number {
   const id = asNum(mod?.kineora_new_symbol(name, symbolType))
   if (id > 0) docChanged('symbol')

@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { deleteSymbol, hasSymbolFacade, library, renameSymbol } from '../engine/client'
 import type { EngineStatus } from '../controlRegistry'
 import type { LibraryItemJson } from '../engine/wasmTypes'
+import { subscribeExternalLibrary } from '../externalLibrary'
+import { ExternalLibraryPanel } from './ExternalLibraryPanel'
 import { PanelHeader } from './PanelHeader'
 
 interface Props {
@@ -27,6 +29,8 @@ const TYPE_ICON: Record<string, string> = { graphic: '◆', movieClip: '▶', bu
 export function LibraryPanel({ engine, notify, onNewSymbol, highlightId, collapsed = false, onToggleCollapse, onClose }: Props) {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
+  const [, setExtTick] = useState(0)
+  useEffect(() => subscribeExternalLibrary(() => setExtTick((n) => n + 1)), [])
 
   const attached = engine.kind === 'ok'
   const supported = attached && hasSymbolFacade()

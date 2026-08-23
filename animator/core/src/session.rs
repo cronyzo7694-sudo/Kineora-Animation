@@ -997,6 +997,175 @@ impl Session {
         instance_id
     }
 
+    /// Open-from-Libraries copy (Part 12 §12.2.14): deep-copy the listed
+    /// symbols (plus nested symbols they reference) and their nodes from
+    /// `source` into THIS document. IDs are remapped; name collisions get
+    /// " copy". Returns the new destination ids (empty = nothing imported).
+    pub fn import_symbols_from(&mut self, source: &Document, wanted: &[SymbolId]) -> Vec<SymbolId> {
+        if wanted.is_empty() {
+            return vec![];
+        }
+        // BFS: requested + nested SymbolInstance refs.
+        let mut queue: Vec<SymbolId> = wanted.to_vec();
+        let mut needed: Vec<SymbolId> = Vec::new();
+        while let Some(id) = queue.pop() {
+            if needed.contains(&id) {
+                continue;
+            }
+            let Some(sym) = source.symbol(id) else {
+                continue;
+            };
+            needed.push(id);
+            for layer in &sym.timeline {
+                for fr in layer.keyframes.values() {
+                    if let Frame::Keyframe { content, .. } = fr {
+                        for nid in content {
+                            if let Some(Node::SymbolInstance { symbol_id, .. }) =
+                                source.nodes.get(nid)
+                            {
+                                if !needed.contains(symbol_id) {
+                                    queue.push(*symbol_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if needed.is_empty() {
+            return vec![];
+        }
+
+        let mut next_sid = self.doc.alloc_symbol_id().0;
+        let mut sid_map: BTreeMap<SymbolId, SymbolId> = BTreeMap::new();
+        for old in &needed {
+            sid_map.insert(*old, SymbolId(next_sid));
+            next_sid += 1;
+        }
+
+        let mut node_ids: Vec<NodeId> = Vec::new();
+        for old in &needed {
+            let Some(sym) = source.symbol(*old) else {
+                continue;
+            };
+            for layer in &sym.timeline {
+                for fr in layer.keyframes.values() {
+                    if let Frame::Keyframe { content, .. } = fr {
+                        for nid in content {
+                            if !node_ids.contains(nid) {
+                                node_ids.push(*nid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut nid_map: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+        let mut nodes: BTreeMap<NodeId, Node> = BTreeMap::new();
+        for old in node_ids {
+            let Some(node) = source.nodes.get(&old) else {
+                continue;
+            };
+            let new_id = self.doc.alloc_node_id();
+            nid_map.insert(old, new_id);
+            let mut cloned = node.with_id(new_id);
+            if let Node::SymbolInstance { symbol_id, .. } = &mut cloned {
+                if let Some(mapped) = sid_map.get(symbol_id) {
+                    *symbol_id = *mapped;
+                }
+            }
+            nodes.insert(new_id, cloned);
+        }
+
+        let mut next_lid = {
+            let mut max = 0u64;
+            for s in &self.doc.library {
+                for l in &s.timeline {
+                    max = max.max(l.id.0);
+                }
+            }
+            max + 1
+        };
+
+        let existing_names: Vec<String> = self.doc.library.iter().map(|s| s.name.clone()).collect();
+        let mut symbols: Vec<Symbol> = Vec::new();
+        for old in &needed {
+            let Some(src) = source.symbol(*old) else {
+                continue;
+            };
+            let new_sid = *sid_map.get(old).expect("mapped");
+            let mut lid_map: BTreeMap<LayerId, LayerId> = BTreeMap::new();
+            for l in &src.timeline {
+                lid_map.insert(l.id, LayerId(next_lid));
+                next_lid += 1;
+            }
+            let mut timeline: Vec<Layer> = Vec::new();
+            for l in &src.timeline {
+                let mut keyframes = BTreeMap::new();
+                for (f, fr) in &l.keyframes {
+                    match fr {
+                        Frame::Blank => {
+                            keyframes.insert(*f, Frame::Blank);
+                        }
+                        Frame::Keyframe {
+                            content,
+                            transforms,
+                            label,
+                        } => {
+                            let content2: Vec<NodeId> = content
+                                .iter()
+                                .filter_map(|id| nid_map.get(id).copied())
+                                .collect();
+                            let transforms2: BTreeMap<NodeId, Transform> = transforms
+                                .iter()
+                                .filter_map(|(id, t)| nid_map.get(id).map(|n| (*n, t.clone())))
+                                .collect();
+                            keyframes.insert(
+                                *f,
+                                Frame::Keyframe {
+                                    content: content2,
+                                    transforms: transforms2,
+                                    label: label.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+                timeline.push(Layer {
+                    id: *lid_map.get(&l.id).expect("lid"),
+                    name: l.name.clone(),
+                    keyframes,
+                    tweens: l.tweens.clone(),
+                    visible: l.visible,
+                    locked: l.locked,
+                    outline: l.outline,
+                    outline_color: l.outline_color.clone(),
+                    kind: l.kind,
+                    parent_id: l.parent_id.and_then(|p| lid_map.get(&p).copied()),
+                    collapsed: l.collapsed,
+                });
+            }
+            let name = unique_import_name(&src.name, &existing_names, &symbols);
+            symbols.push(Symbol {
+                id: new_sid,
+                name,
+                symbol_type: src.symbol_type,
+                registration: src.registration.clone(),
+                timeline,
+            });
+        }
+
+        if symbols.is_empty() {
+            return vec![];
+        }
+        let out_ids: Vec<SymbolId> = symbols.iter().map(|s| s.id).collect();
+        let cmd = ImportLibrary { symbols, nodes };
+        self.exec(Box::new(cmd));
+        self.log(&format!("import-library:{}", out_ids.len()));
+        out_ids
+    }
+
     /// New Symbol (Ctrl+F8, Part 12 §12.2.2): create an empty symbol in the
     /// Library. Returns its id (0 on failure).
     pub fn new_symbol(&mut self, name: &str, symbol_type: SymbolType) -> SymbolId {
@@ -2634,6 +2803,25 @@ fn apply_node_props(node: &Node, p: &NodePropsPatch) -> Node {
 /// Strip an Animate-style copy suffix ("arm copy", "arm copy 2") back to the
 /// original stem, so duplicating a copy keeps counting ("arm copy 2", …)
 /// instead of stacking "copy copy".
+fn unique_import_name(base: &str, existing: &[String], incoming: &[Symbol]) -> String {
+    let taken = |n: &str| existing.iter().any(|e| e == n) || incoming.iter().any(|s| s.name == n);
+    if !taken(base) {
+        return base.to_string();
+    }
+    let first = format!("{base} copy");
+    if !taken(&first) {
+        return first;
+    }
+    let mut i = 2;
+    loop {
+        let c = format!("{base} copy {i}");
+        if !taken(&c) {
+            return c;
+        }
+        i += 1;
+    }
+}
+
 fn strip_copy_suffix(name: &str) -> &str {
     if let Some(rest) = name.strip_suffix(" copy") {
         return rest;

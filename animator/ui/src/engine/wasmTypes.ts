@@ -228,6 +228,7 @@ export interface KineoraWasm {
   kineora_convert_to_blank_keyframes(layer: number, start: number, end: number): boolean
   kineora_set_frame_label(layer: number, frame: number, label: string | null): boolean
   kineora_convert_to_symbol(name: string, symbolType: string, regGrid: number): bigint
+  kineora_import_symbols?(sourceJson: string, idsJson: string): string
   kineora_new_symbol(name: string, symbolType: string): bigint
   kineora_place_symbol(symbolId: bigint, x: number, y: number): bigint
   kineora_rename_symbol(symbolId: bigint, name: string): boolean

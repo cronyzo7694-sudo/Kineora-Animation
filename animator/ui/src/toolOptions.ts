@@ -27,6 +27,8 @@ export interface ToolOptions {
   starInner: number
   /** Rounded-rect corner % of min(w,h). */
   cornerRadius: number
+  /** Adobe Pen: preview the next segment to the cursor (rubber-band). */
+  penRubberBand: boolean
 }
 
 export function defaultToolOptions(): ToolOptions {
@@ -41,6 +43,7 @@ export function defaultToolOptions(): ToolOptions {
     polySides: 5,
     starInner: 0.45,
     cornerRadius: 20,
+    penRubberBand: true,
   }
 }
 
@@ -86,6 +89,7 @@ export function setToolOptions(patch: Partial<ToolOptions>): ToolOptions {
       typeof patch.cornerRadius === 'number' && Number.isFinite(patch.cornerRadius)
         ? Math.max(0, Math.min(49, patch.cornerRadius))
         : (state.cornerRadius ?? d.cornerRadius),
+    penRubberBand: typeof patch.penRubberBand === 'boolean' ? patch.penRubberBand : (state.penRubberBand ?? d.penRubberBand),
   }
   state = next
   for (const fn of [...listeners]) fn()

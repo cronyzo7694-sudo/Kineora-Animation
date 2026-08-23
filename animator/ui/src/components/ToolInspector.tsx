@@ -11,6 +11,7 @@ import {
 } from '../editor/inkStore'
 import { loadToolColors, setToolColors, subscribeToolColors } from '../toolColors'
 import { loadToolOptions, setToolOptions, subscribeToolOptions } from '../toolOptions'
+import { clearPenDraft, penPoints, requestPenFinish, subscribePenDraft } from '../editor/penDraft'
 import { SelectionActions } from './SelectionActions'
 import { ShapeBox } from './ShapeBox'
 import { ToolColors } from './ToolColors'
@@ -49,7 +50,7 @@ function hint(tool: string): string {
     case 'line':
       return 'Click-drag a two-point line. Shift constrains to H/V. Stroke color and width apply.'
     case 'pen':
-      return 'Click anchors. Enter finishes, Shift+Enter closes with fill. Esc cancels.'
+      return 'Click = corner. Drag = curve (Bezier handles). Shift = 45°. Click first point to close. Double-click / Ctrl-click / Enter = finish open. Shift+Enter = close + fill. Esc cancels. Over an existing path: click segment to add a point, click a square to delete it.'
     case 'pencil':
       return 'Freehand stroke. Size and stroke color apply to the next line.'
     case 'brush':
@@ -182,6 +183,7 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
       )}
 
       {(tool === 'rect' || tool === 'oval') && <ShapeBox notify={notify ?? (() => {})} />}
+      {tool === 'pen' && <PenFields notify={notify ?? (() => {})} />}
       {usesZoom(tool) && <ToolOptions tool="zoom" />}
       {tool === 'select' && (
         <>
@@ -197,6 +199,62 @@ export function ToolInspector({ tool, notify }: { tool: string; notify?: (msg: s
           <ToolOptions tool={tool} />
         </div>
       )}
+    </div>
+  )
+}
+
+function PenFields({ notify }: { notify: (msg: string) => void }) {
+  const [opts, setOpts] = useState(loadToolOptions)
+  const [, tick] = useState(0)
+  useEffect(() => subscribeToolOptions(() => setOpts(loadToolOptions())), [])
+  useEffect(() => subscribePenDraft(() => tick((n) => n + 1)), [])
+  const n = penPoints().length
+  return (
+    <div data-testid="pen-props" style={{ margin: '8px 0' }}>
+      <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+        Pen
+      </div>
+      <div data-testid="pen-count" style={{ color: '#8ec8ff', fontSize: 11, marginBottom: 6 }}>
+        {n === 0 ? 'Click the Stage to start a path' : `${n} point${n === 1 ? '' : 's'} — drag for a curve`}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ccc', fontSize: 11, marginBottom: 8 }}>
+        <input
+          data-testid="pen-rubber"
+          type="checkbox"
+          checked={opts.penRubberBand !== false}
+          onChange={(e) => setToolOptions({ penRubberBand: e.target.checked })}
+        />
+        Rubber-band preview
+      </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <button
+          type="button"
+          data-testid="pen-finish"
+          style={smallBtn}
+          onClick={() => notify(requestPenFinish(false) ? 'path finished' : 'need 2+ points')}
+        >
+          Finish
+        </button>
+        <button
+          type="button"
+          data-testid="pen-close"
+          style={smallBtn}
+          onClick={() => notify(requestPenFinish(true) ? 'path closed' : 'need 2+ points')}
+        >
+          Close path
+        </button>
+        <button
+          type="button"
+          data-testid="pen-cancel"
+          style={smallBtn}
+          onClick={() => {
+            clearPenDraft()
+            notify('path cancelled')
+          }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }

@@ -26,6 +26,7 @@ import {
   closestInkSegment,
   convertAnchors,
   deleteInkIds,
+  deleteSelectedAnchors,
   endInkEdit,
   mapInkPt,
   writeInkPoints,
@@ -91,6 +92,20 @@ import {
 import type { RectItemJson } from '../engine/wasmTypes'
 import { anyLocked, serializeObjExtras, subscribeObjProps } from '../editor/objectProps'
 import { isEngineShape, shapeInBox } from '../editor/shapeLibrary'
+import {
+  appendPenPoint,
+  clearPenDraft,
+  constrain45,
+  isPenDragging,
+  penPoints,
+  penPreviewPoints,
+  registerPenFinisher,
+  setPenCloseHover,
+  setPenCursor,
+  setPenDragging,
+  subscribePenDraft,
+  updateLastPenPoint,
+} from '../editor/penDraft'
 
 interface Props {
   engine: EngineStatus
@@ -286,6 +301,12 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
   useEffect(() => subscribeInk(() => scheduleRedraw()), [])
   useEffect(() => subscribeObjProps(() => scheduleRedraw()), [])
   useEffect(() => subscribeFillImages(() => scheduleRedraw()), [])
+  useEffect(() => subscribePenDraft(() => scheduleRedraw()), [])
+  useEffect(() => {
+    registerPenFinisher((close) => commitPen(close))
+    return () => registerPenFinisher(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Overlay geometry from current status (selection box + handles).
   const overlayFromStatus = () => {
@@ -525,6 +546,26 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         return
       }
 
+      if (activeTool() === 'pen') {
+        let p = { ...doc }
+        const draft = penPoints()
+        if (e.shiftKey && draft.length > 0) p = constrain45(draft[draft.length - 1], p)
+        if (isPenDragging() && draft.length > 0) {
+          const last = draft[draft.length - 1]
+          updateLastPenPoint({
+            outX: p.x,
+            outY: p.y,
+            inX: last.x - (p.x - last.x),
+            inY: last.y - (p.y - last.y),
+          })
+        } else {
+          setPenCursor(p)
+          setPenCloseHover(draft.length >= 3 && Math.hypot(p.x - draft[0].x, p.y - draft[0].y) < 10)
+        }
+        scheduleRedraw()
+        return
+      }
+
       // shape-tool draw (Rectangle T2B.4 / Oval T2B.5 — shared drag gesture)
       const rg = rectGestureRef.current
       if (rg && (activeTool() === 'rect' || activeTool() === 'oval')) {
@@ -559,6 +600,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     const up = (e: MouseEvent) => {
       panDragRef.current = null
+      if (isPenDragging()) setPenDragging(false)
 
       // ——— Zoom tool commit (Adobe: click = zoom in, Alt/Option+click = zoom
       // out, drag = the dragged area fills the window) ———
@@ -837,25 +879,14 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
         scheduleRedraw()
         return
       }
-      if (ev.key === 'Enter' && penPtsRef.current.length >= 2) {
+      if (ev.key === 'Enter' && penPoints().length >= 2) {
         ev.preventDefault()
         ev.stopPropagation()
-        const colors = loadToolColors()
-        addInk({
-          kind: 'pen',
-          points: penPtsRef.current.slice(),
-          closed: ev.shiftKey,
-          fill: ev.shiftKey ? colors.fill : null,
-          stroke: colors.stroke ?? '#111111',
-          strokeWidth: Math.max(1, colors.strokeWidth),
-        })
-        penPtsRef.current = []
-        previewStrokeRef.current = null
-        scheduleRedraw()
+        commitPen(ev.shiftKey)
         return
       }
       if (ev.key !== 'Escape') return
-      if (!rectGestureRef.current && !zoomStartRef.current && !strokeRef.current && penPtsRef.current.length === 0) return
+      if (!rectGestureRef.current && !zoomStartRef.current && !strokeRef.current && penPoints().length === 0) return
       ev.preventDefault()
       ev.stopPropagation()
       rectGestureRef.current = null
@@ -864,7 +895,7 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       zoomMarqueeRef.current = null
       strokeRef.current = null
       previewStrokeRef.current = null
-      penPtsRef.current = []
+      clearPenDraft()
       scheduleRedraw()
     }
 
@@ -979,10 +1010,13 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
       inkAnchors: selectedAnchors(),
       showInkAnchors: tool === 'subselect',
       objExtras: serializeObjExtras(),
-      previewStroke: previewStrokeRef.current ?? (penPtsRef.current.length ? penPtsRef.current : null),
+      previewStroke:
+        previewStrokeRef.current ??
+        (penPoints().length ? penPreviewPoints(loadToolOptions().penRubberBand !== false) : null),
       previewStrokeWidth: loadToolColors().strokeWidth,
       previewStrokeColor: loadToolColors().stroke,
       previewClosed: strokeRef.current?.kind === 'lasso',
+      previewFill: null,
       colorPreview,
       workArea: view.workArea,
       hideEdges: view.hideEdges,
@@ -1153,24 +1187,35 @@ export function Stage({ engine, tool, playhead, tick, notify, colorPreview, onTo
 
     if (e.button === 0 && activeTool() === 'pen') {
       const doc = screenToDoc(vpRef.current, sx, sy)
-      const pts = penPtsRef.current
-      if (pts.length >= 3 && Math.hypot(doc.x - pts[0].x, doc.y - pts[0].y) < 10) {
-        const colors = loadToolColors()
-        addInk({
-          kind: 'pen',
-          points: pts.slice(),
-          closed: true,
-          fill: colors.fill,
-          stroke: colors.stroke ?? '#111111',
-          strokeWidth: Math.max(1, colors.strokeWidth),
-        })
-        penPtsRef.current = []
-        previewStrokeRef.current = null
-        scheduleRedraw()
+      const draft = penPoints()
+      if ((e.ctrlKey || e.metaKey) && draft.length >= 2) {
+        commitPen(false)
         return
       }
-      pts.push(doc)
-      previewStrokeRef.current = pts.slice()
+      if (draft.length >= 3 && Math.hypot(doc.x - draft[0].x, doc.y - draft[0].y) < 10) {
+        commitPen(true)
+        return
+      }
+      if (draft.length === 0) {
+        const rad = 8 / vpRef.current.zoom
+        const anc = hitInkAnchor(doc.x, doc.y, rad)
+        if (anc) {
+          selectAnchors([anc])
+          notify?.(deleteSelectedAnchors() ? 'anchor deleted' : 'need ≥2 points')
+          scheduleRedraw()
+          return
+        }
+        const seg = closestInkSegment(doc.x, doc.y, rad)
+        if (seg) {
+          notify?.(addAnchorOnSegment(seg.id, seg.index, seg.t) ? 'anchor added' : 'cannot add here')
+          scheduleRedraw()
+          return
+        }
+      }
+      let p = { ...doc }
+      if (e.shiftKey && draft.length > 0) p = constrain45(draft[draft.length - 1], p)
+      appendPenPoint(p)
+      setPenDragging(true)
       scheduleRedraw()
       return
     }

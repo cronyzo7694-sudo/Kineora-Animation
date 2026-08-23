@@ -513,9 +513,19 @@ function drawPolyline(
   ctx.beginPath()
   const a = docToScreen(vp, pts[0].x, pts[0].y)
   ctx.moveTo(a.x, a.y)
-  for (let i = 1; i < pts.length; i++) {
-    const p = docToScreen(vp, pts[i].x, pts[i].y)
-    ctx.lineTo(p.x, p.y)
+  const last = closed ? pts.length : pts.length - 1
+  for (let i = 0; i < last; i++) {
+    const A = pts[i]
+    const B = pts[(i + 1) % pts.length]
+    if (A.outX != null || B.inX != null) {
+      const c1 = docToScreen(vp, A.outX ?? A.x, A.outY ?? A.y)
+      const c2 = docToScreen(vp, B.inX ?? B.x, B.inY ?? B.y)
+      const b = docToScreen(vp, B.x, B.y)
+      ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, b.x, b.y)
+    } else {
+      const b = docToScreen(vp, B.x, B.y)
+      ctx.lineTo(b.x, b.y)
+    }
   }
   if (closed) ctx.closePath()
   if (fill) {

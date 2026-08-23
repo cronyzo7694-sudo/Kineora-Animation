@@ -87,13 +87,55 @@ fn multi_action_plan_materializes_refs_in_order_and_groups_once() {
         6.0,
         "per-key transform must not rewrite the node's base transform"
     );
+    let effective = session
+        .selected_transform(NodeId(ball.id))
+        .expect("created node has an effective transform at the playhead");
+    assert_eq!(effective.y, 100.0);
     let resolved = session
         .evaluate(1)
         .into_iter()
         .find(|item| item.id == ball.id)
         .expect("created node evaluates at the affected frame");
     assert_eq!(resolved.y, 100.0);
+    let created_layer = &session.doc.scenes[0].layers[1];
+    assert_eq!(created_layer.name, "Ball");
+    match created_layer.keyframes.get(&1) {
+        Some(animator_core::Frame::Keyframe {
+            content,
+            transforms,
+            ..
+        }) => {
+            assert!(
+                content.contains(&NodeId(ball.id)),
+                "alias resolved onto the created layer"
+            );
+            assert_eq!(
+                transforms
+                    .get(&NodeId(ball.id))
+                    .map(|transform| transform.y),
+                Some(100.0),
+                "the effective transform is stored as a frame override"
+            );
+        }
+        _ => panic!("created layer must contain a content keyframe at frame 1"),
+    }
+
+    assert!(session.undo(), "one undo reverts the entire AI plan");
+    assert_eq!(session.history.undo_len(), 0);
+    assert_eq!(session.history.redo_len(), 1);
+    assert_eq!(session.doc.scenes[0].layers.len(), 1);
+    assert!(!session.doc.nodes.contains_key(&NodeId(ball.id)));
+
+    assert!(session.redo(), "one redo reapplies the entire AI plan");
+    assert_eq!(session.history.undo_len(), 1);
     assert_eq!(session.doc.scenes[0].layers[1].name, "Ball");
+    assert_eq!(
+        session
+            .selected_transform(NodeId(ball.id))
+            .expect("redone node has an effective transform")
+            .y,
+        100.0
+    );
 }
 
 #[test]
@@ -227,6 +269,7 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
     let first = setup.draw_rect(0.0, 0.0, 10.0, 10.0, "#ff0000");
     let second = setup.draw_rect(100.0, 100.0, 30.0, 40.0, "#00ff00");
     let mut session = Session::from_document(setup.doc.clone());
+    let document_before = session.doc.clone();
     let unrelated_before = session
         .doc
         .nodes
@@ -245,6 +288,12 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
         "AI — minimal",
     );
     assert!(result.ok);
+    assert_eq!(result.mutation_count, 1);
+    assert_eq!(
+        session.history.undo_len(),
+        1,
+        "the AI plan is one history entry"
+    );
     assert_eq!(session.doc.nodes.get(&second), Some(&unrelated_before));
     let changed = session.doc.nodes.get(&first).expect("first node");
     assert_eq!(changed.transform().x, 0.0);
@@ -254,6 +303,35 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
         "per-key transform preserves the node's base transform"
     );
     assert_eq!(changed.transform().scale_x, 1.0);
+    assert_eq!(
+        session
+            .selected_transform(first)
+            .expect("target has an effective transform")
+            .y,
+        50.0
+    );
+    assert_eq!(
+        session
+            .selected_transform(second)
+            .expect("unrelated node still has an effective transform")
+            .y,
+        100.0,
+        "unrelated node's effective transform is unchanged"
+    );
+    match session.doc.scenes[0].layers[0].keyframes.get(&1) {
+        Some(animator_core::Frame::Keyframe { transforms, .. }) => {
+            assert_eq!(
+                transforms.get(&first).map(|transform| transform.y),
+                Some(50.0),
+                "target Y is stored in the keyframe transform map"
+            );
+            assert!(
+                !transforms.contains_key(&second),
+                "the transaction must not create an override for an unrelated node"
+            );
+        }
+        _ => panic!("frame 1 must remain a content keyframe"),
+    }
     let resolved = session
         .evaluate(1)
         .into_iter()
@@ -261,6 +339,19 @@ fn minimal_transform_preserves_unrelated_nodes_byte_for_byte() {
         .expect("transformed node evaluates at the affected frame");
     assert_eq!(resolved.x, 0.0);
     assert_eq!(resolved.y, 50.0);
+
+    assert!(session.undo());
+    assert_eq!(
+        session.doc, document_before,
+        "undo restores the full document exactly"
+    );
+    assert_eq!(session.doc.nodes.get(&second), Some(&unrelated_before));
+    assert_eq!(session.selected_transform(first).unwrap().y, 0.0);
+
+    assert!(session.redo());
+    assert_eq!(session.doc.nodes.get(&second), Some(&unrelated_before));
+    assert_eq!(session.selected_transform(first).unwrap().y, 50.0);
+    assert_eq!(session.selected_transform(second).unwrap().y, 100.0);
 }
 
 #[test]

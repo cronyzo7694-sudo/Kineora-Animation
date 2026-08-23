@@ -1,5 +1,24 @@
 # KINEORA — CHANGELOG (coordination-level)
 
+## 2026-08-23 — Timeline Adobe chrome + onion P1 + header-all (product code)
+
+- Built on Inc 0+1 (`1321f68`). Adobe Help timeline/layers screenshots + Blueprint 7.1.1/7.1.5. Playhead stays **red** (Blueprint 7.1.3).
+- **Chrome look:** compact hover-title toolbar; type+name+pencil left; eye/lock/outline-color right; hidden = red ✕; locked = padlock; visible/unlocked empty clickable cells; content frames = light bar + black dots.
+- **Onion P1 (view state only):** `onion.ts` / `onionPrefs.ts` (`kineora.onion` localStorage). Ghosts before current items; never export / never selectable. O / Shift+O. Defaults AMB-TL-014/015/016.
+- **Header-click ALL:** `Session::set_all_layers_{visible,locked,outline}` + wasm (one `SetLayerFlags` undo). Needs `npm run wasm` on desktop — prebuilt wasm lacks exports until rebuild.
+- **Also:** ruler seconds `(f-1)/fps`; Active-layer-only view filter; customize toolbar (session view state, Reset); Play ▶/⏸.
+- Honest DEFERRED (not invented): EMF write (AMB-TL-020), camera LayerKind (Part 16 / SYS-25), transform parenting (W2 — `parent_id` is folders). Mute = existing `control.mute` SYS-26 handoff.
+- rustfmt wrap on `selected_editable` + B-1 asserts. `workspace.ts` `timelineNameW` sanitize kept. LayersPanel kept (AMB-TL-010).
+- Native/cargo/wasm **NOT RUN** in this sandbox (no rustc). Not COMPLETE.
+
+## 2026-08-23 — Inc 0 folder guards + Inc 1 unified Timeline (product code)
+
+- Pulled user research: `TOOLS_RESEARCH/` (`8f7df54`) + `RESEARCH_01_WORKSPACE_STAGE/` (`d12ec97`). Authority: Timeline pack coding order > workspace skeleton (folders already exist; no flatten). Tools 21: do not fake Pencil/Brush with rects.
+- **Inc 0 (engine):** B-1 ancestor visibility in eval/hit/select-all/prune; B-2 folder frame-op guards (F5/F6/F7/clipboard/tween/span/place); B-3 folder lock cascade; B-4 deep folder duplicate (one undo); B-5 `editable_target_layer`; B-8 `copyFrames` no `document:changed`.
+- **Inc 1 (UI):** one Timeline panel — chrome (eye/lock/outline/name) + splitter + grid, shared vertical scroll (U-1…U-13). U-G7 default hide left Layers; U-G8 min 168 / default 200; U-G9 nameW 160–360. Time readout `(playhead-1)/fps`. Folder grid = dim strip, no fake dots. LayersPanel kept (AMB-TL-010).
+- Not coded: onion (Inc 2), EMF (AMB-TL-020), Path/Pencil/Brush (tools Phase 1), camera, new LayerKind, new bus events.
+- Rust layers + full core green. UI **789** automated (was 779). Native/manual QA PENDING. Not COMPLETE.
+
 ## 2026-08-23 — Timeline+Layers pre-code audit (docs only)
 
 - Added `12_AUDIT.md`. Fixed pack bugs D-1..D-4. Ship rules U-G7 (don’t show two layer lists), U-G8 (min height), U-G9 (nameW), B-8 (copyFrames event).

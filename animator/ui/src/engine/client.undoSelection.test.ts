@@ -55,6 +55,7 @@ const wireModule = {
   kineora_select_in_rect: () => {
     selection = [4, 5]
   },
+  kineora_copy_frames: () => true,
 }
 
 async function attach(): Promise<void> {
@@ -148,5 +149,13 @@ describe('client — view selection emits selection:changed only', () => {
     const names = spy.mock.calls.map((c) => c[0])
     expect(names.filter((n) => n === 'selection:changed')).toHaveLength(2)
     expect(names).not.toContain('document:changed')
+  })
+
+  it('copyFrames is clipboard-only and never emits document:changed (B-8)', async () => {
+    const { copyFrames } = await import('./client')
+    await attach()
+    const spy = vi.spyOn(bus, 'emit')
+    expect(copyFrames(0, 1, 5)).toBe(true)
+    expect(spy.mock.calls.map((c) => c[0])).not.toContain('document:changed')
   })
 })

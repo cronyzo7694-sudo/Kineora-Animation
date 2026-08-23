@@ -43,6 +43,7 @@ import {
   statusJson,
 } from './engine/client'
 import { loadViewPrefs, setPreviewMode, toggleViewFlag } from './viewPrefs'
+import { loadOnionPrefs, toggleOnion, toggleOnionOutlines } from './onionPrefs'
 import {
   closeActiveDocument,
   closeAllDocuments,
@@ -1011,6 +1012,59 @@ export const commands: Command[] = [
       const next = toggleViewFlag('hideEdges')
       c.notify(next.hideEdges ? 'hide edges: on' : 'hide edges: off')
     },
+  },
+  {
+    id: 'view.onion',
+    label: 'Onion Skin',
+    category: 'view',
+    shortcut: 'O',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 15.2.1 / 15.3 — view state, never exported',
+    checked: () => loadOnionPrefs().on,
+    run: (c) => {
+      const next = toggleOnion()
+      c.notify(next.on ? 'onion skin: on' : 'onion skin: off')
+    },
+  },
+  {
+    id: 'view.onionOutlines',
+    label: 'Onion Skin Outlines',
+    category: 'view',
+    shortcut: 'Shift+O',
+    status: 'FUNCTIONAL',
+    source: '[BLUEPRINT REQUIRED] Part 15.2.1 / F-15-04 E3',
+    checked: () => loadOnionPrefs().outlines,
+    run: (c) => {
+      const next = toggleOnionOutlines()
+      c.notify(next.outlines ? 'onion outlines: on' : 'onion outlines: off')
+    },
+  },
+  {
+    id: 'view.editMultipleFrames',
+    label: 'Edit Multiple Frames',
+    category: 'view',
+    status: 'DEFERRED',
+    source: '[BLUEPRINT REQUIRED] Part 15.2.1 — AMB-TL-020 write semantics open',
+    reason: 'EMF write rules (AMB-TL-020a–f) are unresolved — a fake editor would invent mutations',
+    run: () => {},
+  },
+  {
+    id: 'timeline.addCamera',
+    label: 'Add Camera',
+    category: 'timeline',
+    status: 'DEFERRED',
+    source: '[BLUEPRINT REQUIRED] Part 16 — camera layer/kind is SYS-25',
+    reason: 'camera layer + keyframes + export matrix are not in this engine (no new LayerKind)',
+    run: () => {},
+  },
+  {
+    id: 'timeline.parentingView',
+    label: 'Layer Parenting View',
+    category: 'timeline',
+    status: 'DEFERRED',
+    source: '[BLUEPRINT] Part 20.5 WISH W2 — parent_id is folder nest only',
+    reason: 'transform parenting would reuse folder parent_id and corrupt the layer tree',
+    run: () => {},
   },
   {
     id: 'view.workArea',

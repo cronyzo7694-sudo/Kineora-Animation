@@ -617,6 +617,63 @@ describe('export rasterizer (Part 28.1 — content-only, viewport-independent)',
   })
 })
 
+describe('canvas renderer — onion ghosts (Part 15.2, editor-only)', () => {
+  it('draws ghosts before current-frame items and renderContent ignores them', async () => {
+    const { render, renderContent, tintFill } = await import('./canvasRenderer')
+    const fillStyles: string[] = []
+    let currentFill = ''
+    const ctx = {
+      clearRect: () => {},
+      fillRect: () => fillStyles.push(currentFill),
+      strokeRect: () => {},
+      setLineDash: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      arc: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      set fillStyle(v: string) { currentFill = v },
+      set strokeStyle(_v: string) {},
+      set lineWidth(_v: number) {},
+      get fillStyle() { return currentFill },
+      get strokeStyle() { return '' },
+      get lineWidth() { return 0 },
+    } as unknown as CanvasRenderingContext2D
+    const ghostFill = tintFill('#ffffff', '#ff6666', 0.4)
+    render(
+      ctx,
+      { zoom: 1, panX: 0, panY: 0 },
+      {
+        background: '#ffffff',
+        stageW: 100,
+        stageH: 100,
+        items: [{ id: 2, x: 20, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0 }],
+        onionGhosts: [{ items: [{ id: 1, x: 0, y: 0, w: 10, h: 10, rotation: 0, fill: '#ffffff', stroke: null, stroke_width: 0 }], tint: '#ff6666', alpha: 0.4, outlines: false }],
+      },
+      100,
+      100,
+    )
+    // pasteboard, stage, ghost, then current item
+    expect(fillStyles).toContain(ghostFill)
+    expect(fillStyles.indexOf(ghostFill)).toBeLessThan(fillStyles.lastIndexOf('#00ff00'))
+
+    fillStyles.length = 0
+    renderContent(ctx, { zoom: 1, panX: 0, panY: 0 }, {
+      background: '#ffffff',
+      stageW: 100,
+      stageH: 100,
+      items: [{ id: 2, x: 20, y: 0, w: 10, h: 10, rotation: 0, fill: '#00ff00', stroke: null, stroke_width: 0 }],
+    })
+    expect(fillStyles).not.toContain(ghostFill)
+  })
+})
+
 describe('canvas renderer — outline mode (F-20-01)', () => {
   /** Minimal ctx that records fill/stroke styles + rect calls in order. */
   function recordingCtx() {

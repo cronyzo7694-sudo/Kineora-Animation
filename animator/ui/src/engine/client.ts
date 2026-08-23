@@ -347,10 +347,9 @@ export function duplicateKeyframe(layer: number, from: number, to: number): bool
   return ok
 }
 
-/** BUG B-8 / BUG-TOOL-011: copying frames fills the session clipboard — it does
- *  NOT mutate the document, so it must not emit `document:changed` (that made
- *  panels re-render and look like something was edited/saved). Same rule as
- *  `copyObjects`, which never emitted. */
+/** COPY FRAMES is session clipboard only — never emits document:changed
+ *  (B-8 / BUG-TOOL-011 / H04 "copy is not a mutation" — same rule as
+ *  copyObjects, which never emitted). */
 export function copyFrames(layer: number, start: number, end: number): boolean {
   return mod?.kineora_copy_frames(layer, start, end) ?? false
 }
@@ -819,6 +818,40 @@ export function toggleOtherLayersLocked(exclude: number): boolean {
 export function toggleOtherLayersOutline(exclude: number): boolean {
   const before = layerFlagsSnapshot('outline')
   const ok = mod?.kineora_toggle_other_layers_outline(exclude) ?? false
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'outline')
+  }
+  return ok
+}
+
+/** Header-column SET-all (Adobe) — ONE undo when the wasm facade exists. */
+export function setAllLayersVisible(visible: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_visible) return false
+  const before = layerFlagsSnapshot('visible')
+  const ok = mod.kineora_set_all_layers_visible(visible)
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'visible')
+  }
+  return ok
+}
+
+export function setAllLayersLocked(locked: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_locked) return false
+  const before = layerFlagsSnapshot('locked')
+  const ok = mod.kineora_set_all_layers_locked(locked)
+  if (ok) {
+    docChanged('layer')
+    emitLayerFlagFlips(before, 'locked')
+  }
+  return ok
+}
+
+export function setAllLayersOutline(outline: boolean): boolean {
+  if (!mod?.kineora_set_all_layers_outline) return false
+  const before = layerFlagsSnapshot('outline')
+  const ok = mod.kineora_set_all_layers_outline(outline)
   if (ok) {
     docChanged('layer')
     emitLayerFlagFlips(before, 'outline')

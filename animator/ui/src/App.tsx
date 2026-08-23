@@ -583,6 +583,9 @@ export default function App() {
       'view.grid',
       'view.hideEdges',
       'view.workArea',
+      'view.onion',
+      'view.onionOutlines',
+      'control.mute',
       'modify.transformRotate90cw',
       'modify.transformRotate90ccw',
       'modify.arrangeFront',
@@ -776,7 +779,15 @@ export default function App() {
           onCancel={() => setLayout((p) => ({ ...p, timelineH: originRef.current.timelineH }))}
         />
       )}
-      {panels.timeline && <TimelineStrip status={status} notify={notify} height={layout.timelineH} />}
+      {panels.timeline && (
+        <TimelineStrip
+          status={status}
+          notify={notify}
+          height={layout.timelineH}
+          nameW={layout.timelineNameW}
+          onNameW={(w) => setLayout((p) => (p.timelineNameW === w ? p : { ...p, timelineNameW: w }))}
+        />
+      )}
       <StatusBar engine={engine} tool={tool} toast={toast} status={status} editDepth={editDepth} onFrameClick={() => setGotoOpen(true)} />
       <FindReplaceDialog open={findReplaceOpen} onClose={() => setFindReplaceOpen(false)} notify={notify} />
       <ExportDialog open={exportOpen} engine={engine} onClose={() => setExportOpen(false)} notify={notify} />

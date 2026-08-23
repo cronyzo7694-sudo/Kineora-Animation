@@ -18,7 +18,7 @@ export type PanelId = (typeof PANEL_IDS)[number]
 
 export const DEFAULT_VISIBILITY: Record<string, boolean> = {
   tools: true,
-  layers: true,
+  layers: false, // U-G7: unified timeline is the one list; Window ▸ Layers still toggles the dock
   properties: true,
   library: true,
   timeline: true,
@@ -87,7 +87,7 @@ function sanitizeLayout(raw: unknown): PanelLayout {
   if (isRecord(raw)) {
     const num = (k: string) => (typeof raw[k] === 'number' ? (raw[k] as number) : DEFAULT_LAYOUT[k as keyof PanelLayout])
     try {
-      return clampLayout({ layersW: num('layersW'), propsW: num('propsW'), timelineH: num('timelineH'), libraryH: num('libraryH'), debugH: num('debugH') })
+      return clampLayout({ layersW: num('layersW'), propsW: num('propsW'), timelineH: num('timelineH'), libraryH: num('libraryH'), debugH: num('debugH'), timelineNameW: num('timelineNameW') })
     } catch {
       /* fall through to default */
     }

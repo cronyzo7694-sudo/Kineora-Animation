@@ -481,7 +481,57 @@ impl Document {
             next_id: 1,
         }
     }
+}
 
+/// Walk `parent_id` and require every ancestor (and `layer` itself) visible.
+/// Used by evaluate / hit-test / selection prune (B-1).
+pub fn layer_and_ancestors_visible(layers: &[Layer], layer: &Layer) -> bool {
+    if !layer.visible {
+        return false;
+    }
+    let mut cur = layer.parent_id;
+    let mut guard = 0;
+    while let Some(pid) = cur {
+        guard += 1;
+        if guard > layers.len() {
+            break;
+        }
+        let Some(parent) = layers.iter().find(|l| l.id == pid) else {
+            break;
+        };
+        if !parent.visible {
+            return false;
+        }
+        cur = parent.parent_id;
+    }
+    true
+}
+
+/// Walk `parent_id` and require every ancestor (and `layer` itself) unlocked.
+/// Used by hit-test / Select-All / frame-op guards (B-3).
+pub fn layer_and_ancestors_unlocked(layers: &[Layer], layer: &Layer) -> bool {
+    if layer.locked {
+        return false;
+    }
+    let mut cur = layer.parent_id;
+    let mut guard = 0;
+    while let Some(pid) = cur {
+        guard += 1;
+        if guard > layers.len() {
+            break;
+        }
+        let Some(parent) = layers.iter().find(|l| l.id == pid) else {
+            break;
+        };
+        if parent.locked {
+            return false;
+        }
+        cur = parent.parent_id;
+    }
+    true
+}
+
+impl Document {
     pub fn alloc_node_id(&mut self) -> NodeId {
         let id = NodeId(self.next_id);
         self.next_id += 1;
@@ -641,6 +691,30 @@ impl Document {
         self.layer_descendants(scene, maybe_ancestor)
             .contains(&child)
             || maybe_ancestor == child
+    }
+
+    /// Layer + every folder ancestor is visible (B-1). Nesting a visible
+    /// child under a hidden folder must still hide it even if cascade did
+    /// not rewrite the child's own flag.
+    pub fn layer_effective_visible(&self, scene: usize, layer_index: usize) -> bool {
+        let Some(sc) = self.scene(scene) else {
+            return false;
+        };
+        let Some(layer) = sc.layers.get(layer_index) else {
+            return false;
+        };
+        layer_and_ancestors_visible(&sc.layers, layer)
+    }
+
+    /// Layer + every folder ancestor is unlocked (B-3 / hit-test).
+    pub fn layer_effective_unlocked(&self, scene: usize, layer_index: usize) -> bool {
+        let Some(sc) = self.scene(scene) else {
+            return false;
+        };
+        let Some(layer) = sc.layers.get(layer_index) else {
+            return false;
+        };
+        layer_and_ancestors_unlocked(&sc.layers, layer)
     }
 
     /// Hold rule: nearest keyframe (or blank) at or before `frame`.

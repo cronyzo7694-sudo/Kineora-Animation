@@ -153,6 +153,10 @@ export const menus: MenuDef[] = [
       sep,
       { type: 'command', id: 'view.snapping' },
       { type: 'command', id: 'view.hideEdges' },
+      sep,
+      { type: 'command', id: 'view.onion' },
+      { type: 'command', id: 'view.onionOutlines' },
+      { type: 'command', id: 'view.editMultipleFrames' },
     ],
   },
   {

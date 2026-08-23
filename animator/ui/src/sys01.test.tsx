@@ -36,6 +36,7 @@ describe('SYS-01 panel chrome — close × + collapse (T-panel-hide / T-panel-co
 
   it('layers panel close + collapse work independently', () => {
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     fireEvent.click(screen.getByTestId('T-panel-collapse-layers'))
     expect(screen.queryByTestId('layer-row-0')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('T-panel-hide-layers'))
@@ -47,6 +48,7 @@ describe('SYS-01 workspace save/switch/reset (T-ws-*)', () => {
   it('New Workspace saves/lists; switching restores the layout you left', () => {
     window.prompt = () => 'Rig 1'
     render(<App />)
+    fireEvent.click(screen.getByTestId('panel.layers'))
     const handle = screen.getByTestId('resize-layers')
     const resize = (dx: number) => {
       fireEvent.mouseDown(handle, { button: 0, clientX: 500 })
@@ -82,7 +84,7 @@ describe('SYS-01 workspace save/switch/reset (T-ws-*)', () => {
     fireEvent.click(screen.getByTestId('menu-item-workspace.saveNew'))
 
     fireEvent.click(screen.getByTestId('reset-workspace'))
-    expect(screen.getByTestId('layers-panel')).toHaveStyle('width: 200px')
+    expect(screen.queryByTestId('layers-panel')).not.toBeInTheDocument()
     // named workspace cleared (§6.2 "PREFS (clear)")
     fireEvent.click(screen.getByTestId('menu.window'))
     fireEvent.mouseEnter(screen.getByTestId('sub-menu.window-Workspaces'))

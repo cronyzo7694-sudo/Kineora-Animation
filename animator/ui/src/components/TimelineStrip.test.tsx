@@ -18,6 +18,24 @@ vi.mock('../engine/client', () => ({
   convertToKeyframes: vi.fn(() => true),
   convertToBlankKeyframes: vi.fn(() => true),
   setFrameLabel: vi.fn(() => true),
+  createLayer: vi.fn(() => 1),
+  createFolder: vi.fn(() => 1),
+  deleteLayer: vi.fn(() => true),
+  duplicateLayer: vi.fn(() => 1),
+  setLayerVisible: vi.fn(() => true),
+  setLayerLocked: vi.fn(() => true),
+  setLayerOutline: vi.fn(() => true),
+  setLayerOutlineColor: vi.fn(() => true),
+  setLayerParent: vi.fn(() => true),
+  setFolderCollapsed: vi.fn(() => true),
+  toggleOtherLayersVisible: vi.fn(() => true),
+  toggleOtherLayersLocked: vi.fn(() => true),
+  toggleOtherLayersOutline: vi.fn(() => true),
+  setAllLayersVisible: vi.fn(() => true),
+  setAllLayersLocked: vi.fn(() => true),
+  setAllLayersOutline: vi.fn(() => true),
+  moveLayer: vi.fn(() => true),
+  renameLayer: vi.fn(() => true),
 }))
 
 vi.mock('../engine/actions', () => ({
@@ -48,10 +66,12 @@ import {
   reverseFrames,
   setActiveLayer,
   setClassicTween,
+  setAllLayersVisible,
   setFrameLabel,
   setPlayhead,
 } from '../engine/client'
-import { performAction, setLoopEnabled, seekPlayhead } from '../engine/actions'
+import { resetOnionPrefsForTests } from '../onionPrefs'
+import { performAction, setLoopEnabled, seekPlayhead, togglePlay } from '../engine/actions'
 import { TimelineStrip, CELL_W, NAME_W } from './TimelineStrip'
 import type { StatusJson } from '../engine/wasmTypes'
 
@@ -126,6 +146,7 @@ function makeStatus(overrides: Partial<StatusJson> = {}): StatusJson {
 beforeEach(() => {
   vi.clearAllMocks()
   notify.mockClear()
+  resetOnionPrefsForTests()
 })
 
 describe('TimelineStrip — frame grid visual language (Part 07 §7.2)', () => {
@@ -871,5 +892,65 @@ describe('TimelineStrip — UNIT G: sequences, exposure, labels (Part 07 §7.4.8
     expect(screen.getByTestId('timeline-duplicate')).toBeDisabled()
     expect(screen.getByTestId('timeline-convert')).toBeDisabled()
     expect(screen.getByTestId('timeline-convert-blank')).toBeDisabled()
+  })
+})
+
+describe('TimelineStrip — play + layer name hover (Blueprint 7.1.5 / C-08 tl.play)', () => {
+  it('play button calls togglePlay and does not move the playhead', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    const play = screen.getByTestId('timeline-play')
+    expect(play).toHaveAttribute('title', 'Play (Enter)')
+    fireEvent.click(play)
+    expect(vi.mocked(togglePlay)).toHaveBeenCalledWith(notify)
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('layer name has a title so a truncated name is readable on hover', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-layer-name-0')).toHaveAttribute('title', 'Layer 1')
+    expect(screen.getByTestId('timeline-layer-name-1')).toHaveAttribute('title', 'Layer 2')
+  })
+
+  it('chrome header shows the Adobe eye / lock / outline column markers', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-chrome-header')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-header-eye')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-header-lock')).toBeInTheDocument()
+  })
+
+  it('header eye click sets visibility on every layer (one engine call)', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    fireEvent.click(screen.getByTestId('timeline-header-eye'))
+    expect(vi.mocked(setAllLayersVisible)).toHaveBeenCalledWith(false)
+  })
+
+  it('onion toggle is view-only and paints the marker band', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.queryByTestId('onion-band')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('timeline-onion'))
+    expect(screen.getByTestId('onion-band')).toBeInTheDocument()
+    expect(screen.getByTestId('onion-marker-start')).toBeInTheDocument()
+    expect(setPlayheadMock).not.toHaveBeenCalled()
+  })
+
+  it('ruler shows seconds without replacing frame numbers', () => {
+    render(<TimelineStrip status={makeStatus({ fps: 24 })} notify={notify} />)
+    expect(screen.getByTestId('ruler-sec-0')).toHaveTextContent('0s')
+    expect(screen.getByTestId('frame-num-1')).toBeInTheDocument()
+  })
+
+  it('active-layer-only hides inactive chrome rows', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-layer-name-1')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('timeline-active-only'))
+    expect(screen.queryByTestId('timeline-layer-name-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('timeline-layer-name-0')).toBeInTheDocument()
+  })
+
+  it('EMF / camera / parenting stay honestly disabled', () => {
+    render(<TimelineStrip status={makeStatus()} notify={notify} />)
+    expect(screen.getByTestId('timeline-emf')).toBeDisabled()
+    expect(screen.getByTestId('timeline-camera')).toBeDisabled()
+    expect(screen.getByTestId('timeline-parenting')).toBeDisabled()
   })
 })

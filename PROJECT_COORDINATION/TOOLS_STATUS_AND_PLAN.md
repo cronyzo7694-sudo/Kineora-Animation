@@ -105,3 +105,23 @@ cd ../ui && npm run wasm && npm test && npm run build
 | BUG-TOOL-007 | the Rectangle tool always drew `#3f9bf5` | draws with the Fill Color swatch |
 | BUG-TOOL-008 (partial) | stroke on new shapes impossible | the Ink Bottle now applies stroke colour + width to any object; stroke-at-draw-time needs an engine parameter (E1) |
 | zoom range | 5 %–3200 % (invented) | 8 %–2000 % exactly as documented by Adobe |
+
+## 6. Merge note (2026-08-23, after PR #1)
+
+`main` gained AI-B's work (Inc 0 folder guards + the unified Adobe-style
+timeline chrome + onion skin P1). This branch was merged with it, keeping BOTH
+sides:
+
+- The Inc-0 engine guards (B-1…B-5, B-8) exist in both branches; **AI-B's
+  implementation was kept** (`layer_and_ancestors_visible/unlocked`,
+  `editable_target_layer`, `reject_frame_target`) so main stays the single
+  source of truth and their tests keep passing.
+- Kept from this branch on top: **B-6** (reordering a folder carries its whole
+  subtree — still absent from main), the **BUG-P-001** properties fix, and the
+  whole tools batch (Hand, Zoom, Paint Bucket, Ink Bottle, Eyedropper, colors
+  area, options area, Free Transform wiring, Fill-Color-driven Rectangle).
+- Their onion-skin subscription and my tool-colour/tool-option subscriptions now
+  live side by side in `Stage.tsx`; nothing was dropped.
+
+Post-merge verification: **859 UI tests pass**, `tsc -b` clean, `vite build`
+clean. Rust still needs `cargo test` on a machine with the toolchain.

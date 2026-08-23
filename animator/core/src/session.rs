@@ -22,7 +22,8 @@ use crate::eval::{
 use crate::export::{export_svg, export_svg_scaled};
 use crate::id::{LayerId, NodeId, SymbolId};
 use crate::model::{
-    Document, Frame, Layer, LoopMode, Node, Scene, Settings, Symbol, SymbolType, Transform,
+    layer_and_ancestors_unlocked, layer_and_ancestors_visible, Document, Frame, Layer, LoopMode,
+    Node, Scene, Settings, Symbol, SymbolType, Transform,
 };
 use crate::persist;
 
@@ -120,21 +121,73 @@ impl Session {
         self.log(&format!("playhead:{frame}"));
     }
 
+
+    /// B-5: active layer is a drawable/paste target only when it exists, is
+    /// Normal (not a folder), visible, and unlocked — including ancestor
+    /// folders (B-1 / B-3).
+    fn editable_target_layer(&self) -> Option<usize> {
+        let idx = self.active_layer;
+        let sc = self.doc.scene(self.active_scene)?;
+        let l = sc.layers.get(idx)?;
+        if l.is_folder() {
+            return None;
+        }
+        if !layer_and_ancestors_visible(&sc.layers, l) {
+            return None;
+        }
+        if !layer_and_ancestors_unlocked(&sc.layers, l) {
+            return None;
+        }
+        Some(idx)
+    }
+
+    /// Frame-op target: Normal + unlocked (self + ancestors). Hidden layers
+    /// still allow frame editing (existing Part 20.2 contract).
+    fn frame_target_ok(&self, layer: usize) -> Result<(), &'static str> {
+        let Some(sc) = self.doc.scene(self.active_scene) else {
+            return Err("missing");
+        };
+        let Some(l) = sc.layers.get(layer) else {
+            return Err("missing");
+        };
+        if l.is_folder() {
+            return Err("folder");
+        }
+        if !layer_and_ancestors_unlocked(&sc.layers, l) {
+            return Err("locked");
+        }
+        Ok(())
+    }
+
+    /// Log + true when a mutating frame op must abort (B-2 / B-3).
+    fn reject_frame_target(&mut self, layer: usize, op: &str) -> bool {
+        match self.frame_target_ok(layer) {
+            Ok(()) => false,
+            Err("folder") => {
+                self.log(&format!("{op}:blocked(folder)"));
+                true
+            }
+            Err("locked") => {
+                self.log(&format!("{op}:blocked(locked)"));
+                true
+            }
+            Err(_) => true,
+        }
+    }
+
     pub fn draw_rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str) -> NodeId {
-        // Draw-target contract (REQ-DRW-003): a hidden or locked layer is not a
-        // valid draw target. Blocked → no command, no node (returns NodeId(0)).
-        if self.doc.layer(self.active_scene, self.active_layer).is_some() {
-            if self.active_layer_is_folder() {
-                self.log("draw:blocked(folder)");
-                return NodeId(0);
+        // Draw-target contract (REQ-DRW-003 / B-5): a hidden, locked, or
+        // folder layer is not a valid draw target. Blocked → no command,
+        // no node (returns NodeId(0)).
+        if self.editable_target_layer().is_none() {
+            if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+                if l.is_folder() {
+                    self.log("draw:blocked(folder)");
+                    return NodeId(0);
+                }
             }
-            // BUG B-1: a layer inside a hidden/locked FOLDER is not a valid
-            // draw target either.
-            let (visible, locked) = self.layer_effective_state(self.active_layer);
-            if !visible || locked {
-                self.log("draw:blocked(layer hidden/locked)");
-                return NodeId(0);
-            }
+            self.log("draw:blocked(layer hidden/locked)");
+            return NodeId(0);
         }
         let id = self.doc.alloc_node_id();
         let node = Node::Rect {
@@ -179,8 +232,9 @@ impl Session {
         let mut all = Vec::new();
         if let Some(sc) = self.doc.scene(self.active_scene) {
             for (i, layer) in sc.layers.iter().enumerate() {
-                let (visible, locked) = crate::eval::effective_layer_state(&sc.layers, layer);
-                if !visible || locked {
+                if !layer_and_ancestors_visible(&sc.layers, layer)
+                    || !layer_and_ancestors_unlocked(&sc.layers, layer)
+                {
                     continue;
                 }
                 all.extend(self.doc.content_at(self.active_scene, i, self.playhead));
@@ -261,35 +315,6 @@ impl Session {
         self.log(&format!("move:selection({dx},{dy}) @{}", self.playhead));
     }
 
-    /// BUG B-2/B-5 — central folder guard for frame ops: folders are
-    /// organizational rows with NO frames (F-20-05), so F5/F6/F7/Shift+F5/
-    /// Shift+F6 on a folder must be a silent no-op instead of writing frame
-    /// records into a row that can never be rendered.
-    fn layer_is_folder(&self, index: usize) -> bool {
-        self.doc
-            .layer(self.active_scene, index)
-            .map(|l| l.is_folder())
-            .unwrap_or(false)
-    }
-
-    fn active_layer_is_folder(&self) -> bool {
-        self.layer_is_folder(self.active_layer)
-    }
-
-    /// BUG B-1 — (visible, locked) of a layer INCLUDING its folder chain:
-    /// "the layer controls in the timeline affect all layers within a folder"
-    /// (Adobe Animate — Create timeline layers). Used by every edit/selection
-    /// guard so the stage, hit-test and the panels agree.
-    fn layer_effective_state(&self, index: usize) -> (bool, bool) {
-        let Some(sc) = self.doc.scene(self.active_scene) else {
-            return (false, true);
-        };
-        let Some(l) = sc.layers.get(index) else {
-            return (false, true);
-        };
-        crate::eval::effective_layer_state(&sc.layers, l)
-    }
-
     /// F6 — insert a keyframe copying the previous content. Returns true when a
     /// keyframe was created; false when it was a no-op. No-op cases (no command,
     /// no undo entry): the layer is locked (Part 20.2 "not editable") or the
@@ -297,15 +322,10 @@ impl Session {
     /// no-op"). F6 on a BLANK keyframe converts it to a content keyframe
     /// copying the pre-blank content (F-07-08 M.2).
     pub fn insert_keyframe(&mut self, frame: u32) -> bool {
-        if self.active_layer_is_folder() {
-            self.log("keyframe:blocked(folder)");
+        if self.reject_frame_target(self.active_layer, "keyframe") {
             return false;
         }
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("keyframe:blocked(locked)");
-                return false;
-            }
             if matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. })) {
                 self.log(&format!("keyframe:already@{frame}"));
                 return false;
@@ -323,15 +343,8 @@ impl Session {
     /// a locked layer are disabled, matching Part 20.2 "protect finished art";
     /// hidden layers still allow frame editing). Undoable.
     pub fn insert_blank_keyframe(&mut self, frame: u32) -> bool {
-        if self.active_layer_is_folder() {
-            self.log("blank-keyframe:blocked(folder)");
+        if self.reject_frame_target(self.active_layer, "blank-keyframe") {
             return false;
-        }
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("blank-keyframe:blocked(locked)");
-                return false;
-            }
         }
         let cmd = InsertBlankKeyframe::new(self.active_scene, self.active_layer, frame);
         self.exec(Box::new(cmd));
@@ -343,15 +356,10 @@ impl Session {
     /// No-op (no command) when there is no keyframe there or the layer is
     /// locked. Undoable.
     pub fn clear_keyframe(&mut self, frame: u32) -> bool {
-        if self.active_layer_is_folder() {
-            self.log("clear-keyframe:blocked(folder)");
+        if self.reject_frame_target(self.active_layer, "clear-keyframe") {
             return false;
         }
         if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            if l.locked {
-                self.log("clear-keyframe:blocked(locked)");
-                return false;
-            }
             if !l.keyframes.contains_key(&frame) {
                 self.log("clear-keyframe:(none)");
                 return false;
@@ -372,19 +380,14 @@ impl Session {
     /// AFTER `frame` shifts right by one (the hold covering `frame` extends).
     /// No-op (no command) when there is nothing to shift or the layer is locked.
     pub fn insert_frame(&mut self, frame: u32) -> bool {
-        if self.active_layer_is_folder() {
-            self.log("insert-frame:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         let layer = self.active_layer;
+        if self.reject_frame_target(layer, "insert-frame") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("insert-frame:blocked(locked)");
-            return false;
-        }
         let any_later = l.keyframes.keys().any(|k| *k > frame);
         if !any_later {
             self.log("insert-frame:(nothing to shift)");
@@ -401,19 +404,14 @@ impl Session {
     /// (timeline shortens). No-op (no command) when nothing is affected or the
     /// layer is locked.
     pub fn delete_frame(&mut self, frame: u32) -> bool {
-        if self.active_layer_is_folder() {
-            self.log("delete-frame:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         let layer = self.active_layer;
+        if self.reject_frame_target(layer, "delete-frame") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("delete-frame:blocked(locked)");
-            return false;
-        }
         let has_at = l.keyframes.contains_key(&frame);
         let has_later = l.keyframes.keys().any(|k| *k > frame);
         if !has_at && !has_later {
@@ -431,24 +429,16 @@ impl Session {
     /// from==to, no keyframe at `from`, a keyframe already at `to` (collision —
     /// overwrite prompt is a later unit), `to < 1`, or the layer is locked.
     pub fn move_keyframe(&mut self, layer: usize, from: u32, to: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("move-keyframe:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if from == to || to < 1 {
+            return false;
+        }
+        if self.reject_frame_target(layer, "move-keyframe") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("move-keyframe:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("move-keyframe:(no source)");
             return false;
@@ -467,24 +457,16 @@ impl Session {
     /// record at `from` into `to` on `layer`. No-op on the same guards as move
     /// (collision blocked; the source must exist; `to` must be free).
     pub fn duplicate_keyframe(&mut self, layer: usize, from: u32, to: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("duplicate-keyframe:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if to < 1 {
+            return false;
+        }
+        if self.reject_frame_target(layer, "duplicate-keyframe") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("duplicate-keyframe:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("duplicate-keyframe:(no source)");
             return false;
@@ -505,16 +487,13 @@ impl Session {
     /// clipboard (session state — no command, no document change). Read-only,
     /// so it is allowed on locked layers.
     pub fn copy_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("copy-frames:blocked(folder)");
-            return false;
-        }
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
+        if l.is_folder() {
+            self.log("copy-frames:blocked(folder)");
+            return false;
+        }
         let mut recs: Vec<(u32, Frame)> = l
             .keyframes
             .iter()
@@ -548,18 +527,10 @@ impl Session {
     /// preserving relative offsets; collisions OVERWRITE. One undoable command.
     /// Locked layer blocked; empty clipboard = no-op.
     pub fn paste_frames(&mut self, layer: usize, at: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("paste-frames:blocked(folder)");
+        if self.reject_frame_target(layer, "paste-frames") {
             return false;
         }
-        let Some(l) = self.doc.layer(self.active_scene, layer) else {
-            return false;
-        };
-        if l.locked {
-            self.log("paste-frames:blocked(locked)");
+        if self.doc.layer(self.active_scene, layer).is_none() {
             return false;
         }
         if self.frame_clipboard.is_empty() {
@@ -575,20 +546,12 @@ impl Session {
     /// REMOVE FRAMES: delete the keyframes within [start,end] leaving a GAP
     /// (later keyframes stay put). One undoable command. Locked layer blocked.
     pub fn remove_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("remove-frames:blocked(folder)");
+        if self.reject_frame_target(layer, "remove-frames") {
             return false;
         }
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("remove-frames:blocked(locked)");
-            return false;
-        }
         let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
         if !any {
             self.log("remove-frames:(none)");
@@ -604,20 +567,12 @@ impl Session {
     /// (content plays backwards). One undoable command. Locked layer blocked;
     /// <2 keyframes = no-op (F-07-13 M.1).
     pub fn reverse_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("reverse-frames:blocked(folder)");
+        if self.reject_frame_target(layer, "reverse-frames") {
             return false;
         }
         let Some(l) = self.doc.layer(self.active_scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("reverse-frames:blocked(locked)");
-            return false;
-        }
         let count = l
             .keyframes
             .keys()
@@ -640,24 +595,16 @@ impl Session {
     /// locked layers; no-op when start ≥ end or the keyframes aren't the same
     /// object.
     pub fn set_classic_tween(&mut self, layer: usize, start: u32, end: u32, ease: f64) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("tween:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if start >= end {
+            return false;
+        }
+        if self.reject_frame_target(layer, "tween") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("tween:blocked(locked)");
-            return false;
-        }
         let content_of = |frame: u32| -> Option<Vec<NodeId>> {
             match l.keyframes.get(&frame) {
                 Some(Frame::Keyframe { content, .. }) => Some(content.clone()),
@@ -681,21 +628,13 @@ impl Session {
     /// Remove a classic tween span (F-07-13 "Remove Tween"). One undoable
     /// command. Blocked on locked layers; no-op when no tween starts there.
     pub fn remove_classic_tween(&mut self, layer: usize, start: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("remove-tween:blocked(folder)");
+        let scene = self.active_scene;
+        if self.reject_frame_target(layer, "remove-tween") {
             return false;
         }
-        let scene = self.active_scene;
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("remove-tween:blocked(locked)");
-            return false;
-        }
         if !l.tweens.contains_key(&start) {
             self.log("remove-tween:(none)");
             return false;
@@ -724,13 +663,12 @@ impl Session {
         if from == to || to < 1 {
             return false;
         }
+        if self.reject_frame_target(layer, "seq-move") {
+            return false;
+        }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("seq-move:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&from) {
             self.log("seq-move:(no source)");
             return false;
@@ -759,24 +697,16 @@ impl Session {
     /// (delta<0) the hold of the keyframe at `anchor`. The exposure is clamped
     /// to a minimum of 1 frame; zero-delta / no-next-keyframe / locked = no-op.
     pub fn resize_span(&mut self, layer: usize, anchor: u32, delta: i64) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("resize-span:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if delta == 0 {
+            return false;
+        }
+        if self.reject_frame_target(layer, "resize-span") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("resize-span:blocked(locked)");
-            return false;
-        }
         if !l.keyframes.contains_key(&anchor) {
             self.log("resize-span:(no anchor keyframe)");
             return false;
@@ -808,24 +738,16 @@ impl Session {
     /// in [start,end] and inserts them immediately after, shifting later frames.
     /// One undoable command. No-op when the range holds no keyframes.
     pub fn duplicate_frames(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("duplicate-frames:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if start > end {
+            return false;
+        }
+        if self.reject_frame_target(layer, "duplicate-frames") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("duplicate-frames:blocked(locked)");
-            return false;
-        }
         let any = l.keyframes.keys().any(|k| *k >= start && *k <= end);
         if !any {
             self.log("duplicate-frames:(none)");
@@ -841,24 +763,16 @@ impl Session {
     /// copying the hold's content + transforms so playback is unchanged.
     /// One undoable command.
     pub fn convert_to_keyframes(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("convert-keys:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if start > end {
+            return false;
+        }
+        if self.reject_frame_target(layer, "convert-keys") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("convert-keys:blocked(locked)");
-            return false;
-        }
         // need a content hold at `start` and at least one non-keyframe frame
         let hold = l
             .keyframes
@@ -886,24 +800,16 @@ impl Session {
     /// Convert frames in [start,end] into BLANK keyframes (Part 07 §7.4.12).
     /// One undoable command.
     pub fn convert_to_blank_keyframes(&mut self, layer: usize, start: u32, end: u32) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("convert-blank:blocked(folder)");
-            return false;
-        }
         let scene = self.active_scene;
         if start > end {
+            return false;
+        }
+        if self.reject_frame_target(layer, "convert-blank") {
             return false;
         }
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("convert-blank:blocked(locked)");
-            return false;
-        }
         let any_nonblank =
             (start..=end).any(|f| !matches!(l.keyframes.get(&f), Some(Frame::Blank)));
         if !any_nonblank {
@@ -920,21 +826,13 @@ impl Session {
     /// `label` = None or empty → clear. No-op when the frame isn't a content
     /// keyframe or the layer is locked.
     pub fn set_frame_label(&mut self, layer: usize, frame: u32, label: Option<&str>) -> bool {
-        // BUG B-2/B-5: a folder row has no frames of its own (Adobe: frames of
-        // a folder come from the layers it CONTAINS), so frame ops on it are a
-        // silent no-op instead of writing unreachable records.
-        if self.layer_is_folder(layer) {
-            self.log("set-label:blocked(folder)");
+        let scene = self.active_scene;
+        if self.reject_frame_target(layer, "set-label") {
             return false;
         }
-        let scene = self.active_scene;
         let Some(l) = self.doc.layer(scene, layer) else {
             return false;
         };
-        if l.locked {
-            self.log("set-label:blocked(locked)");
-            return false;
-        }
         let matches_content = matches!(l.keyframes.get(&frame), Some(Frame::Keyframe { .. }));
         if !matches_content {
             self.log("set-label:(not a content keyframe)");
@@ -1020,11 +918,8 @@ impl Session {
 
         // INV-EDIT-1: do NOT mutate the document here. ConvertToSymbol.apply
         // auto-keys the playhead if needed and reverts that keyframe on undo.
-        if self
-            .doc
-            .layer(self.active_scene, self.active_layer)
-            .is_none()
-        {
+        if self.editable_target_layer().is_none() {
+            self.log("convert-to-symbol:blocked(layer)");
             return NodeId(0);
         }
 
@@ -1100,16 +995,8 @@ impl Session {
         if self.doc.symbol(symbol_id).is_none() {
             return NodeId(0);
         }
-        if self.doc.layer(self.active_scene, self.active_layer).is_some() {
-            // BUG B-5: folders cannot host content (same rule as draw/paste).
-            if self.active_layer_is_folder() {
-                self.log("place-symbol:blocked(folder)");
-                return NodeId(0);
-            }
-            let (visible, locked) = self.layer_effective_state(self.active_layer);
-            if !visible || locked {
-                return NodeId(0);
-            }
+        if self.editable_target_layer().is_none() {
+            return NodeId(0);
         }
         let instance_id = self.doc.alloc_node_id();
         let instance = Node::SymbolInstance {
@@ -1255,8 +1142,8 @@ impl Session {
             .filter(
                 |id| match node_layer_index(&self.doc, self.active_scene, self.playhead, *id) {
                     Some(lidx) => {
-                        let (visible, locked) = self.layer_effective_state(lidx);
-                        visible && !locked
+                        self.doc.layer_effective_visible(self.active_scene, lidx)
+                            && self.doc.layer_effective_unlocked(self.active_scene, lidx)
                     }
                     None => false,
                 },
@@ -1345,20 +1232,13 @@ impl Session {
             self.log("paste:empty");
             return false;
         }
-        if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
-            // Folders are organizational containers — they hold no frames and
-            // cannot host drawable content (consistent with draw_rect
-            // blocking on folders). Paste/Duplicate must not silently create
-            // orphan nodes that cannot be reached by the renderer.
-            if l.is_folder() {
-                self.log("paste:blocked(active layer is a folder)");
-                return false;
+        if self.editable_target_layer().is_none() {
+            if let Some(l) = self.doc.layer(self.active_scene, self.active_layer) {
+                if l.is_folder() {
+                    self.log("paste:blocked(active layer is a folder)");
+                    return false;
+                }
             }
-        } else {
-            return false;
-        }
-        let (visible, locked) = self.layer_effective_state(self.active_layer);
-        if !visible || locked {
             self.log("paste:blocked(layer hidden/locked)");
             return false;
         }
@@ -1956,8 +1836,6 @@ impl Session {
         if l.locked == locked {
             return false;
         }
-        // BUG B-3: locking a FOLDER must cascade to its descendants (the folder
-        // row itself holds no content), exactly like visible/outline do.
         if l.is_folder() {
             self.cascade_flag(index, LayerFlagKind::Locked, locked);
         } else {
@@ -2134,93 +2012,63 @@ impl Session {
         self.batch_flag_toggle(exclude, LayerFlagKind::Outline)
     }
 
-    /// Deep-copy one layer: every node it references gets a fresh NodeId, so
-    /// the copy is fully independent of the source (F-20-01). `copied_nodes`
-    /// accumulates the new nodes for the (undoable) command.
-    fn clone_layer_deep(
-        &mut self,
-        src: &Layer,
-        id: LayerId,
-        name: String,
-        parent_id: Option<LayerId>,
-        copied_nodes: &mut std::collections::BTreeMap<NodeId, Node>,
-    ) -> Layer {
-        // (Clone the nodes out first so the immutable read and the mutable
-        // id-allocation phases never overlap.)
-        let mut remap: std::collections::BTreeMap<NodeId, NodeId> =
-            std::collections::BTreeMap::new();
-        let mut pending: Vec<(NodeId, Node)> = Vec::new();
-        for fr in src.keyframes.values() {
-            if let Frame::Keyframe { content, .. } = fr {
-                for id in content {
-                    if pending.iter().any(|(pid, _)| pid == id) {
-                        continue;
-                    }
-                    if let Some(node) = self.doc.nodes.get(id) {
-                        pending.push((*id, node.clone()));
-                    }
-                }
+    /// Adobe header-column click: SET the flag on EVERY layer as ONE undo
+    /// (helpx.adobe.com/animate/using/timeline-layers.html — "click the eye
+    /// icon to hide all layers"). Distinct from Alt+click "toggle others".
+    pub fn set_all_layers_visible(&mut self, visible: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Visible, visible)
+    }
+
+    pub fn set_all_layers_locked(&mut self, locked: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Locked, locked)
+    }
+
+    pub fn set_all_layers_outline(&mut self, outline: bool) -> bool {
+        self.set_all_flags(LayerFlagKind::Outline, outline)
+    }
+
+    fn set_all_flags(&mut self, kind: LayerFlagKind, after_val: bool) -> bool {
+        let Some(sc) = self.doc.scene(self.active_scene) else {
+            return false;
+        };
+        if sc.layers.is_empty() {
+            return false;
+        }
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for l in sc.layers.iter() {
+            let cur = match kind {
+                LayerFlagKind::Visible => l.visible,
+                LayerFlagKind::Locked => l.locked,
+                LayerFlagKind::Outline => l.outline,
+            };
+            if cur == after_val {
+                continue;
             }
+            before.push((l.id, cur));
+            after.push((l.id, after_val));
         }
-        for (id, node) in pending {
-            let new_id = self.doc.alloc_node_id();
-            remap.insert(id, new_id);
-            copied_nodes.insert(new_id, node.with_id(new_id));
+        if before.is_empty() {
+            return false;
         }
-        let mut keyframes: std::collections::BTreeMap<u32, Frame> =
-            std::collections::BTreeMap::new();
-        for (f, fr) in &src.keyframes {
-            match fr {
-                Frame::Blank => {
-                    keyframes.insert(*f, Frame::Blank);
-                }
-                Frame::Keyframe {
-                    content,
-                    transforms,
-                    label,
-                } => {
-                    let content2: Vec<NodeId> = content
-                        .iter()
-                        .filter_map(|id| remap.get(id).copied())
-                        .collect();
-                    let transforms2: std::collections::BTreeMap<NodeId, Transform> = transforms
-                        .iter()
-                        .filter_map(|(id, t)| remap.get(id).map(|nid| (*nid, t.clone())))
-                        .collect();
-                    keyframes.insert(
-                        *f,
-                        Frame::Keyframe {
-                            content: content2,
-                            transforms: transforms2,
-                            label: label.clone(),
-                        },
-                    );
-                }
-            }
+        let cmd = SetLayerFlags {
+            scene: self.active_scene,
+            kind,
+            before,
+            after,
+        };
+        self.exec(Box::new(cmd));
+        if kind == LayerFlagKind::Visible || kind == LayerFlagKind::Locked {
+            self.prune_selection_by_layer_state();
+            self.history
+                .seal_last_post_selection(self.selection.clone());
         }
-        Layer {
-            id,
-            name,
-            keyframes,
-            tweens: src.tweens.clone(),
-            visible: src.visible,
-            locked: src.locked,
-            outline: src.outline,
-            outline_color: src.outline_color.clone(),
-            kind: src.kind,
-            parent_id,
-            collapsed: src.collapsed,
-        }
+        self.log(&format!("layer:all-{kind:?}={after_val}"));
+        true
     }
 
     /// Duplicate a layer ABOVE the source: deep copy of frames AND content
     /// (Part 20.1 / F-20-01). The copy becomes active. Returns its index.
-    ///
-    /// BUG B-4: duplicating a FOLDER duplicates the WHOLE subtree (the folder
-    /// row + every descendant folder/layer, with their frames and content)
-    /// instead of just the empty folder row; `parent_id`s are remapped through
-    /// the new ids so the copied hierarchy keeps its nesting, and the whole
-    /// thing is ONE undo step.
     pub fn duplicate_layer(&mut self, index: usize) -> Option<usize> {
         let scene = self.active_scene;
         let count = self.doc.scene(scene)?.layers.len();
@@ -2228,76 +2076,139 @@ impl Session {
             return None;
         }
         let src = self.doc.scene(scene)?.layers[index].clone();
-
-        // Source subtree in stable stack order: the row itself, then every
-        // descendant in the order they appear in the layer stack.
-        let mut sources: Vec<Layer> = vec![src.clone()];
+        // B-4: a folder duplicates its entire subtree (stable engine order).
+        let mut pack_ids: Vec<LayerId> = vec![src.id];
         if src.is_folder() {
-            let desc = self.doc.layer_descendants(scene, src.id);
-            if let Some(sc) = self.doc.scene(scene) {
-                for l in sc.layers.iter() {
-                    if desc.contains(&l.id) {
-                        sources.push(l.clone());
+            pack_ids.extend(self.doc.layer_descendants(scene, src.id));
+        }
+        let sc = self.doc.scene(scene)?;
+        let pack: Vec<Layer> = sc
+            .layers
+            .iter()
+            .filter(|l| pack_ids.contains(&l.id))
+            .cloned()
+            .collect();
+        let last_idx = sc
+            .layers
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| pack_ids.contains(&l.id))
+            .map(|(i, _)| i)
+            .max()
+            .unwrap_or(index);
+        let insert_at = last_idx + 1;
+
+        let mut next_lid = self.doc.alloc_layer_id().0;
+        let mut layer_id_map: std::collections::BTreeMap<LayerId, LayerId> =
+            std::collections::BTreeMap::new();
+        for l in &pack {
+            layer_id_map.insert(l.id, LayerId(next_lid));
+            next_lid += 1;
+        }
+
+        let mut remap: std::collections::BTreeMap<NodeId, NodeId> =
+            std::collections::BTreeMap::new();
+        let mut pending: Vec<(NodeId, Node)> = Vec::new();
+        for src_l in &pack {
+            for fr in src_l.keyframes.values() {
+                if let Frame::Keyframe { content, .. } = fr {
+                    for id in content {
+                        if remap.contains_key(id) {
+                            continue;
+                        }
+                        if let Some(node) = self.doc.nodes.get(id) {
+                            pending.push((*id, node.clone()));
+                        }
                     }
                 }
             }
         }
-
         let mut copied_nodes: std::collections::BTreeMap<NodeId, Node> =
             std::collections::BTreeMap::new();
-        let mut layer_remap: std::collections::BTreeMap<LayerId, LayerId> =
-            std::collections::BTreeMap::new();
-        let mut copies: Vec<Layer> = Vec::new();
-        // Names are uniquified against the document AND the copies made in this
-        // same pass (they are not in the document yet).
-        let mut reserved: Vec<String> = Vec::new();
-        // `alloc_layer_id()` derives max+1 from the layers ALREADY in the
-        // document, so it would hand out the same id twice while the copies are
-        // still detached — count up locally instead (ids stay unique/stable).
-        let mut next_layer_id = self.doc.alloc_layer_id().0;
-        for source in &sources {
-            let name = self.next_copy_name(&source.name, &reserved);
-            reserved.push(name.clone());
-            let id = LayerId(next_layer_id);
-            next_layer_id += 1;
-            // Parents are remapped in a second pass, so the stack order of the
-            // descendants cannot matter.
-            let copy =
-                self.clone_layer_deep(source, id, name, source.parent_id, &mut copied_nodes);
-            layer_remap.insert(source.id, copy.id);
-            copies.push(copy);
-        }
-        // Re-parent the copies onto their COPIED ancestors (the root copy keeps
-        // the source's own parent, which is outside the duplicated subtree).
-        for copy in copies.iter_mut().skip(1) {
-            copy.parent_id = copy
-                .parent_id
-                .and_then(|pid| layer_remap.get(&pid).copied());
+        for (id, node) in pending {
+            let new_id = self.doc.alloc_node_id();
+            remap.insert(id, new_id);
+            copied_nodes.insert(new_id, node.with_id(new_id));
         }
 
+        let mut layers: Vec<Layer> = Vec::new();
+        for (i, src_l) in pack.iter().enumerate() {
+            let mut keyframes: std::collections::BTreeMap<u32, Frame> =
+                std::collections::BTreeMap::new();
+            for (f, fr) in &src_l.keyframes {
+                match fr {
+                    Frame::Blank => {
+                        keyframes.insert(*f, Frame::Blank);
+                    }
+                    Frame::Keyframe {
+                        content,
+                        transforms,
+                        label,
+                    } => {
+                        let content2: Vec<NodeId> = content
+                            .iter()
+                            .filter_map(|id| remap.get(id).copied())
+                            .collect();
+                        let transforms2: std::collections::BTreeMap<NodeId, Transform> = transforms
+                            .iter()
+                            .filter_map(|(id, t)| remap.get(id).map(|nid| (*nid, t.clone())))
+                            .collect();
+                        keyframes.insert(
+                            *f,
+                            Frame::Keyframe {
+                                content: content2,
+                                transforms: transforms2,
+                                label: label.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            let name = if i == 0 {
+                self.next_copy_name(&src_l.name)
+            } else {
+                src_l.name.clone()
+            };
+            let parent_id = match src_l.parent_id {
+                Some(pid) => layer_id_map.get(&pid).copied().or(Some(pid)),
+                None => None,
+            };
+            layers.push(Layer {
+                id: *layer_id_map.get(&src_l.id).expect("mapped"),
+                name,
+                keyframes,
+                tweens: src_l.tweens.clone(),
+                visible: src_l.visible,
+                locked: src_l.locked,
+                outline: src_l.outline,
+                outline_color: src_l.outline_color.clone(),
+                kind: src_l.kind,
+                parent_id,
+                collapsed: src_l.collapsed,
+            });
+        }
         let cmd = DuplicateLayer {
             scene,
-            source_index: index,
-            layers: copies,
+            insert_at,
+            layers,
             copied_nodes,
         };
         self.exec(Box::new(cmd));
-        self.active_layer = index + 1;
+        self.active_layer = insert_at;
         self.log(&format!("layer:duplicate@{index}"));
-        Some(index + 1)
+        Some(insert_at)
     }
 
     /// Unique name for a duplicated layer, Animate-style: "arm", "arm copy",
     /// "arm copy 2", "arm copy 3", … — duplicates of a copy keep counting from
     /// the original stem instead of stacking "copy copy".
-    fn next_copy_name(&self, base: &str, reserved: &[String]) -> String {
+    fn next_copy_name(&self, base: &str) -> String {
         let taken = |n: &str| {
             self.doc
                 .scenes
                 .iter()
                 .flat_map(|sc| sc.layers.iter())
                 .any(|l| l.name == n)
-                || reserved.iter().any(|r| r == n)
         };
         let stem = strip_copy_suffix(base);
         let first = format!("{stem} copy");
@@ -2329,7 +2240,7 @@ impl Session {
         let active_id = sc.layers.get(self.active_layer).map(|l| l.id);
         let moved_id = before[from];
 
-        // BUG (LAYER research: "reorder must keep parent/children consistent")
+        // B-6 (LAYER research: "reorder must keep parent/children consistent")
         // — Adobe: folders "can contain both layers and other folders, allowing
         // you to organize layers in much the same way you organize files on
         // your computer", so dragging a FOLDER carries its whole subtree.
@@ -2371,7 +2282,6 @@ impl Session {
         for (i, id) in block.iter().copied().enumerate() {
             after.insert(insert_at + i, id);
         }
-
         let cmd = ReorderLayer {
             scene,
             before,
@@ -2517,10 +2427,9 @@ impl Session {
                     }
                 }
                 if let Some(layer) = on_layer {
-                    // BUG B-1: an object inside a hidden/locked FOLDER is no
-                    // longer selectable either.
-                    let (vis, lock) = crate::eval::effective_layer_state(&sc.layers, layer);
-                    if vis && !lock {
+                    if layer_and_ancestors_visible(&sc.layers, layer)
+                        && layer_and_ancestors_unlocked(&sc.layers, layer)
+                    {
                         keep.push(id);
                     }
                 } else {

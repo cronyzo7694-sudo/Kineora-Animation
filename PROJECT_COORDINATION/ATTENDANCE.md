@@ -4,6 +4,8 @@
 > Format: one row per session. Leader (AI01) can use this to see who is active and who is blocked.
 
 | Date (IST) | Worker | Ownership | Session | Status | HEAD seen | Notes |
+| 2026-08-23 | Implementation | SYS-15+16 Timeline+Layers | 5 | ADOBE CHROME + ONION P1 + HEADER-ALL PUSHED | `1321f68` | Did not rewrite Inc 0/1. Adobe chrome, onion view-state, header SetLayerFlags all, ruler seconds, active-only, customize. EMF/camera/parenting honest DEFERRED. image-search/ not committed. |
+| 2026-08-23 | Implementation | SYS-15+16 Timeline+Layers | 4 | INC 0+1 IMPLEMENTED (not COMPLETE) | `d12ec97` | Pulled Tools + Stage research. Inc 0 B-1..B-5+B-8. Inc 1 unify + U-G7/8/9. Onion/EMF/tools-path NOT coded. |
 | 2026-08-23 | Research | SYS-15+16 Timeline+Layers | 3 | RESEARCH AUDIT + PUSH | `29789e5` | Re-read 00–11 vs code. 12_AUDIT + pack fixes. No product code. |
 | 2026-08-23 | Research | SYS-15+16 Timeline+Layers | 2 | RESEARCH ONLY — PACK COMPLETE (first code wave) | `29789e5` | CONTINUE: 08 onion, 09 EMF (blocked 020), 10 exposure/fps (005 closed), 11 W1 out. No product code. |
 | 2026-08-23 | Research | SYS-15+16 Timeline+Layers (unified) | 1 | RESEARCH ONLY — PACK IN PROGRESS | `29789e5` | Folder PROJECT_COORDINATION/TIMELINE_LAYERS_RESEARCH/ (00–07). No product code. Adobe 2026 timeline page translated. Unify = Blueprint 7.1.1. Continue: onion/EMF/fps-scale. |

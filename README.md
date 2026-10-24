@@ -1,4 +1,16 @@
-# Stick Studio — Chibi Stick-Figure Rig
+# Stick Studio — Kineora Animation
+
+Browser-based 2D animation studio: chibi character rig with stick arms & legs, pose clips,
+real blink, audio-reactive mouth and 4K recording. **Pure HTML / CSS / JS — koi build step nahi.**
+
+- **Live:** https://cronyzo7694-sudo.github.io/Kineora-Animation/
+  (Pages on karna ho to: `Settings → Pages → Deploy from a branch → main / (root)` → Save)
+- **Local:** `./serve.sh` → http://localhost:8001
+- **Recording pause**, depth move (andar/bahar) aur pose clips sab browser me hi chalta hai.
+
+---
+
+# Chibi Stick-Figure Rig
 
 Ek doosra character studio: chibi bust (tumhare uploads se) + **stick arms & legs** jo shirt ke
 sides se attached hain, **pose clips**, aankhon me **pupil jo blink pe chhupta hai**, aur

@@ -73,10 +73,11 @@
           <div class="tl-wave" id="tlWave"></div>
           <div class="tl-ruler" id="tlRuler"></div>
           <div class="tl-lane" id="tlLane"></div>
+          <div class="tl-bglane" id="tlBgLane"></div>
           <div class="tl-playhead" id="tlHead"></div>
         </div>
         <div class="tl-foot">
-          <span>Track par click / drag = seek (audio bhi wahi se chalega) · marker pakad ke khincho = time badlo</span>
+          <span>Track par click / drag = seek · marker pakad ke khincho = time badlo · neeche wali patti = background</span>
           <span id="tlInfo">koi marker nahi</span>
         </div>
       </div>
@@ -141,6 +142,10 @@
             <button data-bg="black">Black</button>
             <button data-bg="transparent">None</button>
           </div>
+        </div>
+        <div class="row">
+          <button id="btnBgMark" class="pill on" title="is background ko playhead par fix karo (G)">＋ bg marker</button>
+          <span class="note">background bhi clip ki tarah timeline par badalta hai</span>
         </div>
         <div class="row">
           <input type="file" id="bgFile" accept="image/*" class="file" />

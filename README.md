@@ -106,6 +106,16 @@ Audio file daalte hi timeline ki length **audio jitni** ho jaati hai. Uske baad:
   video aur awaaz kabhi out of sync nahi hote.
 - Markers + length browser me save rehte hain (`localStorage`), reload par wapas mil jaate hain.
 
+### Background bhi clip ki tarah timeline par
+
+Background ko manual pause karke badalne ki zaroorat nahi — timeline par **bg marker** lagao:
+
+- Background chip dabao (Paper / White / Green / Blue / Black / None / photo upload)
+- Playhead ko us time par le jao, **＋ bg marker** dabao (ya `G`)
+- Chips timeline ke **neeche wali hari patti** me aati hain, clip chips upar — dono alag dikhte hain
+- Play / record karte waqt background khud badal jaata hai; seek karne par bhi wahi background dikhta hai
+- Photo background bhi marker me save hota hai (1280px tak compress hota hai) — reload ke baad bhi chalta hai
+
 ### Stage / export
 - Aspect: **9:16 / 16:9 / 1:1 / 4:5**, quality **HD / Full HD / Ultra HD**, fps **24 / 30 / 60**.
   UHD 9:16 = **2160 × 3840**, 16:9 = **3840 × 2160** (canvas ki actual resolution).
@@ -129,6 +139,7 @@ Audio file daalte hi timeline ki length **audio jitni** ho jaati hai. Uske baad:
 | `←` `→` | 0.25s peeche / aage (`Shift` = 1s) |
 | `Home` `End` | shuru / aakhir |
 | `M` | playhead par selected clip ka marker |
+| `G` | playhead par abhi wala background marker |
 | `Shift` + click clip | wahi marker ek hi step me |
 | `B` | blink |
 | `C` | eyes closed toggle |

@@ -217,6 +217,31 @@ function paintBackground(W, H) {
 
 function invalidateBackground() { bgKey = ''; }
 
+/* background set karna — marker aur panel dono yahi use karte hain */
+function syncBgButtons() {
+  document.querySelectorAll('#bgSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.bg === S.bg));
+}
+function setBg(mode, dataUrl, quiet) {
+  if (mode === 'image') {
+    const url = dataUrl || S.bgDataUrl;
+    if (!url) { setStatus('background image nahi mili — dobara upload karo', true); return; }
+    if (S.bg === 'image' && S.bgDataUrl === url && S.bgImage) { invalidateBackground(); syncBgButtons(); return; }
+    const im = new Image();
+    im.onload = () => {
+      S.bgImage = im; S.bgDataUrl = url; S.bg = 'image';
+      invalidateBackground(); syncBgButtons();
+      if (!quiet) setStatus('background: photo');
+    };
+    im.src = url;
+    if (!quiet) setStatus('background image laga raha hoon…');
+  } else {
+    S.bg = mode; S.bgImage = null;
+    invalidateBackground(); syncBgButtons();
+    if (!quiet) setStatus('background: ' + mode);
+  }
+}
+
 /* ------------------------------------------------------------------ sticks */
 function stroke(points, w, color) {
   DC.save();
@@ -745,12 +770,17 @@ function tlLoad() {
       const o = JSON.parse(raw);
       if (typeof o.dur === 'number' && o.dur >= 1) TL.dur = o.dur;
       if (Array.isArray(o.marks)) TL.marks = o.marks.filter(m => m && typeof m.t === 'number');
+      if (o.bgData) S.bgDataUrl = o.bgData;
     }
   } catch (e) {}
   TL.marks.sort((a, b) => a.t - b.t);
 }
 function tlSave() {
-  try { localStorage.setItem('chibi.tl.v1', JSON.stringify({ dur: TL.dur, marks: TL.marks })); } catch (e) {}
+  try {
+    localStorage.setItem('chibi.tl.v1', JSON.stringify({ dur: TL.dur, marks: TL.marks, bgData: S.bgDataUrl || null }));
+  } catch (e) {
+    setStatus('timeline save nahi hua (storage full?) — background photo hata ke try karo', true);
+  }
 }
 function tlSyncLen() {
   const d = $('tlDur'); if (d) d.value = String(Math.round(TL.dur * 100) / 100);
@@ -775,6 +805,8 @@ function tlSeek(t) {
   if (!TL.playing) {                       // seek karte waqt stage bhi wahi pose dikhaye
     const i = tlStateAt(TL.head);
     if (i >= 0) tlFire(TL.marks[i], true);
+    const b = bgStateAt(TL.head);
+    if (b) tlFire(b, true);
   }
   renderTimeline();
 }
@@ -798,6 +830,7 @@ function tlPause() {
 function tlToggle() { TL.playing ? tlPause() : tlPlay(); }
 
 function tlFire(m, instant) {
+  if (m.kind === 'bg') { setBg(m.bg, m.img, true); return; }
   const list = tlAll();
   let i = -1;
   if (m.builtin != null && m.builtin >= 0 && BUILTIN[m.builtin]) i = m.builtin;
@@ -827,7 +860,14 @@ function tlFire(m, instant) {
 /* is waqt kaunsi clip chal rahi hai (jo marker sabse aakhir me aaya) */
 function tlStateAt(t) {
   let last = -1;
-  TL.marks.forEach((m, i) => { if (m.t <= t + 1e-9) last = i; });
+  TL.marks.forEach((m, i) => { if (m.kind !== 'bg' && m.t <= t + 1e-9) last = i; });
+  return last;
+}
+
+/* seek par background bhi us waqt wala dikhna chahiye */
+function bgStateAt(t) {
+  let last = null;
+  TL.marks.forEach(m => { if (m.kind === 'bg' && m.t <= t + 1e-9) last = m; });
   return last;
 }
 
@@ -857,6 +897,20 @@ function tlAdd() {
   setStatus(`${c.name} → ${t.toFixed(2)}s par fix`);
 }
 
+function tlAddBg() {
+  const t = Math.round(TL.head * 100) / 100;
+  const m = { t, kind: 'bg', name: BG_LABEL[S.bg] || S.bg, bg: S.bg };
+  if (S.bg === 'image') m.img = S.bgDataUrl;
+  TL.marks = TL.marks.filter(x => !(x.kind === 'bg' && Math.abs(x.t - t) < 0.02));
+  TL.marks.push(m);
+  TL.marks.sort((a, b) => a.t - b.t);
+  TL.sel = TL.marks.findIndex(x => x === m);
+  tlSave(); renderTimeline();
+  setStatus(`background ${m.name} → ${t.toFixed(2)}s par fix`);
+}
+
+const BG_LABEL = { paper: 'Paper', white: 'White', green: 'Green', blue: 'Blue', black: 'Black', transparent: 'None', image: 'Photo' };
+
 function tlPickStep(dur) {
   const want = dur / 8;
   const steps = [0.5, 1, 2, 5, 10, 15, 20, 30, 60];
@@ -875,8 +929,10 @@ function renderTimeline() {
   if (!lane) return;
   moveHead();
   const info = $('tlInfo');
+  const clipM = TL.marks.filter(m => m.kind !== 'bg').length;
+  const bgM = TL.marks.length - clipM;
   if (info) info.textContent = TL.marks.length
-    ? `${TL.marks.length} marker · ${TL.marks.map(m => m.t.toFixed(1) + 's ' + m.name).join('  ·  ')}`
+    ? `${clipM} clip · ${bgM} bg · ${TL.marks.map(m => m.t.toFixed(1) + 's ' + m.name).join('  ·  ')}`
     : 'koi marker nahi — clip chuno, playhead set karo, + marker dabao';
 
   const step = tlPickStep(TL.dur);
@@ -891,26 +947,42 @@ function renderTimeline() {
     ruler.innerHTML = h;
   }
 
+  const bgLane = $('tlBgLane');
   lane.innerHTML = '';
-  let lastX = -9, row = 0;
-  TL.marks.forEach((m, i) => {
-    const d = document.createElement('div');
-    d.className = 'tl-mark' + (TL.sel === i ? ' sel' : '');
-    const x = m.t / TL.dur;
-    if (x - lastX < 0.09) row = row === 0 ? 1 : 0; else row = 0;   // paas-paas markers do row me
-    lastX = x;
-    d.style.left = (x * 100) + '%';
-    d.style.top = (row ? 25 : 2) + 'px';
-    d.innerHTML = `<span class="mn">${m.name}</span><span class="mt">${m.t.toFixed(2)}s</span><span class="mx">×</span>`;
-    d.querySelector('.mx').onclick = ev => {
-      ev.stopPropagation();
-      TL.marks.splice(i, 1); TL.sel = -1;
-      tlSave(); renderTimeline();
-    };
-    d.title = `${m.name} @ ${m.t.toFixed(2)}s — pakad ke khincho = time badlo, click = wahan jao`;
-    d.addEventListener('pointerdown', ev => tlDragMark(ev, i));
-    lane.appendChild(d);
-  });
+  if (bgLane) bgLane.innerHTML = '';
+
+  const clips = [], bgs = [];
+  TL.marks.forEach((m, i) => (m.kind === 'bg' ? bgs : clips).push([m, i]));
+
+  const put = (host, list, stagger) => {
+    if (!host) return;
+    let lastX = -9, row = 0;
+    list.forEach(([m, i]) => {
+      const d = document.createElement('div');
+      const isBg = m.kind === 'bg';
+      d.className = 'tl-mark' + (isBg ? ' bgm' : '') + (TL.sel === i ? ' sel' : '');
+      const x = m.t / TL.dur;
+      if (stagger) {
+        if (x - lastX < 0.09) row = row === 0 ? 1 : 0; else row = 0;   // paas-paas markers do row me
+        lastX = x;
+        d.style.top = (row ? 25 : 2) + 'px';
+      }
+      d.style.left = (x * 100) + '%';
+      const short = isBg ? 40 : 200;
+      d.innerHTML = `<span class="mn">${String(m.name).slice(0, isBg ? 9 : 18)}</span>`
+        + `<span class="mt">${m.t.toFixed(2)}s</span><span class="mx">×</span>`;
+      d.querySelector('.mx').onclick = ev => {
+        ev.stopPropagation();
+        TL.marks.splice(i, 1); TL.sel = -1;
+        tlSave(); renderTimeline();
+      };
+      d.title = `${m.name} @ ${m.t.toFixed(2)}s — pakad ke khincho = time badlo, click = wahan jao`;
+      d.addEventListener('pointerdown', ev => tlDragMark(ev, i));
+      host.appendChild(d);
+    });
+  };
+  put(lane, clips, true);
+  put(bgLane, bgs, false);
 }
 
 function tlDragMark(ev, i) {
@@ -962,6 +1034,7 @@ function bindTimeline() {
   $('tlBack').onclick = () => tlSeek(TL.head - 5);
   $('tlFwd').onclick = () => tlSeek(TL.head + 5);
   $('btnTlAdd').onclick = tlAdd;
+  $('btnBgMark').onclick = tlAddBg;
   $('btnTlClear').onclick = () => { TL.marks = []; TL.sel = -1; tlSave(); renderTimeline(); setStatus('timeline clear'); };
   $('btnTlFit').onclick = () => {
     if (!S.voiceAudio) { setStatus('pehle audio file daalo, phir fit audio', true); return; }
@@ -1658,9 +1731,23 @@ function bindUI() {
   $('bgFile').onchange = e => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    const im = new Image();
-    im.onload = () => { S.bgImage = im; S.bg = 'image'; invalidateBackground(); setStatus('background image set'); };
-    im.src = URL.createObjectURL(f);
+    const fr = new FileReader();
+    fr.onload = () => {
+      const raw = new Image();
+      raw.onload = () => {
+        /* timeline me save karne ke liye chhota kar dete hain */
+        const MAX = 1280;
+        const k = Math.min(1, MAX / Math.max(raw.width, raw.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(raw.width * k));
+        c.height = Math.max(1, Math.round(raw.height * k));
+        c.getContext('2d').drawImage(raw, 0, 0, c.width, c.height);
+        S.bgDataUrl = c.toDataURL('image/jpeg', 0.82);
+        setBg('image', S.bgDataUrl);
+      };
+      raw.src = fr.result;
+    };
+    fr.readAsDataURL(f);
   };
 
   $('btnAddClip').onclick = () => {
@@ -1698,6 +1785,7 @@ function bindUI() {
       if (TL.playing) tlPause(); else tlPlay();
     }
     if (k === 'm') { e.preventDefault(); tlAdd(); }
+    if (k === 'g') { e.preventDefault(); tlAddBg(); }
     if (k === 'arrowleft') { e.preventDefault(); tlSeek(TL.head - (e.shiftKey ? 1 : 0.25)); }
     if (k === 'arrowright') { e.preventDefault(); tlSeek(TL.head + (e.shiftKey ? 1 : 0.25)); }
     if (k === 'home') { e.preventDefault(); tlSeek(0); }
@@ -1751,6 +1839,7 @@ requestAnimationFrame(loop);
 setTimeout(() => setStatus('ready — chibi rig'), 400);
 
 window.__chibi = { S, POSE, RM, playClip, triggerBlink, drawFrame, applyPose, defaultPose, CLIPS, TL, BV: BUILTIN,
+  setBg, tlAddBg, bgStateAt,
   voiceTime, playVoice, pauseVoice, tlSeek, tlPlay, tlPause, tlAdd, tlFire, loadVoiceFile, ensureCtx,
   view: VIEW, eyes: eyeBoxes, lockBlink: v => { S.blinkLock = v; } };
 })();

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stick Studio · Chibi Rig</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="18" r="11" fill="none" stroke="url(#g2)" stroke-width="4"/>
+          <path d="M32 30v16M32 34l-13 9M32 34l13 9M32 46l-8 14M32 46l8 14"
+                fill="none" stroke="url(#g2)" stroke-width="4.4" stroke-linecap="round"/>
+          <defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffcf6b"/><stop offset="1" stop-color="#ff7a45"/>
+          </linearGradient></defs>
+        </svg>
+      </div>
+      <div>
+        <h1>Stick Studio <span class="tag">chibi rig</span></h1>
+        <p class="sub">stick arms &amp; legs · pose clips · blink + pupil · voice mouth · record</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btnShot" class="btn ghost" title="PNG snapshot">⤓ PNG</button>
+      <button id="btnPause" class="btn ghost" title="Recording pause / resume" disabled>❚❚ Pause</button>
+      <button id="btnRec" class="btn rec" title="Record video">● Record</button>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="stage-wrap">
+      <div class="stage" id="stage">
+        <div class="frame-box">
+          <canvas id="cv"></canvas>
+        </div>
+        <div class="stage-badge" id="badge">Idle</div>
+        <div class="stage-out" id="outInfo">1080 × 1920 · 9:16 · FHD · 30 fps</div>
+        <div class="stage-hint" id="hint">
+          Hand/paer pakad ke pose banao · khaali jagah drag = x-y move (upar = andar) · scroll = zoom
+        </div>
+        <div class="stage-keys">
+          <kbd>1</kbd>–<kbd>9</kbd> clips · <kbd>B</kbd> blink · <kbd>C</kbd> eyes shut · <kbd>Space</kbd> mouth
+        </div>
+      </div>
+
+      <div class="clipbar" id="clipbar"></div>
+      <div class="clipnote">Recording ke waqt yahin clips dabao — pose saved rehta hai.</div>
+    </section>
+
+    <aside class="panel">
+
+      <div class="card">
+        <h2>Frame &amp; export</h2>
+        <div class="row wrap">
+          <div class="seg mini" id="aspectSeg">
+            <button data-aspect="9:16" class="on">9:16</button>
+            <button data-aspect="16:9">16:9</button>
+            <button data-aspect="1:1">1:1</button>
+            <button data-aspect="4:5">4:5</button>
+          </div>
+        </div>
+        <div class="row wrap">
+          <div class="seg mini" id="qualitySeg">
+            <button data-quality="hd">HD</button>
+            <button data-quality="fhd" class="on">Full HD</button>
+            <button data-quality="uhd">Ultra HD</button>
+          </div>
+        </div>
+        <div class="row wrap">
+          <div class="seg mini" id="fpsSeg">
+            <button data-fps="24">24 fps</button>
+            <button data-fps="30" class="on">30 fps</button>
+            <button data-fps="60">60 fps</button>
+          </div>
+        </div>
+        <div class="row">
+          <button id="btnReset" class="btn ghost">Reset position</button>
+          <label class="switch">
+            <input type="checkbox" id="safeGuides" />
+            <span>Guides</span>
+          </label>
+        </div>
+        <label class="slider">
+          <span>Zoom <b id="lblZoom">100%</b></span>
+          <input type="range" id="zoom" min="30" max="300" value="100" />
+        </label>
+        <div class="row">
+          <label class="switch">
+            <input type="checkbox" id="depthMode" />
+            <span>Depth move (andar / bahar)</span>
+          </label>
+          <button id="btnDepthReset" class="btn ghost">Reset depth</button>
+        </div>
+        <label class="slider">
+          <span>Depth <b id="lblDepth">0%</b></span>
+          <input type="range" id="depth" min="0" max="100" value="0" />
+        </label>
+        <p class="note">Depth move ON karke character ko <b>upar</b> kheencho — chhota hota jayega,
+          lagta hai andar background me ja raha hai. Recording ke waqt bhi chalta hai.</p>
+        <div class="row wrap">
+          <div class="seg mini" id="bgSeg">
+            <button data-bg="paper" class="on">Paper</button>
+            <button data-bg="white">White</button>
+            <button data-bg="green">Green</button>
+            <button data-bg="blue">Blue</button>
+            <button data-bg="black">Black</button>
+            <button data-bg="transparent">None</button>
+          </div>
+        </div>
+        <div class="row">
+          <input type="file" id="bgFile" accept="image/*" class="file" />
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Face</h2>
+        <div class="row">
+          <button id="btnBlink" class="btn">Blink now</button>
+          <label class="switch">
+            <input type="checkbox" id="holdClosed" />
+            <span>Hold eyes closed</span>
+          </label>
+        </div>
+        <label class="slider">
+          <span>Blink speed <b id="lblBlink">normal</b></span>
+          <input type="range" id="blinkRate" min="0" max="100" value="50" />
+        </label>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="autoBlink" checked /><span>Auto blink</span></label>
+          <label class="switch"><input type="checkbox" id="followMouse" checked /><span>Eyes follow cursor</span></label>
+        </div>
+        <label class="slider">
+          <span>Pupil size <b id="lblPupil">100%</b></span>
+          <input type="range" id="pupilSize" min="40" max="170" value="100" />
+        </label>
+        <label class="slider">
+          <span>Eye size <b id="lblEyeSize">100%</b></span>
+          <input type="range" id="eyeSize" min="60" max="150" value="100" />
+        </label>
+        <div class="row wrap">
+          <span class="note">Mouth position</span>
+          <input type="range" id="mouthX" min="-140" max="140" value="0" style="flex:1" />
+          <input type="range" id="mouthY" min="-120" max="120" value="0" style="flex:1" />
+        </div>
+        <div class="row wrap">
+          <span class="note">Eyes position</span>
+          <input type="range" id="eyeX" min="-120" max="120" value="0" style="flex:1" />
+          <input type="range" id="eyeY" min="-120" max="120" value="0" style="flex:1" />
+        </div>
+        <div class="row">
+          <button id="btnResetFace" class="btn ghost">Reset face place</button>
+        </div>
+        <p class="note">Face par seedha drag bhi kar sakte ho — mouth par pakdo to mouth chalta hai, eyes par pakdo to eyes.</p>
+      </div>
+
+      <div class="card">
+        <h2>Mouth drive</h2>
+        <div class="seg" id="mouthMode">
+          <button data-mode="auto" class="on">Auto</button>
+          <button data-mode="file">Audio file</button>
+          <button data-mode="mic">Mic</button>
+          <button data-mode="manual">Manual</button>
+        </div>
+        <label class="slider">
+          <span>Mouth sensitivity <b id="lblSens">1.0×</b></span>
+          <input type="range" id="sens" min="20" max="320" value="100" />
+        </label>
+        <label class="slider">
+          <span>Manual openness <b id="lblOpen">0%</b></span>
+          <input type="range" id="manual" min="0" max="100" value="0" />
+        </label>
+        <div class="meter"><i id="meter"></i></div>
+        <div class="voice">
+          <label class="filebtn">
+            <input type="file" id="voiceFile" accept="audio/*" />
+            <span>AUDIO FILE</span>
+          </label>
+          <button id="btnVoicePlay" class="pill" disabled>▶ Play</button>
+          <span class="note" id="voiceInfo">koi bhi mp3 / wav — muh usi awaaz pe chalega</span>
+        </div>
+        <p class="note">File play hote waqt Record dabao to awaaz bhi video me chali jayegi.</p>
+      </div>
+
+      <div class="card">
+        <h2>Stick arms &amp; legs</h2>
+        <label class="slider">
+          <span>Stick thickness <b id="lblStickW">26</b></span>
+          <input type="range" id="stickW" min="10" max="46" value="26" />
+        </label>
+        <div class="row">
+          <input type="color" id="stickColor" value="#191411" class="color" />
+          <label class="slider grow">
+            <span>Arm length <b id="lblArmLen">100%</b></span>
+            <input type="range" id="armLen" min="60" max="150" value="100" />
+          </label>
+        </div>
+        <label class="slider">
+          <span>Leg length <b id="lblLegLen">100%</b></span>
+          <input type="range" id="legLen" min="60" max="160" value="100" />
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="debug" />
+          <span>Show joints</span>
+        </label>
+        <p class="note">Hand pakad ke ghumao → poora haath IK se mudta hai. Elbow/knee pakad ke ghumao → sirf wo segment.</p>
+      </div>
+
+      <div class="card">
+        <h2>Clips</h2>
+        <div class="clipbar" id="clipGrid" style="padding:0;border:0;background:none"></div>
+        <div class="row gap">
+          <input type="text" class="name" id="clipName" placeholder="clip ka naam…" />
+          <button id="btnAddClip" class="btn primary">+ Save pose</button>
+        </div>
+        <label class="slider">
+          <span>Walk speed <b id="lblWalk">1.1×</b></span>
+          <input type="range" id="walkSpeed" min="0" max="100" value="55" />
+        </label>
+        <p class="note">Recording ke waqt seedha neeche clip bar par click karo — jaisa set kiya hai waisa hi chalega.</p>
+      </div>
+
+      <div class="card">
+        <h2>Motion</h2>
+        <label class="slider">
+          <span>Breathing <b id="lblBreath">55%</b></span>
+          <input type="range" id="breath" min="0" max="100" value="55" />
+        </label>
+        <label class="slider">
+          <span>Head motion <b id="lblHeadM">50%</b></span>
+          <input type="range" id="headMotion" min="0" max="100" value="50" />
+        </label>
+        <label class="slider">
+          <span>Stick sway <b id="lblSway">45%</b></span>
+          <input type="range" id="sway" min="0" max="100" value="45" />
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="idleOn" checked />
+          <span>Idle motion</span>
+        </label>
+      </div>
+
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span id="status">loading assets…</span>
+    <span class="spacer"></span>
+    <span class="tiny">Chibi rig · 16 mouth frames · stick limbs · pose clips</span>
+  </footer>
+</div>
+
+<script src="assets/manifest.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

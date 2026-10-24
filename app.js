@@ -610,7 +610,8 @@ function updateBlink(dt) {
 /* ------------------------------------------------------------------- audio */
 let audioCtx = null, micStream = null, analyser = null, micBuf = null;
 let voiceSrc = null, voiceDest = null;
-S.voiceAudio = null; S.voiceEnv = null; S.voiceRate = 100; S.voicePlaying = false; S.voiceStart = 0;
+S.voiceAudio = null; S.voiceEnv = null; S.voiceRate = 100; S.voicePlaying = false;
+S.voiceStart = 0; S.voiceOffset = 0; S.voiceDur = 0;
 
 function ensureCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -649,42 +650,347 @@ async function loadVoiceFile(file) {
     let prev = 0;
     for (let i = 0; i < n; i++) { prev += (env[i] - prev) * (env[i] > prev ? 0.68 : 0.30); env[i] = prev; }
 
+    stopVoiceSrc();
     S.voiceAudio = audio; S.voiceEnv = env; S.voiceRate = rate; S.voiceDur = audio.duration;
+    S.voiceOffset = 0;
     $('btnVoicePlay').disabled = false;
-    if (info) info.textContent = `${file.name} · ${audio.duration.toFixed(1)}s · mouth isi pe chalega`;
-    setStatus('audio loaded — Play dabao, mouth awaaz ke saath chalega');
+    if (info) info.textContent = `${file.name} · ${audio.duration.toFixed(1)}s`;
+    /* timeline utni lambi jitni audio hai */
+    TL.dur = Math.max(1, Math.round(audio.duration * 100) / 100);
+    if (TL.head > TL.dur) TL.head = 0;
+    TL.marks = TL.marks.filter(m => m.t <= TL.dur);
+    tlSave(); tlSyncLen(); drawWave(); tlSeek(0);
     if (S.mouthMode !== 'file') { S.mouthMode = 'file'; syncModeButtons(); }
+    setStatus(`audio loaded — timeline ${TL.dur.toFixed(2)}s · Play dabao`);
   } catch (e) {
     if (info) info.textContent = 'ye file decode nahi hui: ' + e.message;
     setStatus('audio decode fail: ' + e.message, true);
   }
 }
 
-async function toggleVoicePlay() {
-  const btn = $('btnVoicePlay');
+/* track ke peeche halka waveform — pata chale kahan bol raha hai */
+function drawWave() {
+  const el = $('tlWave');
+  if (!el || !S.voiceEnv) return;
+  const W = 900, H = 46;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const env = S.voiceEnv, n = env.length;
+  for (let x = 0; x < W; x++) {
+    const a = Math.floor(x * n / W), b = Math.max(a + 1, Math.floor((x + 1) * n / W));
+    let m = 0;
+    for (let i = a; i < b && i < n; i++) if (env[i] > m) m = env[i];
+    const h = Math.max(1, m * H * 0.94);
+    g.fillStyle = 'rgba(255,154,77,.22)';
+    g.fillRect(x, (H - h) / 2, 1, h);
+  }
+  el.style.backgroundImage = `url(${c.toDataURL()})`;
+}
+
+/* audio transport — buffer source ko offset se start karte hain, isliye seek possible hai */
+function voiceTime() {
+  if (!S.voiceAudio) return 0;
+  if (!S.voicePlaying) return clamp(S.voiceOffset, 0, S.voiceDur);
+  return clamp(S.voiceOffset + (audioCtx.currentTime - S.voiceStart), 0, S.voiceDur);
+}
+
+function stopVoiceSrc() {
+  const s = voiceSrc;
+  voiceSrc = null; S.voicePlaying = false;
+  if (s) { try { s.onended = null; s.stop(0); } catch (e) {} }
+}
+
+async function playVoice(from) {
   if (!S.voiceAudio) return;
   const ac = ensureCtx();
-  if (S.voicePlaying) {
-    try { voiceSrc && voiceSrc.stop(); } catch (e) {}
-    S.voicePlaying = false;
-    if (btn) { btn.textContent = '▶ Play'; btn.classList.remove('on'); }
-    return;
-  }
-  await ac.resume();
+  if (ac.state === 'suspended') await ac.resume();
+  const off = clamp(from == null ? S.voiceOffset : from, 0, Math.max(0, S.voiceDur - 0.02));
+  stopVoiceSrc();
   const src = ac.createBufferSource();
   src.buffer = S.voiceAudio;
   if (!voiceDest) voiceDest = ac.createMediaStreamDestination();
   src.connect(ac.destination);
   src.connect(voiceDest);
+  const t0 = ac.currentTime + 0.03;
+  src.start(t0, off);
   src.onended = () => {
-    S.voicePlaying = false;
-    if (btn) { btn.textContent = '▶ Play'; btn.classList.remove('on'); }
+    if (voiceSrc !== src) return;          // manual stop — ignore
+    voiceSrc = null; S.voicePlaying = false; S.voiceOffset = S.voiceDur;
+    syncTransport();
   };
-  src.start();
-  voiceSrc = src;
-  S.voiceStart = ac.currentTime + 0.02;
-  S.voicePlaying = true;
-  if (btn) { btn.textContent = '■ Stop'; btn.classList.add('on'); }
+  voiceSrc = src; S.voiceStart = t0; S.voiceOffset = off; S.voicePlaying = true;
+  syncTransport();
+}
+
+function pauseVoice() {
+  if (!S.voicePlaying) { syncTransport(); return; }
+  const t = voiceTime();            // pehle nikalo — offset badalne se pehle
+  stopVoiceSrc();
+  S.voiceOffset = clamp(t, 0, S.voiceDur);
+  syncTransport();
+}
+
+/* --------------------------------------------------------------- timeline */
+/* Audio jitni lambi utni timeline. Har marker = {t, name, pose} — us time par
+   wahi clip chalega. Play par head aage badhta hai (audio ke saath sync). */
+const TL = { dur: 12, marks: [], head: 0, prev: 0, playing: false, sel: -1 };
+
+function tlAll() { return BUILTIN.concat(CLIPS); }
+
+function tlLoad() {
+  try {
+    const raw = localStorage.getItem('chibi.tl.v1');
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (typeof o.dur === 'number' && o.dur >= 1) TL.dur = o.dur;
+      if (Array.isArray(o.marks)) TL.marks = o.marks.filter(m => m && typeof m.t === 'number');
+    }
+  } catch (e) {}
+  TL.marks.sort((a, b) => a.t - b.t);
+}
+function tlSave() {
+  try { localStorage.setItem('chibi.tl.v1', JSON.stringify({ dur: TL.dur, marks: TL.marks })); } catch (e) {}
+}
+function tlSyncLen() {
+  const d = $('tlDur'); if (d) d.value = String(Math.round(TL.dur * 100) / 100);
+  const e = $('tlEnd'); if (e) e.textContent = TL.dur.toFixed(2);
+}
+function syncTransport() {
+  const b = $('tlPlay');
+  if (b) { b.textContent = TL.playing ? '❚❚' : '▶'; b.classList.toggle('on', TL.playing); }
+  const v = $('btnVoicePlay');
+  if (v && !v.disabled) {
+    v.textContent = S.voicePlaying ? '❚❚ Pause' : '▶ Play';
+    v.classList.toggle('on', S.voicePlaying);
+  }
+}
+function tlSeek(t) {
+  TL.head = clamp(t, 0, TL.dur);
+  TL.prev = TL.head;
+  if (S.voiceAudio) {
+    S.voiceOffset = clamp(TL.head, 0, S.voiceDur);
+    if (TL.playing) playVoice(S.voiceOffset);
+  }
+  if (!TL.playing) {                       // seek karte waqt stage bhi wahi pose dikhaye
+    const i = tlStateAt(TL.head);
+    if (i >= 0) tlFire(TL.marks[i], true);
+  }
+  renderTimeline();
+}
+function tlPlay() {
+  if (TL.playing) return;
+  if (TL.head >= TL.dur - 0.02) { TL.head = 0; TL.prev = 0; }
+  TL.playing = true;
+  if (S.voiceAudio) playVoice(TL.head);
+  syncTransport(); renderTimeline();
+}
+function tlPause() {
+  if (!TL.playing) return;
+  TL.playing = false;
+  if (S.voiceAudio && S.voicePlaying) {
+    pauseVoice();
+    TL.head = clamp(S.voiceOffset, 0, TL.dur);   // head aur audio exactly ek jagah
+    TL.prev = TL.head;
+  }
+  syncTransport(); renderTimeline();
+}
+function tlToggle() { TL.playing ? tlPause() : tlPlay(); }
+
+function tlFire(m, instant) {
+  const list = tlAll();
+  let i = -1;
+  if (m.builtin != null && m.builtin >= 0 && BUILTIN[m.builtin]) i = m.builtin;
+  else {
+    const j = BUILTIN.concat(CLIPS).findIndex(c => c.name === m.name);
+    if (j >= BUILTIN.length) i = j;                // custom clip abhi bhi maujood hai
+  }
+  if (i >= 0) {
+    if (!instant) { playClip(i); return; }
+    activeClip = i;
+    S.anim = list[i].anim || null;
+    if (S.anim === 'walk') S.walkPhase = 0;
+    applyPose(list[i].pose || defaultPose(), false);
+    $('badge').textContent = list[i].name;
+    renderClips();
+    return;
+  }
+  if (!m.pose) return;                       // clip delete ho gayi
+  activeClip = -1;
+  S.anim = m.anim || null;
+  if (m.anim === 'walk') S.walkPhase = 0;
+  applyPose(m.pose, !instant);
+  $('badge').textContent = m.name;
+  renderClips();
+}
+
+/* is waqt kaunsi clip chal rahi hai (jo marker sabse aakhir me aaya) */
+function tlStateAt(t) {
+  let last = -1;
+  TL.marks.forEach((m, i) => { if (m.t <= t + 1e-9) last = i; });
+  return last;
+}
+
+function updateTimeline(dt) {
+  if (!TL.playing) return;
+  const prev = TL.head;
+  if (S.voiceAudio && S.voicePlaying) TL.head = Math.min(TL.dur, voiceTime());
+  else TL.head = Math.min(TL.dur, TL.head + dt / 1000);
+  for (const m of TL.marks) if (m.t > prev && m.t <= TL.head) tlFire(m);
+  if (TL.head >= TL.dur - 0.002 && !(S.voiceAudio && S.voicePlaying)) tlPause();
+  else moveHead();
+}
+
+function tlAdd() {
+  const list = tlAll();
+  const sel = $('tlClipSel');
+  const i = sel ? clamp(+sel.value || 0, 0, list.length - 1) : 0;
+  const c = list[i];
+  if (!c) return;
+  const t = Math.round(TL.head * 100) / 100;
+  TL.marks = TL.marks.filter(m => Math.abs(m.t - t) > 0.02);
+  const bi = c.builtin ? BUILTIN.indexOf(c) : null;
+  TL.marks.push({ t, name: c.name, anim: c.anim || null, builtin: bi, pose: clonePose(c.pose || defaultPose()) });
+  TL.marks.sort((a, b) => a.t - b.t);
+  TL.sel = TL.marks.findIndex(m => Math.abs(m.t - t) < 1e-6);
+  tlSave(); renderTimeline();
+  setStatus(`${c.name} → ${t.toFixed(2)}s par fix`);
+}
+
+function tlPickStep(dur) {
+  const want = dur / 8;
+  const steps = [0.5, 1, 2, 5, 10, 15, 20, 30, 60];
+  for (const s of steps) if (s >= want) return s;
+  return 120;
+}
+
+function moveHead() {
+  const head = $('tlHead'), now = $('tlNow');
+  if (head) head.style.left = (TL.head / TL.dur * 100) + '%';
+  if (now) now.textContent = TL.head.toFixed(2);
+}
+
+function renderTimeline() {
+  const lane = $('tlLane'), ruler = $('tlRuler'), head = $('tlHead'), now = $('tlNow');
+  if (!lane) return;
+  moveHead();
+  const info = $('tlInfo');
+  if (info) info.textContent = TL.marks.length
+    ? `${TL.marks.length} marker · ${TL.marks.map(m => m.t.toFixed(1) + 's ' + m.name).join('  ·  ')}`
+    : 'koi marker nahi — clip chuno, playhead set karo, + marker dabao';
+
+  const step = tlPickStep(TL.dur);
+  const key = step + '|' + TL.dur;
+  if (ruler.dataset.key !== key) {
+    ruler.dataset.key = key;
+    let h = '';
+    for (let t = 0; t <= TL.dur + 1e-6; t += step) {
+      const major = Math.abs(t % (step * 2)) < 1e-6;
+      h += `<span class="tick${major ? ' major' : ''}" style="left:${(t / TL.dur * 100).toFixed(4)}%"><b>${step < 1 ? t.toFixed(1) : Math.round(t)}s</b></span>`;
+    }
+    ruler.innerHTML = h;
+  }
+
+  lane.innerHTML = '';
+  let lastX = -9, row = 0;
+  TL.marks.forEach((m, i) => {
+    const d = document.createElement('div');
+    d.className = 'tl-mark' + (TL.sel === i ? ' sel' : '');
+    const x = m.t / TL.dur;
+    if (x - lastX < 0.09) row = row === 0 ? 1 : 0; else row = 0;   // paas-paas markers do row me
+    lastX = x;
+    d.style.left = (x * 100) + '%';
+    d.style.top = (row ? 25 : 2) + 'px';
+    d.innerHTML = `<span class="mn">${m.name}</span><span class="mt">${m.t.toFixed(2)}s</span><span class="mx">×</span>`;
+    d.querySelector('.mx').onclick = ev => {
+      ev.stopPropagation();
+      TL.marks.splice(i, 1); TL.sel = -1;
+      tlSave(); renderTimeline();
+    };
+    d.title = `${m.name} @ ${m.t.toFixed(2)}s — pakad ke khincho = time badlo, click = wahan jao`;
+    d.addEventListener('pointerdown', ev => tlDragMark(ev, i));
+    lane.appendChild(d);
+  });
+}
+
+function tlDragMark(ev, i) {
+  ev.stopPropagation(); ev.preventDefault();
+  const track = $('tlTrack');
+  const r = track.getBoundingClientRect();
+  TL.sel = i; renderTimeline();
+  const t0 = TL.marks[i].t;
+  let moved = false;
+  const move = e2 => {
+    const t = clamp((e2.clientX - r.left) / Math.max(1, r.width), 0, 1) * TL.dur;
+    if (Math.abs(t - t0) > 0.02) moved = true;
+    TL.marks[i].t = Math.round(t * 100) / 100;
+    renderTimeline();
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    TL.marks.sort((a, b) => a.t - b.t);
+    TL.sel = -1; tlSave();
+    if (!moved) tlSeek(t0);            // sirf click = us marker par jump
+    else renderTimeline();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+function bindTimeline() {
+  const track = $('tlTrack');
+  if (!track) return;
+  let scrubbing = false;
+  const seekFrom = e => {
+    const r = track.getBoundingClientRect();
+    tlSeek(clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1) * TL.dur);
+  };
+  track.addEventListener('pointerdown', e => {
+    if (e.target.closest('.tl-mark')) return;
+    scrubbing = true; track.classList.add('scrub');
+    try { track.setPointerCapture(e.pointerId); } catch (_) {}
+    seekFrom(e);
+  });
+  track.addEventListener('pointermove', e => { if (scrubbing) seekFrom(e); });
+  const end = () => { scrubbing = false; track.classList.remove('scrub'); };
+  track.addEventListener('pointerup', end);
+  track.addEventListener('pointercancel', end);
+  track.addEventListener('pointerleave', () => { if (scrubbing) end(); });
+
+  $('tlPlay').onclick = () => tlToggle();
+  $('tlBack').onclick = () => tlSeek(TL.head - 5);
+  $('tlFwd').onclick = () => tlSeek(TL.head + 5);
+  $('btnTlAdd').onclick = tlAdd;
+  $('btnTlClear').onclick = () => { TL.marks = []; TL.sel = -1; tlSave(); renderTimeline(); setStatus('timeline clear'); };
+  $('btnTlFit').onclick = () => {
+    if (!S.voiceAudio) { setStatus('pehle audio file daalo, phir fit audio', true); return; }
+    TL.dur = Math.max(1, Math.round(S.voiceDur * 100) / 100);
+    if (TL.head > TL.dur) tlSeek(TL.dur);
+    tlSyncLen(); tlSave(); renderTimeline();
+    setStatus(`timeline = audio length (${TL.dur.toFixed(2)}s)`);
+  };
+  const d = $('tlDur');
+  if (d) {
+    const apply = () => {
+      const v = clamp(parseFloat(d.value) || 1, 1, 900);
+      TL.dur = Math.round(v * 100) / 100;
+      if (TL.head > TL.dur) TL.head = TL.dur;
+      tlSyncLen(); tlSave(); renderTimeline();
+    };
+    d.addEventListener('input', apply);
+    d.addEventListener('change', () => { d.value = String(TL.dur); });
+  }
+  window.addEventListener('resize', () => renderTimeline());
+}
+
+function renderTlSelect() {
+  const sel = $('tlClipSel');
+  if (!sel) return;
+  const keep = sel.value;
+  const list = tlAll();
+  sel.innerHTML = list.map((c, i) => `<option value="${i}">${c.name}</option>`).join('');
+  sel.value = keep && +keep < list.length ? keep : String(Math.max(0, Math.min(list.length - 1, activeClip || 0)));
 }
 
 async function enableMic() {
@@ -733,8 +1039,8 @@ function updateMouth(dt) {
       target = Math.pow(clamp((db + 55) / 42, 0, 1), 1.25) * S.sens;
     }
   } else if (S.mouthMode === 'file') {
-    if (S.voiceEnv && S.voicePlaying) {
-      const tSec = (audioCtx ? audioCtx.currentTime : performance.now() / 1000) - S.voiceStart;
+    if (S.voiceEnv && S.voiceAudio) {
+      const tSec = voiceTime();                 // seek / pause par bhi wahi frame
       const i = clamp(Math.floor(tSec * S.voiceRate), 0, S.voiceEnv.length - 1);
       target = Math.min(1, S.voiceEnv[i] * S.sens);
     }
@@ -966,10 +1272,16 @@ function renderClips() {
         };
         b.appendChild(x);
       }
-      b.onclick = () => playClip(i);
+      b.onclick = ev => {
+        playClip(i);
+        const sel = $('tlClipSel');
+        if (sel) sel.value = String(i);
+        if (ev.shiftKey) tlAdd();          // Shift+click = playhead par marker
+      };
       bar.appendChild(b);
     });
   });
+  renderTlSelect();
 }
 function playClip(i) {
   const all = BUILTIN.concat(CLIPS);
@@ -984,6 +1296,8 @@ function playClip(i) {
     applyPose(c.pose || defaultPose(), true);
   }
   $('badge').textContent = c.name;
+  const sel = $('tlClipSel');
+  if (sel) sel.value = String(i);
   renderClips();
 }
 
@@ -1167,10 +1481,12 @@ function togglePause() {
   if (!recorder) return;
   if (recorder.state === 'recording') {
     recorder.pause();
+    if (TL.playing) tlPause();          // audio bhi ruke — warna awaaz aage nikal jayegi
     if (pbtn) pbtn.textContent = '▶ Resume';
     setStatus('recording paused — ab background badal lo, phir Resume');
   } else if (recorder.state === 'paused') {
     recorder.resume();
+    if (S.voiceAudio && !TL.playing) tlPlay();   // wahin se aage
     if (pbtn) pbtn.textContent = '❚❚ Pause';
     setStatus('recording resumed');
   }
@@ -1185,7 +1501,6 @@ function toggleRecord() {
   if (S.voiceAudio) {
     const ac = ensureCtx();
     if (!voiceDest) voiceDest = ac.createMediaStreamDestination();
-    if (!S.voicePlaying) toggleVoicePlay();
   }
   const stream = cv.captureStream(S.fps);
   if (micStream) micStream.getAudioTracks().forEach(t => stream.addTrack(t));
@@ -1208,9 +1523,12 @@ function toggleRecord() {
     btn.classList.remove('recording');
     btn.textContent = '● Record';
     if (pbtn) { pbtn.disabled = true; pbtn.textContent = '❚❚ Pause'; }
+    if (TL.playing) tlPause();
     setStatus(`video saved — ${cv.width}×${cv.height} @${S.fps}fps · ${(blob.size / 1e6).toFixed(1)} MB`);
   };
   recorder.start(1000);
+  tlSeek(0);                       // recording hamesha timeline ke 0 se
+  if (!TL.playing) tlPlay();
   btn.classList.add('recording');
   btn.textContent = '■ Stop';
   if (pbtn) { pbtn.disabled = false; pbtn.textContent = '❚❚ Pause'; }
@@ -1313,7 +1631,7 @@ function bindUI() {
       S.mouthMode = b.dataset.mode;
       syncModeButtons();
       if (S.mouthMode === 'mic') await enableMic();
-      if (S.mouthMode === 'file' && S.voiceAudio && !S.voicePlaying) toggleVoicePlay();
+      if (S.mouthMode === 'file' && S.voiceAudio && !TL.playing) tlPlay();
       setStatus('mouth mode: ' + S.mouthMode);
     });
   });
@@ -1324,7 +1642,7 @@ function bindUI() {
     if (S.mouthMode !== 'manual') { S.mouthMode = 'manual'; syncModeButtons(); }
   };
   $('voiceFile').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) loadVoiceFile(f); };
-  $('btnVoicePlay').onclick = toggleVoicePlay;
+  $('btnVoicePlay').onclick = () => { if (S.voiceAudio) tlToggle(); };
 
   $('stickW').oninput = e => { S.stickW = +e.target.value; $('lblStickW').textContent = e.target.value; };
   $('stickColor').oninput = e => { S.stickColor = e.target.value; };
@@ -1375,12 +1693,24 @@ function bindUI() {
       $('holdClosed').checked = S.holdClosed;
     }
     if (k === 'p') togglePause();
+    if (k === 'l') {
+      e.preventDefault();
+      if (TL.playing) tlPause(); else tlPlay();
+    }
+    if (k === 'm') { e.preventDefault(); tlAdd(); }
+    if (k === 'arrowleft') { e.preventDefault(); tlSeek(TL.head - (e.shiftKey ? 1 : 0.25)); }
+    if (k === 'arrowright') { e.preventDefault(); tlSeek(TL.head + (e.shiftKey ? 1 : 0.25)); }
+    if (k === 'home') { e.preventDefault(); tlSeek(0); }
+    if (k === 'end') { e.preventDefault(); tlSeek(TL.dur); }
     if (k === 'd') {
       S.depthMode = !S.depthMode;
       $('depthMode').checked = S.depthMode;
     }
-    if (k === ' ') {
+    if (k === ' ') {                    // sabse natural: play / pause
       e.preventDefault();
+      tlToggle();
+    }
+    if (k === 'o') {
       S.mouthMode = S.mouthMode === 'auto' ? 'manual' : 'auto';
       syncModeButtons();
       setStatus('mouth: ' + S.mouthMode);
@@ -1400,6 +1730,7 @@ function loop(now) {
   stepTween(dt);
   updateMotion(dt);
   updateBlink(dt);
+  updateTimeline(dt);
   updateMouth(dt);
   drawFrame();
   requestAnimationFrame(loop);
@@ -1407,7 +1738,11 @@ function loop(now) {
 
 /* ------------------------------------------------------------------- init */
 loadClips();
+tlLoad();
 bindUI();
+bindTimeline();
+tlSyncLen();
+renderTimeline();
 S.mouse = [cv.width / 2, cv.height * 0.42];
 renderClips();
 applyOutputSize();
@@ -1415,5 +1750,7 @@ computeFit();
 requestAnimationFrame(loop);
 setTimeout(() => setStatus('ready — chibi rig'), 400);
 
-window.__chibi = { S, POSE, RM, playClip, triggerBlink, drawFrame, applyPose, defaultPose, CLIPS, view: VIEW, eyes: eyeBoxes, lockBlink: v => { S.blinkLock = v; } };
+window.__chibi = { S, POSE, RM, playClip, triggerBlink, drawFrame, applyPose, defaultPose, CLIPS, TL, BV: BUILTIN,
+  voiceTime, playVoice, pauseVoice, tlSeek, tlPlay, tlPause, tlAdd, tlFire, loadVoiceFile, ensureCtx,
+  view: VIEW, eyes: eyeBoxes, lockBlink: v => { S.blinkLock = v; } };
 })();

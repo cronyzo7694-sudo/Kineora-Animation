@@ -45,12 +45,41 @@
           Hand/paer pakad ke pose banao · khaali jagah drag = x-y move (upar = andar) · scroll = zoom
         </div>
         <div class="stage-keys">
-          <kbd>1</kbd>–<kbd>9</kbd> clips · <kbd>B</kbd> blink · <kbd>C</kbd> eyes shut · <kbd>Space</kbd> mouth
+          <kbd>1</kbd>–<kbd>9</kbd> clips · <kbd>Space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> seek · <kbd>M</kbd> marker · <kbd>B</kbd> blink · <kbd>C</kbd> eyes shut · <kbd>O</kbd> mouth
         </div>
       </div>
 
       <div class="clipbar" id="clipbar"></div>
-      <div class="clipnote">Recording ke waqt yahin clips dabao — pose saved rehta hai.</div>
+      <div class="clipnote">
+        Clip dabao = turant pose · <b>Shift</b>+click = playhead par marker lagao · recording ke waqt bhi click chalta hai.
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="tl-head">
+          <button id="tlPlay" class="tl-btn play" title="Play / Pause (L)">▶</button>
+          <button id="tlBack" class="tl-btn" title="5s peeche (←)">⏮</button>
+          <button id="tlFwd" class="tl-btn" title="5s aage (→)">⏭</button>
+          <span class="tl-time"><b id="tlNow">0.00</b><i>/</i><span id="tlEnd">12.00</span>s</span>
+          <span class="tl-gap"></span>
+          <select id="tlClipSel" class="tl-sel" title="kaunsi clip"></select>
+          <button id="btnTlAdd" class="pill on" title="playhead par clip lagao (M)">+ marker</button>
+          <button id="btnTlClear" class="pill" title="saare markers hatao">clear</button>
+          <label class="tl-len" title="timeline ki length — audio se lambi bhi kar sakte ho">
+            len <input type="number" id="tlDur" min="1" max="900" step="0.5" value="12" /> s
+          </label>
+          <button id="btnTlFit" class="pill" title="audio ki length jitni set karo">fit audio</button>
+        </div>
+        <div class="tl-track" id="tlTrack">
+          <div class="tl-wave" id="tlWave"></div>
+          <div class="tl-ruler" id="tlRuler"></div>
+          <div class="tl-lane" id="tlLane"></div>
+          <div class="tl-playhead" id="tlHead"></div>
+        </div>
+        <div class="tl-foot">
+          <span>Track par click / drag = seek (audio bhi wahi se chalega) · marker pakad ke khincho = time badlo</span>
+          <span id="tlInfo">koi marker nahi</span>
+        </div>
+      </div>
     </section>
 
     <aside class="panel">
@@ -184,7 +213,10 @@
           <button id="btnVoicePlay" class="pill" disabled>▶ Play</button>
           <span class="note" id="voiceInfo">koi bhi mp3 / wav — muh usi awaaz pe chalega</span>
         </div>
-        <p class="note">File play hote waqt Record dabao to awaaz bhi video me chali jayegi.</p>
+        <p class="note">
+          Play / pause / aage-peeche sab neeche <b>Timeline</b> bar se chalta hai — wahi se audio bhi seek hota hai.
+          Record dabao to timeline 0 se shuru hoti hai aur awaaz video me chali jaati hai.
+        </p>
       </div>
 
       <div class="card">

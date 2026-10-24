@@ -6,7 +6,8 @@ real blink, audio-reactive mouth and 4K recording. **Pure HTML / CSS / JS — ko
 - **Live:** https://cronyzo7694-sudo.github.io/Kineora-Animation/
   (Pages on karna ho to: `Settings → Pages → Deploy from a branch → main / (root)` → Save)
 - **Local:** `./serve.sh` → http://localhost:8001
-- **Recording pause**, depth move (andar/bahar) aur pose clips sab browser me hi chalta hai.
+- **Recording pause**, **audio timeline** (play / pause / seek / markers), depth move (andar/bahar)
+  aur pose clips sab browser me hi chalta hai.
 
 ---
 
@@ -86,6 +87,25 @@ segment lengths upperArm 205, foreArm 200, thigh 215, shin 205.
 - 6 built-in clips: Idle, Wave, Think, Point, Stretch, **Walk** (live walk cycle).
 - Clips `localStorage` me rehti hain; `×` se delete.
 
+### Audio timeline (jis time par kaunsi clip)
+
+Audio file daalte hi timeline ki length **audio jitni** ho jaati hai. Uske baad:
+
+- **Play / Pause** — `▶` button ya `Space`. Audio buffer ko offset se start karte hain, isliye
+  **aage-peeche** jaana possible hai: track par click ya drag = seek (audio bhi wahin se),
+  `←` `→` = 0.25s (`Shift` ke saath 1s), `Home` / `End`.
+- **Markers** — `+ marker` (ya `M`, ya `Shift`+click kisi bhi clip par) = playhead jis time par
+  hai, us time par wo clip **fix** ho jaati hai. Recording chalu ho to wahi pose turant chalta hai.
+  Marker pakad ke khincho = time badlo, sirf click = wahan jump.
+- **Length manually** — `len` box me jo chaho (audio se lambi bhi). `fit audio` dabao to
+  audio ki exact length aa jaati hai.
+- Seek karte waqt stage turant us waqt wali clip ka pose dikhata hai, isliye timings set karna
+  aasan hai. Waveform track ke peeche halka dikh raha hai — pata chalta hai kahan bol raha hai.
+- **Record** dabate hi timeline 0 se chalti hai aur audio video ke saath jaata hai.
+  Recording **Pause** karne par audio bhi rukta hai (Resume par wahin se aage) — isliye
+  video aur awaaz kabhi out of sync nahi hote.
+- Markers + length browser me save rehte hain (`localStorage`), reload par wapas mil jaate hain.
+
 ### Stage / export
 - Aspect: **9:16 / 16:9 / 1:1 / 4:5**, quality **HD / Full HD / Ultra HD**, fps **24 / 30 / 60**.
   UHD 9:16 = **2160 × 3840**, 16:9 = **3840 × 2160** (canvas ki actual resolution).
@@ -104,10 +124,16 @@ segment lengths upperArm 205, foreArm 200, thigh 215, shin 205.
 | key | kaam |
 |---|---|
 | `1`–`9` | clip chalao |
+| `Space` | timeline play / pause (audio ke saath) |
+| `L` | play / pause (Space jaisa) |
+| `←` `→` | 0.25s peeche / aage (`Shift` = 1s) |
+| `Home` `End` | shuru / aakhir |
+| `M` | playhead par selected clip ka marker |
+| `Shift` + click clip | wahi marker ek hi step me |
 | `B` | blink |
 | `C` | eyes closed toggle |
-| `Space` | mouth auto ↔ manual |
-| `P` | recording pause / resume |
+| `O` | mouth auto ↔ manual |
+| `P` | recording pause / resume (audio bhi rukta hai) |
 | `D` | depth move on / off (record ke waqt bhi) |
 
 ---

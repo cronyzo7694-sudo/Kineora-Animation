@@ -274,3 +274,87 @@ input.name{
 .stage-hint{ bottom:40px; max-width:72%; color:#a3856a; }
 .clipnote{ font-size:11px; color:#8d7663; margin:6px 2px 0; }
 
+
+/* ---------- timeline ---------- */
+.timeline{
+  margin-top:10px; padding:10px 12px 9px; border-radius:16px;
+  border:1px solid var(--line); background:linear-gradient(180deg, rgba(255,154,77,.05), transparent), #14100d;
+}
+.tl-head{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:9px}
+.tl-gap{flex:1; min-width:6px}
+.tl-btn{
+  height:30px; min-width:34px; padding:0 9px; border-radius:9px; cursor:pointer;
+  background:#241c16; border:1px solid #3d2f26; color:#f0dcc4; font-size:12px; font-weight:700;
+  transition:.14s background, .14s border-color, .14s transform;
+}
+.tl-btn:hover{background:#2e241c; border-color:#5b4433}
+.tl-btn:active{transform:scale(.96)}
+.tl-btn.play{min-width:44px; background:linear-gradient(135deg,#3a2b20,#241c16); font-size:13px}
+.tl-btn.play.on{background:linear-gradient(135deg,var(--saffron2),var(--saffron)); color:#241505; border-color:transparent; box-shadow:0 6px 18px rgba(255,154,77,.28)}
+.tl-time{
+  font-variant-numeric:tabular-nums; font-size:12px; color:var(--muted);
+  background:#100d0b; border:1px solid #322620; border-radius:9px; padding:5px 9px;
+}
+.tl-time b{color:var(--saffron2); font-weight:700}
+.tl-time i{font-style:normal; opacity:.4; margin:0 4px}
+.tl-sel{
+  height:30px; max-width:150px; border-radius:9px; padding:0 8px; cursor:pointer;
+  background:#120e0b; border:1px solid #3d2f26; color:var(--text); font-size:12px;
+}
+.tl-len{
+  display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted);
+  background:#120e0b; border:1px solid #322620; border-radius:9px; padding:3px 8px;
+}
+.tl-len input{
+  width:58px; background:transparent; border:0; color:var(--saffron2);
+  font:700 12.5px/1.4 inherit; font-variant-numeric:tabular-nums; text-align:right; outline:none;
+}
+.tl-track{
+  position:relative; height:78px; border-radius:11px; cursor:crosshair; overflow:hidden;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.026) 0 1px, transparent 1px 6.25%),
+    linear-gradient(180deg,#1b1512,#120e0b);
+  border:1px solid #392c24;
+}
+.tl-track.scrub{cursor:grabbing}
+.tl-ruler{position:absolute; left:0; right:0; top:0; height:20px; pointer-events:none}
+.tl-ruler .tick{position:absolute; top:0; bottom:-58px; border-left:1px dashed rgba(255,255,255,.10)}
+.tl-ruler .tick.major{border-left-color:rgba(255,154,77,.28)}
+.tl-ruler .tick b{
+  position:absolute; top:1px; left:4px; font-size:9px; font-weight:600;
+  color:#8a7767; font-variant-numeric:tabular-nums;
+}
+.tl-lane{position:absolute; left:0; right:0; top:22px; bottom:5px}
+.tl-mark{
+  position:absolute; top:2px; display:flex; align-items:center; gap:5px;
+  padding:3px 6px 3px 8px; border-radius:8px; white-space:nowrap; cursor:grab;
+  background:linear-gradient(135deg,var(--saffron2),var(--saffron)); color:#241505;
+  font-size:10.5px; font-weight:700; letter-spacing:.1px;
+  box-shadow:0 3px 10px rgba(0,0,0,.45); touch-action:none;
+}
+.tl-mark:active{cursor:grabbing}
+.tl-mark.sel{outline:2px solid #fff0d8; box-shadow:0 0 0 4px rgba(255,154,77,.22)}
+.tl-mark .mt{opacity:.6; font-weight:600; font-variant-numeric:tabular-nums}
+.tl-mark .mx{opacity:.45; font-size:12px; line-height:1; padding:0 1px; cursor:pointer}
+.tl-mark .mx:hover{opacity:1}
+.tl-mark::after{
+  content:''; position:absolute; left:6px; bottom:-7px; width:1px; height:7px;
+  background:rgba(255,154,77,.6);
+}
+.tl-playhead{
+  position:absolute; top:0; bottom:0; width:2px; pointer-events:none;
+  background:#ffb457; box-shadow:0 0 9px rgba(255,180,87,.85);
+}
+.tl-playhead::before{
+  content:''; position:absolute; top:0; left:-4px; width:10px; height:10px;
+  background:#ffb457; border-radius:2px; transform:rotate(45deg);
+}
+.tl-foot{
+  display:flex; justify-content:space-between; gap:12px; margin-top:6px;
+  font-size:10.5px; color:#8d7663;
+}
+.tl-foot #tlInfo{color:#a3856a; font-variant-numeric:tabular-nums}
+.tl-wave{
+  position:absolute; inset:24px 0 8px 0; pointer-events:none; opacity:.9;
+  background-repeat:no-repeat; background-size:100% 100%; border-radius:0 0 10px 10px;
+}

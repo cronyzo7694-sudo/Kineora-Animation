@@ -99,6 +99,13 @@ Audio file daalte hi timeline ki length **audio jitni** ho jaati hai. Uske baad:
   Marker pakad ke khincho = time badlo, sirf click = wahan jump.
 - **Length manually** — `len` box me jo chaho (audio se lambi bhi). `fit audio` dabao to
   audio ki exact length aa jaati hai.
+- **Bands (duration)** — har clip ab ek **band** hai jo apni duration tak chalta hai.
+  Band ko **kheencho** = time badlo. Band ke **right edge** ko kheencho = duration badlo.
+  Duration set nahi ki to band agle clip tak chalta rahega.
+- **Split** — playhead ko band ke beech me rakho aur `✂ split` (ya `S`) dabao: band do hisson
+  me toot jaata hai, dono hisse alag se badal sakte ho (jaise 0–1.6s Wave, 1.6–3s Think).
+  Naya marker kisi band ke beech daalo to purana band khud chhota ho jaata hai (overlap nahi).
+- `Delete` / `Backspace` = selected band hatao.
 - Seek karte waqt stage turant us waqt wali clip ka pose dikhata hai, isliye timings set karna
   aasan hai. Waveform track ke peeche halka dikh raha hai — pata chalta hai kahan bol raha hai.
 - **Record** dabate hi timeline 0 se chalti hai aur audio video ke saath jaata hai.
@@ -140,6 +147,8 @@ Background ko manual pause karke badalne ki zaroorat nahi — timeline par **bg 
 | `Home` `End` | shuru / aakhir |
 | `M` | playhead par selected clip ka marker |
 | `G` | playhead par abhi wala background marker |
+| `S` | playhead par clip split |
+| `Delete` | selected marker / band hatao |
 | `Shift` + click clip | wahi marker ek hi step me |
 | `B` | blink |
 | `C` | eyes closed toggle |

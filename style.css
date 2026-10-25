@@ -377,3 +377,38 @@ input.name{
 .tl-mark.bgm .mt{opacity:.62}
 .tl-mark.bgm::after{background:rgba(111,220,154,.6); bottom:-4px; height:4px}
 .tl-mark.bgm.sel{outline-color:#d8ffe8; box-shadow:0 0 0 4px rgba(111,220,154,.2)}
+
+/* clip band (duration wala) */
+.tl-seg{
+  position:absolute; top:3px; height:24px; min-width:14px;
+  display:flex; align-items:center; gap:5px; padding:0 8px 0 7px;
+  border-radius:8px; cursor:grab; overflow:hidden; white-space:nowrap;
+  background:linear-gradient(135deg,var(--saffron2),var(--saffron)); color:#241505;
+  font-size:10.5px; font-weight:700; letter-spacing:.1px;
+  box-shadow:0 3px 10px rgba(0,0,0,.45); touch-action:none;
+  border:1px solid rgba(255,255,255,.16);
+}
+.tl-seg:active{cursor:grabbing}
+.tl-seg.sel{outline:2px solid #fff0d8; box-shadow:0 0 0 4px rgba(255,154,77,.22)}
+.tl-seg .mn{min-width:0; overflow:hidden; text-overflow:ellipsis}
+.tl-seg .mt{flex:0 0 auto; opacity:.62; font-weight:600; font-variant-numeric:tabular-nums}
+.tl-seg .mx{
+  flex:0 0 auto; opacity:.42; font-size:13px; line-height:1; cursor:pointer; padding:0 1px;
+}
+.tl-seg .mx:hover{opacity:1}
+.tl-seg .tl-edge{
+  position:absolute; top:0; right:0; bottom:0; width:7px; cursor:ew-resize;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.28));
+}
+.tl-seg .tl-edge:hover{background:linear-gradient(90deg, transparent, rgba(255,255,255,.55))}
+.tl-seg .tl-edge::after{
+  content:''; position:absolute; top:5px; bottom:5px; right:2px; width:2px;
+  border-radius:2px; background:rgba(36,21,5,.35);
+}
+.tl-seg .tl-edge:hover::after{background:rgba(36,21,5,.7)}
+.tl-seg{ border-left:2px solid rgba(40,22,4,.35); box-sizing:border-box; }
+.tl-seg.tiny{padding:0; justify-content:center; min-width:8px}
+.tl-seg.tiny .mn{display:none}
+.tl-seg .tl-edge{width:6px}
+.tl-seg.sm{padding:0 5px 0 5px; font-size:9.5px; gap:0}
+.tl-seg.sm .tl-edge{width:4px}

@@ -881,6 +881,16 @@ function updateTimeline(dt) {
   else moveHead();
 }
 
+/* agar naya marker kisi purane band ke beech me aa raha hai to us band ko chhota kar do */
+function trimOverlaps(atT, skipIdx) {
+  TL.marks.forEach((m, j) => {
+    if (j === skipIdx || m.kind === 'bg') return;
+    if (typeof m.dur !== 'number') return;
+    const end = m.t + m.dur;
+    if (m.t < atT - 1e-6 && end > atT + 1e-6) m.dur = Math.round((atT - m.t) * 100) / 100;
+  });
+}
+
 function tlAdd() {
   const list = tlAll();
   const sel = $('tlClipSel');
@@ -888,6 +898,7 @@ function tlAdd() {
   const c = list[i];
   if (!c) return;
   const t = Math.round(TL.head * 100) / 100;
+  trimOverlaps(t, -1);
   TL.marks = TL.marks.filter(m => Math.abs(m.t - t) > 0.02);
   const bi = c.builtin ? BUILTIN.indexOf(c) : null;
   TL.marks.push({ t, name: c.name, anim: c.anim || null, builtin: bi, pose: clonePose(c.pose || defaultPose()) });
@@ -954,35 +965,120 @@ function renderTimeline() {
   const clips = [], bgs = [];
   TL.marks.forEach((m, i) => (m.kind === 'bg' ? bgs : clips).push([m, i]));
 
-  const put = (host, list, stagger) => {
-    if (!host) return;
-    let lastX = -9, row = 0;
-    list.forEach(([m, i]) => {
+  const laneW = lane.clientWidth || 800;
+  const total = TL.dur || 1;
+
+  /* har clip band: start se lekar apni duration tak (duration na ho to next clip tak) */
+  clips.forEach(([m, i]) => {
+    const st = m.t, en = tlSegEnd(i);
+    const d = document.createElement('div');
+    d.className = 'tl-seg' + (TL.sel === i ? ' sel' : '');
+    d.style.left = (st / total * 100) + '%';
+    d.style.width = Math.max(0.7, (en - st) / total * 100) + '%';
+    const px = (en - st) / total * laneW;
+    const showX = px > 92, showName = px > 38, showT = px > 150;
+    d.innerHTML = (showX ? '<span class="mx">×</span>' : '')
+      + `<span class="mn">${showName ? m.name : ''}</span>`
+      + (showT ? `<span class="mt">${st.toFixed(2)}s</span>` : '')
+      + `<span class="tl-edge" title="kheencho = duration badlo"></span>`;
+    if (!showX && showName) d.classList.add('sm');
+    if (!showName) d.classList.add('tiny');
+    d.title = `${m.name} · ${st.toFixed(2)}s → ${en.toFixed(2)}s `
+      + `(${(en - st).toFixed(2)}s)${m.dur == null ? ' · agle marker tak' : ''}\n`
+      + 'band kheencho = time · right edge = duration · click = yahan jao';
+    const mx = d.querySelector('.mx');
+    if (mx) mx.onclick = ev => {
+      ev.stopPropagation();
+      TL.marks.splice(i, 1); TL.sel = -1;
+      tlSave(); renderTimeline();
+    };
+    d.querySelector('.tl-edge').addEventListener('pointerdown', ev => {
+      ev.stopPropagation(); ev.preventDefault(); tlResizeSeg(ev, i);
+    });
+    d.addEventListener('pointerdown', ev => {
+      if (ev.target.classList.contains('tl-edge')) return;
+      tlDragMark(ev, i);
+    });
+    lane.appendChild(d);
+  });
+
+  /* background chips (neeche wali patti) */
+  if (bgLane) {
+    bgs.forEach(([m, i]) => {
       const d = document.createElement('div');
-      const isBg = m.kind === 'bg';
-      d.className = 'tl-mark' + (isBg ? ' bgm' : '') + (TL.sel === i ? ' sel' : '');
-      const x = m.t / TL.dur;
-      if (stagger) {
-        if (x - lastX < 0.09) row = row === 0 ? 1 : 0; else row = 0;   // paas-paas markers do row me
-        lastX = x;
-        d.style.top = (row ? 25 : 2) + 'px';
-      }
-      d.style.left = (x * 100) + '%';
-      const short = isBg ? 40 : 200;
-      d.innerHTML = `<span class="mn">${String(m.name).slice(0, isBg ? 9 : 18)}</span>`
+      d.className = 'tl-mark bgm' + (TL.sel === i ? ' sel' : '');
+      d.style.left = (m.t / total * 100) + '%';
+      d.innerHTML = `<span class="mn">${String(m.name).slice(0, 9)}</span>`
         + `<span class="mt">${m.t.toFixed(2)}s</span><span class="mx">×</span>`;
       d.querySelector('.mx').onclick = ev => {
         ev.stopPropagation();
         TL.marks.splice(i, 1); TL.sel = -1;
         tlSave(); renderTimeline();
       };
-      d.title = `${m.name} @ ${m.t.toFixed(2)}s — pakad ke khincho = time badlo, click = wahan jao`;
+      d.title = `${m.name} @ ${m.t.toFixed(2)}s — pakad ke khincho = time, click = wahan jao`;
       d.addEventListener('pointerdown', ev => tlDragMark(ev, i));
-      host.appendChild(d);
+      bgLane.appendChild(d);
     });
+  }
+}
+
+/* clip band ka end — duration set ho to wahi, warna agla clip marker / timeline end */
+function tlSegEnd(i) {
+  const m = TL.marks[i];
+  if (!m || m.kind === 'bg') return m ? m.t : 0;
+  if (typeof m.dur === 'number') return Math.min(TL.dur, m.t + m.dur);
+  for (let j = i + 1; j < TL.marks.length; j++) {
+    const n = TL.marks[j];
+    if (n.kind !== 'bg' && n.t > m.t + 1e-9) return Math.min(TL.dur, n.t);
+  }
+  return TL.dur;
+}
+
+/* right edge kheencho = duration badlo */
+function tlResizeSeg(ev, i) {
+  ev.stopPropagation(); ev.preventDefault();
+  const track = $('tlTrack');
+  const r = track.getBoundingClientRect();
+  const m = TL.marks[i];
+  TL.sel = i; renderTimeline();
+  const move = e2 => {
+    const t = clamp((e2.clientX - r.left) / Math.max(1, r.width), 0, 1) * TL.dur;
+    m.dur = Math.max(0.08, Math.round((t - m.t) * 100) / 100);
+    renderTimeline();
   };
-  put(lane, clips, true);
-  put(bgLane, bgs, false);
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    TL.sel = -1; tlSave(); renderTimeline();
+    setStatus(`${m.name} ki duration ${(tlSegEnd(i) - m.t).toFixed(2)}s`);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+/* split — playhead par clip do hisson me */
+function tlSplit() {
+  const idx = tlStateAt(TL.head);
+  if (idx < 0) { setStatus('playhead ke pehle koi clip nahi — pehle marker lagao', true); return; }
+  const m = TL.marks[idx];
+  const end = tlSegEnd(idx);
+  if (TL.head <= m.t + 0.05 || TL.head >= end - 0.05) {
+    setStatus('split ke liye playhead clip ke beech me rakho', true);
+    return;
+  }
+  const cut = Math.round(TL.head * 100) / 100;
+  const second = Object.assign({}, m, {
+    t: cut,
+    dur: Math.round((end - cut) * 100) / 100,
+    pose: m.pose ? JSON.parse(JSON.stringify(m.pose)) : null,
+  });
+  delete second.img;
+  m.dur = Math.round((cut - m.t) * 100) / 100;
+  TL.marks.push(second);
+  TL.marks.sort((a, b) => a.t - b.t);
+  TL.sel = TL.marks.indexOf(second);
+  tlSave(); renderTimeline();
+  setStatus(`${m.name} split @ ${cut.toFixed(2)}s — dono hisse alag se badal sakte ho`);
 }
 
 function tlDragMark(ev, i) {
@@ -995,7 +1091,10 @@ function tlDragMark(ev, i) {
   const move = e2 => {
     const t = clamp((e2.clientX - r.left) / Math.max(1, r.width), 0, 1) * TL.dur;
     if (Math.abs(t - t0) > 0.02) moved = true;
-    TL.marks[i].t = Math.round(t * 100) / 100;
+    const m = TL.marks[i];
+    m.t = Math.round(t * 100) / 100;
+    if (typeof m.dur === 'number') m.dur = Math.min(m.dur, Math.max(0.08, TL.dur - m.t));
+    trimOverlaps(m.t, i);
     renderTimeline();
   };
   const up = () => {
@@ -1019,7 +1118,7 @@ function bindTimeline() {
     tlSeek(clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1) * TL.dur);
   };
   track.addEventListener('pointerdown', e => {
-    if (e.target.closest('.tl-mark')) return;
+    if (e.target.closest('.tl-mark') || e.target.closest('.tl-seg')) return;
     scrubbing = true; track.classList.add('scrub');
     try { track.setPointerCapture(e.pointerId); } catch (_) {}
     seekFrom(e);
@@ -1034,6 +1133,7 @@ function bindTimeline() {
   $('tlBack').onclick = () => tlSeek(TL.head - 5);
   $('tlFwd').onclick = () => tlSeek(TL.head + 5);
   $('btnTlAdd').onclick = tlAdd;
+  $('btnTlSplit').onclick = tlSplit;
   $('btnBgMark').onclick = tlAddBg;
   $('btnTlClear').onclick = () => { TL.marks = []; TL.sel = -1; tlSave(); renderTimeline(); setStatus('timeline clear'); };
   $('btnTlFit').onclick = () => {
@@ -1786,6 +1886,14 @@ function bindUI() {
     }
     if (k === 'm') { e.preventDefault(); tlAdd(); }
     if (k === 'g') { e.preventDefault(); tlAddBg(); }
+    if (k === 's') { e.preventDefault(); tlSplit(); }
+    if (k === 'delete' || k === 'backspace') {
+      if (TL.sel >= 0 && TL.sel < TL.marks.length) {
+        e.preventDefault();
+        TL.marks.splice(TL.sel, 1); TL.sel = -1;
+        tlSave(); renderTimeline(); setStatus('marker delete');
+      }
+    }
     if (k === 'arrowleft') { e.preventDefault(); tlSeek(TL.head - (e.shiftKey ? 1 : 0.25)); }
     if (k === 'arrowright') { e.preventDefault(); tlSeek(TL.head + (e.shiftKey ? 1 : 0.25)); }
     if (k === 'home') { e.preventDefault(); tlSeek(0); }
@@ -1839,7 +1947,7 @@ requestAnimationFrame(loop);
 setTimeout(() => setStatus('ready — chibi rig'), 400);
 
 window.__chibi = { S, POSE, RM, playClip, triggerBlink, drawFrame, applyPose, defaultPose, CLIPS, TL, BV: BUILTIN,
-  setBg, tlAddBg, bgStateAt,
+  setBg, tlAddBg, bgStateAt, tlSplit, tlSegEnd, tlResizeSeg,
   voiceTime, playVoice, pauseVoice, tlSeek, tlPlay, tlPause, tlAdd, tlFire, loadVoiceFile, ensureCtx,
   view: VIEW, eyes: eyeBoxes, lockBlink: v => { S.blinkLock = v; } };
 })();
